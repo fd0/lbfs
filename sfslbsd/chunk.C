@@ -23,6 +23,8 @@ uint64 totalsize = 0;
 uint64 searchtime = 0;
 uint64 inserttime = 0;
 uint64 chunktime = 0;
+uint64 rabintime = 0;
+uint64 sha1time = 0;
 fp_db sdb;
 fp_db cdb;
 
@@ -52,6 +54,9 @@ void done()
     printf("# average search time: %qu usec\n", searchtime/totalchunks);
     printf("# chunk time: %qu usec/chunk, %qu usec/Kbyte\n",
 	   chunktime/totalchunks, chunktime/(totalsize/1024));
+    printf("# sha1 time: %qu usec/chunk, %qu usec/Kbyte\n",
+	   sha1time/totalchunks, sha1time/(totalsize/1024));
+    printf("# rabin time: %qu usec/Kbyte\n", rabintime/(totalsize/1024));
     printf("# %u min size supprssed\n", Chunker::min_size_suppress);
     printf("# %u max size supprssed\n", Chunker::max_size_suppress);
     for (int i=0; i<NBUCKETS; i++)
@@ -63,14 +68,32 @@ void
 chunk_file(const char *path)
 {
   int fd = open(path, O_RDONLY);
-  unsigned char buf[4096];
+  unsigned char buf[8192];
   int count;
   Chunker chunker;
-  while ((count = read(fd, buf, 4096))>0) {
+  while ((count = read(fd, buf, 8192))>0) {
     gettimeofday(&t0,0L);
     chunker.chunk_data(buf, count);
     gettimeofday(&t1,0L);
     chunktime += timediff();
+    
+    {
+      u_int64_t poly = FINGERPRINT_PT;
+      window w (poly);
+      w.reset();
+      u_int64_t fp = 0;
+      gettimeofday(&t0,0L);
+      for (int i = 0; i < count; i++)
+        fp = w.append8 (fp, buf[i]);
+      gettimeofday(&t1,0L);
+      rabintime += timediff();
+    }
+    
+    gettimeofday(&t0,0L);
+    unsigned char h[20];
+    sha1_hash(h, buf, count);
+    gettimeofday(&t1,0L);
+    sha1time += timediff();
   }
   chunker.stop();
   for (unsigned i=0; i<chunker.chunk_vector().size(); i++) {
