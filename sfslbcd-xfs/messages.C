@@ -528,7 +528,7 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res > res)
   ga->offset = offset;		//offset is 'the' current position in the file
 
   if (ga->blocks_written == ga->total_blocks && ga->eof) {
-    e->opened = true;
+    if (e) e->opened = true;
 
     struct xfs_message_header *h0 = NULL;
     size_t h0_len = 0;
