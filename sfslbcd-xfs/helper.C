@@ -13,7 +13,7 @@ AUTH *auth_default =
 int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 2);
 int lbcd_trace (getenv("LBCD_TRACE") ? atoi (getenv ("LBCD_TRACE")) : 0);
 unsigned FILE_DES = 0;
-int LBFS_PROT = 2;
+int lbfs_prot = 2;
 
 struct attr_obj {
   attr_cb_t cb;
@@ -1874,13 +1874,8 @@ struct putdata_obj {
   void sendcommittmp () 
   {
     lbfs_committmp3args ct;
-#if LBFS_PROT == 1
-    ct.commit_from = tmpfh;
-#else 
-    ct.fd = tmpfd;
-#endif
     ct.commit_to = e->nh;
-
+    ct.fd = tmpfd;
     committed = true;
     if (lbcd_trace > 1)
       warn << h->header.sequence_num << " COMMITTMP: "
@@ -1905,8 +1900,9 @@ struct putdata_obj {
 
       chunk->got_bytes(res->resok->count);
       assert(chunk->bytes() <= chunk->location().count());
-      if (chunk->bytes() == chunk->location().count()) 
-	blocks_written++;
+      if (lbfs_prot == 1)
+	if (chunk->bytes() == chunk->location().count()) 
+	  blocks_written++;
       if (lbcd_trace > 1)
 	warn << h->header.sequence_num << " nfs3_write: @"
 	     << chunk->location().pos() << " +"
@@ -1914,9 +1910,9 @@ struct putdata_obj {
 	     << blocks_written << " blocks written " 
 	     << total_blocks << " needed, eof? "
 	     << eof << "\n";
-
-      if (blocks_written == total_blocks && eof)
-	sendcommittmp ();
+      if (lbfs_prot == 1)
+	if (blocks_written == total_blocks && eof)
+	  sendcommittmp ();
     } else {
       if (err && retries < 1) {
 	sendwrite (chunk);
@@ -1957,36 +1953,39 @@ struct putdata_obj {
       }
       count -= err;
       offst += err;
-#if LBFS_PROT == 1
       write3args wa;
-      wa.file = tmpfh;
-      wa.offset = ost;
-      wa.stable = UNSTABLE;
-      wa.count = err;
-      wa.data.setsize (err);
-      memcpy (wa.data.base (), iobuf, err);
-      bytes_sent += wa.count;
-#else
-      lbfs_tmpwrite3args fwa;
-      fwa.commit_to = e->nh;
-      fwa.fd = tmpfd;
-      fwa.offset = ost;
-      fwa.stable = UNSTABLE;
-      fwa.count = err;
-      fwa.data.setsize (err);
-      memcpy (fwa.data.base (), iobuf, err);      
-      bytes_sent += fwa.count;
-#endif
+      lbfs_tmpwrite3args twa;
+      if (lbfs_prot == 1) {
+	wa.file = tmpfh;
+	wa.offset = ost;
+	wa.stable = UNSTABLE;
+	wa.count = err;
+	wa.data.setsize (err);
+	memcpy (wa.data.base (), iobuf, err);
+	bytes_sent += wa.count;
+      } else {
+	twa.commit_to = e->nh;
+	twa.fd = tmpfd;
+	twa.offset = ost;
+	twa.stable = UNSTABLE;
+	twa.count = err;
+	twa.data.setsize (err);
+	memcpy (twa.data.base (), iobuf, err);      
+	bytes_sent += twa.count;
+      }
       writes_sent++;
       ref<ex_write3res> res = New refcounted <ex_write3res>;
       outstanding_condwrites++;
-#if LBFS_PROT == 1
-      c->call (lbfs_NFSPROC3_WRITE, &wa, res,
-	       wrap (this, &putdata_obj::do_sendwrite, chunk, res), lbfs_authof (sa));
-#else 
-      c->call (lbfs_TMPWRITE, &fwa, res,
-	       wrap (this, &putdata_obj::do_sendwrite, chunk, res), lbfs_authof (sa));
-#endif
+      if (lbfs_prot == 1)
+	c->call (lbfs_NFSPROC3_WRITE, &wa, res,
+		 wrap (this, &putdata_obj::do_sendwrite, chunk, res), lbfs_authof (sa));
+      else {
+	blocks_written++;
+	c->call (lbfs_TMPWRITE, &twa, res,
+		 wrap (this, &putdata_obj::do_sendwrite, chunk, res), lbfs_authof (sa));
+	if (blocks_written == total_blocks && eof)
+	  sendcommittmp ();
+      }
     }
     close (rfd);
   }
@@ -2035,12 +2034,8 @@ struct putdata_obj {
     assert (!committed);
 
     lbfs_condwrite3args cw;
-#if LBFS_PROT == 1
-    cw.file = tmpfh;
-#else 
     cw.commit_to = e->nh;
     cw.fd = tmpfd;
-#endif    
     cw.offset = chunk->location().pos ();
     cw.count = chunk->location().count ();
     cw.fingerprint = chunk->fingerprint();
@@ -2151,10 +2146,10 @@ struct putdata_obj {
   {
     if (!err && mtres->status == NFS3_OK) {
       assert (mtres->resok->obj.present);
-#if LBFS_PROT == 1
-      tmpfh = *mtres->resok->obj.handle;
-#endif
-      condwrite_chunk ();
+      if (lbfs_prot == 1) {
+	tmpfh = *mtres->resok->obj.handle;
+	condwrite_chunk ();
+      }
     } else {
       xfs_reply_err (fd, h->header.sequence_num, err ? err : mtres->status);
       delete this;
@@ -2169,7 +2164,7 @@ struct putdata_obj {
   putdata_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
     fd(fd1), c(c1), hh(h1), sa(sa1), blocks_written(0), total_blocks(0), 
     eof(false), retries(0), committed(false), cur_pos(0), 
-    OUTSTANDING_CONDWRITES(4), outstanding_condwrites(0), 
+    OUTSTANDING_CONDWRITES(8), outstanding_condwrites(0), 
     bytes_sent(0), condwrites_sent(0), writes_sent(0)
   {
     h = msgcast<xfs_message_putdata> (hh);
@@ -2183,21 +2178,21 @@ struct putdata_obj {
     }
 
     lbfs_mktmpfile3args mt;
-#if LBFS_PROT == 1
     mt.commit_to = e->nh;
-#else 
-    mt.commit_to = e->nh;
-    tmpfd = FILE_DES++;
-    mt.fd = tmpfd;
-#endif
+    if (lbfs_prot == 2) {
+      tmpfd = FILE_DES++;
+      mt.fd = tmpfd;
+    }
     xfsattr2nfsattr (h->header.opcode, h->attr, &mt.obj_attributes);
     
     mtres = New refcounted <ex_diropres3>;
     
     c->call (lbfs_MKTMPFILE, &mt, mtres,
 	     wrap (this, &putdata_obj::mktmpfile), lbfs_authof (sa));
-    // benjie's rant
+    //benjie's rant
     e->writers = 0;
+    if (lbfs_prot == 2)
+      condwrite_chunk ();
   }
 };
 
