@@ -140,6 +140,7 @@ client::client (ref<axprt_zcrypt> xx)
   authtab[0] = authunix_create ("localhost", nobody_uid, nobody_gid,
 				0, NULL);
   clienttab.insert (this);
+  try_compress = true;
 }
 
 client::~client ()
@@ -152,7 +153,10 @@ client::sfs_getfsinfo (svccb *sbp)
 {
   if (fsrv) {
     sbp->replyref (fsrv->fsinfo);
-    static_cast<axprt_zcrypt *> (x.get ())->compress();
+    if (try_compress) {
+      static_cast<axprt_zcrypt *> (x.get ())->compress();
+      try_compress = false;
+    }
   }
   else
     sbp->reject (PROC_UNAVAIL);

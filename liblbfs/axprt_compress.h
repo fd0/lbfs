@@ -75,7 +75,7 @@ axprt_compress<T>::init()
   if (int zerr = inflateInit (&zin))
     panic ("inflateInit: %d\n", zerr);
   bzero (&zout, sizeof (zout));
-  warn << "using compression level " << lbfs_compress << "\n";
+  // warn << "using compression level " << lbfs_compress << "\n";
   if (int zerr = deflateInit (&zout, lbfs_compress))
     panic ("deflateInit: %d\n", zerr);
 
@@ -147,7 +147,13 @@ axprt_compress<T>::rcb(const char *pkt, ssize_t len, const sockaddr *sa)
 
   if (int zerr = inflate (&zin, Z_SYNC_FLUSH)) {
     warn ("inflate: %d\n", zerr);
+#if 1
+    warn << "try uncompressed transport\n";
+    docompress = false;
+    rcb (pkt, len, sa);
+#else
     fail ();
+#endif
     return;
   }
 

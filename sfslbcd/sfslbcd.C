@@ -34,30 +34,18 @@
 #define LBFSCACHE "/var/tmp/lbfscache"
 
 static inline void
-strip_mountarg(sfs_connectarg &carg, str &proto, str &arg)
+strip_mountprot(sfs_connectarg &carg, str &proto)
 {
   str path = carg.ci5->sname;
   const char *ps = path;
-  unsigned i, j;
+  unsigned i;
   for (i=0; i<path.len(); i++)
     if (ps[i] == ':')
       break;
   if (i >= path.len())
     return;
   proto = substr(path, 0, i);
-  for (j=i+1; j<path.len(); j++) 
-    if (ps[j] == ':')
-      break;
-  if (j >= path.len())
-    return;
-  if (j <= i+2) {
-    arg = substr(path, i+1, j-(i+1));
-    carg.ci5->sname = substr(path,j+1);
-  }
-  else {
-    arg = "";
-    carg.ci5->sname = substr(path,i+1);
-  }
+  carg.ci5->sname = substr(path,i+1);
 }
 
 void
@@ -70,9 +58,9 @@ sfslbcd_connect(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
     sfs_connectok *p = cres;
     p->servinfo = c->servinfo;
     ma->cres = cres;
-    str proto, arg;
-    strip_mountarg(ma->carg, proto, arg);
-    vNew refcounted<server>(arg, sfsserverargs (ns, tcpfd, prog, ma, cb));
+    str proto;
+    strip_mountprot(ma->carg, proto);
+    vNew refcounted<server>(sfsserverargs (ns, tcpfd, prog, ma, cb));
   }
   else {
     warn <<  s;
@@ -88,8 +76,8 @@ sfslbcd_getfd(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
     tcp_nodelay (fd);
   ptr<axprt> x = New refcounted<axprt_zcrypt>(fd, axprt_zcrypt::ps());
   sfs_connectarg carg = ma->carg;
-  str p, a;
-  strip_mountarg(carg, p, a);
+  str p;
+  strip_mountprot(carg, p);
   sfs_connect_withx
     (carg, wrap(&sfslbcd_connect, prog, ns, tcpfd, ma, cb), x);
 }
@@ -101,8 +89,8 @@ sfslbcd_alloc(sfsprog *prog, ref<nfsserv> ns, int tcpfd,
   if (!ma->cres ||
       (ma->carg.civers == 5 && !sfs_parsepath (ma->carg.ci5->sname))) {
     sfs_connectarg carg = ma->carg;
-    str proto, arg;
-    strip_mountarg(carg, proto, arg);
+    str proto;
+    strip_mountprot(carg, proto);
     if (proto == "lbfs") {
       u_int16_t port;
       str location;
@@ -119,7 +107,7 @@ sfslbcd_alloc(sfsprog *prog, ref<nfsserv> ns, int tcpfd,
   (*cb)(NULL);
 }
 
-server::server (str arg, const sfsserverargs &a)
+server::server (const sfsserverargs &a)
   : sfsserver_auth (a),
     fc(50000, wrap(mkref(this), &server::file_cache_gc_remove)),
     nlc(32, wrap(mkref(this), &server::nlc_gc_remove)),
@@ -135,9 +123,6 @@ server::server (str arg, const sfsserverargs &a)
   }
   rtpref = wtpref = 4096;
   try_compress = true;
-  async_close = false;
-  if (arg == "a")
-    async_close = true;
   warn << "lbfs server created for " << a.ma->carg.ci5->sname << "\n";
 }
 

@@ -40,8 +40,12 @@ server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
     // update file cache if cache time < mtime and file is not dirty
     // or fetch
     if (!e || ((e->fa.mtime < fa.mtime) && e->is_idle())) {
-      if (e)
+      if (e) {
 	warn << "re-fetch file " << e->fh << "\n";
+      }
+      else {
+	warn_debug << "fetch file " << e->fh << "\n";
+      }
       if (!e) {
         file_cache_insert (obj);
         e = file_cache_lookup(obj);
@@ -203,13 +207,11 @@ server::close_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok)
     // update osize to reflect what the server knows
     e->osize = fa.size;
     e->idle();
-    if (!async_close) 
-      nc->error (NFS3_OK);
+    nc->error (NFS3_OK);
   }
   else {
     e->error();
-    if (!async_close)
-      nc->reject (SYSTEM_ERR);
+    nc->reject (SYSTEM_ERR);
   }
   vec<nfscall *> rpcs;
   for (unsigned i=0; i<e->rpcs.size(); i++)
@@ -223,8 +225,6 @@ void
 server::flush_cache (nfscall *nc, file_cache *e)
 {
   sfs_aid aid = nc->getaid();
-  if (async_close)
-    nc->error (NFS3_OK);
   // mark e as being flushed. after lbfs_write finishes we will update
   // the attribute cache.
   assert(e->is_dirty());
@@ -334,15 +334,6 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     else {
       for (entry3 *e = r->resok->reply.entries; e; e = e->nextentry)
 	nlc_remove(a->dir, e->name);
-    }
-  }
-
-  else if (nc->proc () == NFSPROC3_GETATTR) {
-    nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
-    ex_getattr3res *r = static_cast<ex_getattr3res *> (res);
-    file_cache *e = file_cache_lookup(*a);
-    if (e && r->status) {
-      assert(!e->is_dirty() && !e->is_flush());
     }
   }
 
@@ -755,7 +746,7 @@ server::dispatch (nfscall *nc)
     }
     warn_lookup << "lookup " << a->name << ", " << a->dir << "\n";
   }
- 
+
   void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
   nfsc->call (nc->proc (), nc->getvoidarg (), res,
 	      wrap (mkref(this), &server::getreply, timenow, nc, res),

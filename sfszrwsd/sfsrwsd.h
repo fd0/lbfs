@@ -184,6 +184,8 @@ class client : public virtual refcount, public sfsserv {
   void renamecb_2 (svccb *sbp, rename3res *rres, filesrv::reqstate rqs,
 		   lookup3res *ares, clnt_stat err);
 
+  bool try_compress;
+
 protected:
   client (ref<axprt_zcrypt> x);
   ~client ();

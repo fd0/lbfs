@@ -189,7 +189,6 @@ class server : public sfsserver_auth {
 protected:
   str cdir;
   bool try_compress;
-  bool async_close;
   attr_cache ac;
   lrucache<nfs_fh3, file_cache *> fc;
   lrucache<nfs_fh3, vec<filename3>* > nlc;
@@ -361,7 +360,7 @@ public:
   unsigned rtpref;
   unsigned wtpref;
 
-  server (str arg, const sfsserverargs &a);
+  server (const sfsserverargs &a);
   ~server () { warn << path << " deleted\n"; }
   void flushstate ();
   void authclear (sfs_aid aid);

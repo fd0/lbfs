@@ -17,13 +17,6 @@ consistency
  3) if lease has expired, fetch attribute; if cache time does not
     match mtime, update cache
 
-single user relaxed consistency: 
- - if mounted with "a" option, asynchrnous close is on. with
-   asynchronous close a CLOSE is replied with OK before data are
-   flushed to server. if during the flush server returned error, the
-   cached file is marked as error and subsequent operations can no
-   longer be performed on the cached file.
-
 
 operations on cached file:
 --------------------------
