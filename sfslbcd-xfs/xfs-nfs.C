@@ -49,7 +49,8 @@ nfs_rights2xfs_rights (u_int32_t access, ftype3 ftype, u_int32_t mode)
   return ret;
 }
 
-void nfsobj2xfsnode (xfs_cred cred, cache_entry *e, xfs_msg_node *node) 
+void 
+nfsobj2xfsnode (xfs_cred cred, cache_entry *e, xfs_msg_node *node) 
 {
   node->handle = e->xh; 
   if (lbcd_trace > 1)
@@ -115,9 +116,79 @@ void nfsobj2xfsnode (xfs_cred cred, cache_entry *e, xfs_msg_node *node)
   }
 }
 
+#if 0
+void create_xfsnode 
+(xfs_cred cred, const ex_fattr3 *nfs_attr, xfs_msg_node *node) 
+{
+  node->handle = e->xh; 
+  if (lbcd_trace > 1)
+    warn << "nfsfh becomes node.handle (" 
+	 << node->handle.a << ","
+	 << node->handle.b << ","
+	 << node->handle.c << ","
+	 << node->handle.d << ")\n";
+  
+
+  node->anonrights = XFS_RIGHT_R | XFS_RIGHT_W | XFS_RIGHT_X;
+  node->tokens = XFS_ATTR_R; // | ~XFS_DATA_MASK;
+
+  /* node->attr */
+  node->attr.valid = XA_V_NONE;
+  if (e->nfs_attr.type == NF3REG) {
+    XA_SET_MODE(&node->attr, S_IFREG);
+    XA_SET_TYPE(&node->attr, XFS_FILE_REG);
+    XA_SET_NLINK(&node->attr, e->nfs_attr.nlink);
+  } else 
+    if (e->nfs_attr.type == NF3DIR) {
+      XA_SET_MODE(&node->attr, S_IFDIR);
+      XA_SET_TYPE(&node->attr, XFS_FILE_DIR);
+      XA_SET_NLINK(&node->attr, e->nfs_attr.nlink);
+    } else
+      if (e->nfs_attr.type == NF3LNK) {
+	XA_SET_MODE(&node->attr, S_IFLNK);
+	XA_SET_TYPE(&node->attr, XFS_FILE_LNK);
+	XA_SET_NLINK(&node->attr, e->nfs_attr.nlink);
+      } else {
+	warn << "nfsattr2xfs_attr: default\n";
+	abort ();
+      }
+  XA_SET_SIZE(&node->attr, e->nfs_attr.size);
+  XA_SET_UID(&node->attr,e->nfs_attr.uid);
+  XA_SET_GID(&node->attr, e->nfs_attr.gid);
+  node->attr.xa_mode  |= e->nfs_attr.mode;
+  XA_SET_ATIME(&node->attr, e->nfs_attr.atime.seconds);
+  XA_SET_MTIME(&node->attr, e->nfs_attr.mtime.seconds);
+  XA_SET_CTIME(&node->attr, e->nfs_attr.ctime.seconds);
+  XA_SET_FILEID(&node->attr, e->nfs_attr.fileid);
+
+  //HARD CODE ACCESS FOR NOW!! use nfs3_access later
+  node->anonrights = nfs_rights2xfs_rights(ACCESS3_READ  | 
+					   ACCESS3_LOOKUP | 
+					   ACCESS3_EXECUTE |
+					   ACCESS3_MODIFY | 
+					   ACCESS3_EXTEND | 
+					   ACCESS3_DELETE,
+					   e->nfs_attr.type, 
+					   e->nfs_attr.mode);
+
+  for (int i=0; i<MAXRIGHTS; i++) {
+    node->id[i] = cred.pag;
+    node->rights[i] = nfs_rights2xfs_rights(ACCESS3_READ  | 
+					    ACCESS3_LOOKUP |
+					    ACCESS3_EXECUTE | 
+					    ACCESS3_MODIFY | 
+					    ACCESS3_EXTEND | 
+					    ACCESS3_DELETE,
+					    e->nfs_attr.type, 
+					    e->nfs_attr.mode);  
+  }
+}
+#endif
+
 static long blocksize = XFS_DIRENT_BLOCKSIZE;
 
-int flushbuf(write_dirent_args *args) 
+int 
+flushbuf(write_dirent_args *args) 
 {
   unsigned inc = blocksize - (args->ptr - args->buf);
   xfs_dirent *last = (xfs_dirent *)args->last;
@@ -132,7 +203,8 @@ int flushbuf(write_dirent_args *args)
   return 0;
 }
 
-int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) 
+int 
+nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) 
 {
 #if 1
   args->off = 0;
@@ -189,7 +261,8 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
   return 0;
 }
 
-int conv_dir (int fd, ex_readdir3res *res) 
+int 
+conv_dir (int fd, ex_readdir3res *res) 
 {
   assert(res->status == NFS3_OK);
   entry3 *nfs_dirent = res->resok->reply.entries;
@@ -225,7 +298,8 @@ int conv_dir (int fd, ex_readdir3res *res)
   return 0;
 }
 
-int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid) 
+int 
+nfsdirent2xfsfile(int fd, const char* fname, uint64 fid) 
 {
 
   xfs_dirent *xde = (xfs_dirent *)malloc(sizeof(*xde));
@@ -248,7 +322,8 @@ int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid)
   return 0;
 }
 
-int xfsfile_rm_dirent(int fd1, int fd2, const char* fname) 
+int 
+xfsfile_rm_dirent(int fd1, int fd2, const char* fname) 
 {
   xfs_dirent *xde = (xfs_dirent *)malloc(sizeof(*xde));
   int err, offset = 0, reclen = sizeof(*xde);
@@ -298,7 +373,8 @@ int xfsfile_rm_dirent(int fd1, int fd2, const char* fname)
 #define DIRBLKSIZ 1024
 #endif
 
-int dir_remove_name (int fd, const char *fname) 
+int 
+dir_remove_name (int fd, const char *fname) 
 {
   struct stat sb;
   size_t len;
@@ -335,7 +411,8 @@ int dir_remove_name (int fd, const char *fname)
   return 0;
 }
 
-int xfsattr2nfsattr(uint32 opcode, xfs_attr xa, sattr3 *na) 
+int 
+xfsattr2nfsattr(uint32 opcode, xfs_attr xa, sattr3 *na) 
 {
 
   if (XA_VALID_MODE(&xa)) {
@@ -380,7 +457,8 @@ int xfsattr2nfsattr(uint32 opcode, xfs_attr xa, sattr3 *na)
   return 0;
 }
 
-int fattr2sattr(ex_fattr3 fa, sattr3 *sa) 
+int 
+fattr2sattr(ex_fattr3 fa, sattr3 *sa) 
 {  
   sa->mode.set_set(true);
   *sa->mode.val = fa.mode;

@@ -47,8 +47,7 @@ int main (int argc, char **argv) {
   sigcb (SIGINT, wrap (exit, 1));
   sigcb (SIGTERM, wrap (exit, 1));
 
-  if (mount(MOUNT_XFS, "/mnt", /*MNT_UNION*/0, device_file)) {
-    //if (errno == EOPNOTSUPP)
+  if (mount(MOUNT_XFS, "/mnt", 0, device_file)) {
     warn << strerror(errno) << ":" << errno << "\n";
   }
 

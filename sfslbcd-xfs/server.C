@@ -23,6 +23,7 @@
 #include "xfs-sfs.h"
 #include "xfs-nfs.h"
 #include "cache.h"
+#include "lbfs.h"
 #include "crypt.h"
 #include "dmalloc.h"
 
@@ -32,6 +33,50 @@ ihash<nfs_fh3, cache_entry, &cache_entry::nh,
   &cache_entry::nlink> nfsindex;
 ihash<xfs_handle, cache_entry, &cache_entry::xh,
   &cache_entry::xlink> xfsindex;
+
+void 
+display (str msg_type, uint32 seqnum, str hdl_type, xfs_handle *hdl, 
+	 uint32 *flag=NULL, str fname=NULL)
+{
+   if (lbcd_trace > 1) {
+     warn << "Received " << msg_type << "\n";
+     warn << seqnum << ": " << hdl_type << " ("
+	  << (int) hdl->a << ","
+	  << (int) hdl->b << ","
+	  << (int) hdl->c << ","
+	  << (int) hdl->d << ")\n";
+     if (flag)
+       warn << "flag = " << *flag << "\n";
+   } 
+}
+
+void 
+process_reply (/*time_t rqtime, uint32 proc, void *argp, */
+	       void *resp, aclnt_cb cb, clnt_stat err) 
+{
+#if 0
+  //update attr cache
+  xattrvec xv;
+  lbfs_getxattr (&xv, proc, argp, resp);
+  for (xattr *x = xv.base (); x < xv.lim (); x++) {
+    if (x->fattr)
+      x->fattr->expire += rqtime;
+    cache.attr_enter (*x->fh, x->fattr, x->wattr);
+
+    if (lc->nfs_proc() == NFSPROC3_ACCESS) {
+      ex_access3res *ares = static_cast<ex_access3res *> (resp);
+      access3args *a = lc->template getarg<access3args> ();
+      if (ares->status)
+	cache.flush_access (a->object, lc->getaid ());
+      else 
+	cache.access_enter (a->object, nc->getaid (),
+			    a->access, ares->resok->access);
+    }
+  }
+#endif
+  
+  (*cb) (err);
+}
 
 void
 xfs_wakeup (ref<xfscall> xfsc) 
@@ -55,14 +100,8 @@ void
 xfs_getnode (ref<xfscall> xfsc) 
 {
   xfs_message_getnode *h = msgcast<xfs_message_getnode> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_getnode\n";
-    warn << h->header.sequence_num << ":" <<" xfs_parent_handle ("
-	 << (int) h->parent_handle.a << ","
-	 << (int) h->parent_handle.b << ","
-	 << (int) h->parent_handle.c << ","
-	 << (int) h->parent_handle.d << ")\n";
-  }
+  display ("xfs_getnode", h->header.sequence_num, 
+	   "xfs_parent_handle", &h->parent_handle);
 
   lbfs_getnode (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
@@ -71,14 +110,8 @@ void
 xfs_getattr (ref<xfscall> xfsc) 
 {
   xfs_message_getattr *h = msgcast<xfs_message_getattr> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_getattr\n";
-    warn << h->header.sequence_num << ":" <<" xfs_handle ("
-	 << (int) h->handle.a << ","
-	 << (int) h->handle.b << ","
-	 << (int) h->handle.c << ","
-	 << (int) h->handle.d << ")\n";
-  }
+  display ("xfs_getattr", h->header.sequence_num, 
+	   "xfs_handle", &h->handle);  
   
   cache_entry *e = xfsindex[h->handle];
   if (!e)
@@ -90,21 +123,22 @@ void
 xfs_getdata (ref<xfscall> xfsc) 
 {
   xfs_message_getdata *h = msgcast<xfs_message_getdata> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_getdata\n";
-    warn << h->header.sequence_num << ":" <<" xfs_handle ("
-	 << (int) h->handle.a << ","
-	 << (int) h->handle.b << ","
-	 << (int) h->handle.c << ","
-	 << (int) h->handle.d << ")\n";
-  }
+  display ("xfs_getdata", h->header.sequence_num, 
+	   "xfs_handle", &h->handle);  
   
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
     xfs_reply_err (xfsc->fd, h->header.sequence_num, ENOENT);
     return;
   }
+#if 0
   assert (e->nfs_attr.type != NF3DIR);
+#else
+  if (e->nfs_attr.type == NF3DIR) {
+    lbfs_open (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
+    return;
+  }
+#endif   
   if (e->incache)
     lbfs_readexist (xfsc->fd, xfsc->argp, e);
   else lbfs_open (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
@@ -114,14 +148,8 @@ void
 xfs_inactivenode (ref<xfscall> xfsc) 
 {
   xfs_message_inactivenode *h = msgcast<xfs_message_inactivenode> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_inactivenode\n";
-    warn << h->header.sequence_num << ":" <<" xfs_handle ("
-	 << (int) h->handle.a << ","
-	 << (int) h->handle.b << ","
-	 << (int) h->handle.c << ","
-	 << (int) h->handle.d << ")\n";
-  }
+  display ("xfs_inactivenode", h->header.sequence_num, 
+	   "xfs_handle", &h->handle);  
 
   if (h->flag == XFS_DELETE || h->flag == XFS_NOREFS) {
     cache_entry *e = xfsindex[h->handle];
@@ -133,14 +161,8 @@ void
 xfs_open (ref<xfscall> xfsc) 
 {
   xfs_message_open *h = msgcast<xfs_message_open> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_open\n";
-    warn << h->header.sequence_num << ":" <<" xfs_handle ("
-	 << (int) h->handle.a << ","
-	 << (int) h->handle.b << ","
-	 << (int) h->handle.c << ","
-	 << (int) h->handle.d << ")\n";
-  }
+  display ("xfs_open", h->header.sequence_num, 
+	   "xfs_handle", &h->handle);  
   
   lbfs_open (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
@@ -149,15 +171,8 @@ void
 xfs_putdata (ref<xfscall> xfsc) 
 {
   xfs_message_putdata *h = msgcast<xfs_message_putdata> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_putdata\n";
-    warn << h->header.sequence_num << ":" <<" xfs_handle ("
-	 << (int) h->handle.a << ","
-	 << (int) h->handle.b << ","
-	 << (int) h->handle.c << ","
-	 << (int) h->handle.d << ")\n";
-    warn << "flag = " << h->flag << "\n";
-  }
+  display ("xfs_putdata", h->header.sequence_num, 
+	   "xfs_handle", &h->handle, &h->flag);  
   
   lbfs_putdata (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);  
 }
@@ -166,14 +181,8 @@ void
 xfs_putattr (ref<xfscall> xfsc) 
 {
   xfs_message_putattr *h = msgcast<xfs_message_putattr> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_putattr\n";
-    warn << h->header.sequence_num << ":" <<" xfs_handle ("
-	 << (int) h->handle.a << ","
-	 << (int) h->handle.b << ","
-	 << (int) h->handle.c << ","
-	 << (int) h->handle.d << ")\n";
-  }
+  display ("xfs_putattr", h->header.sequence_num, 
+	   "xfs_handle", &h->handle);  
   
   cache_entry *e = xfsindex[h->handle];
   if (!e)
@@ -185,15 +194,8 @@ void
 xfs_create (ref<xfscall> xfsc) 
 {
   xfs_message_create *h = msgcast<xfs_message_create> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_create\n";
-    warn << h->header.sequence_num << ":" <<" parent_handle ("
-	 << (int) h->parent_handle.a << ","
-	 << (int) h->parent_handle.b << ","
-	 << (int) h->parent_handle.c << ","
-	 << (int) h->parent_handle.d << ")\n";
-    warn << "file name: " << h->name << "\n";
-  }
+  display ("xfs_create", h->header.sequence_num, 
+	   "xfs_parent_handle", &h->parent_handle, NULL, h->name);  
 
   lbfs_create (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
@@ -202,15 +204,8 @@ void
 xfs_mkdir (ref<xfscall> xfsc) 
 {
   xfs_message_create *h = msgcast<xfs_message_create> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_mkdir\n";
-    warn << h->header.sequence_num << ":" <<" xfs_handle ("
-	 << (int) h->parent_handle.a << ","
-	 << (int) h->parent_handle.b << ","
-	 << (int) h->parent_handle.c << ","
-	 << (int) h->parent_handle.d << ")\n";
-    warn << "file name: " << h->name << "\n";
-  }
+  display ("xfs_mkdir", h->header.sequence_num, 
+	   "xfs_parent_handle", &h->parent_handle, NULL, h->name);  
 
   lbfs_create (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
@@ -219,20 +214,10 @@ void
 xfs_link (ref<xfscall> xfsc) 
 {
   xfs_message_link *h = msgcast<xfs_message_link> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_link (hard)\n";
-    warn << h->header.sequence_num << ":" <<" parent_handle ("
-	 << (int) h->parent_handle.a << ","
-	 << (int) h->parent_handle.b << ","
-	 << (int) h->parent_handle.c << ","
-	 << (int) h->parent_handle.d << ")\n";
-    warn << "file name: " << h->name << "\n";
-    warn << h->header.sequence_num << ":" <<" from_handle ("
-	 << (int) h->from_handle.a << ","
-	 << (int) h->from_handle.b << ","
-	 << (int) h->from_handle.c << ","
-	 << (int) h->from_handle.d << ")\n";
-  }
+  display ("xfs_link (hard)", h->header.sequence_num, 
+	   "xfs_parent_handle", &h->parent_handle, NULL, h->name);  
+  display ("xfs_link (hard)", h->header.sequence_num, 
+	   "xfs_from_handle", &h->from_handle);  
   
   lbfs_link (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
@@ -241,15 +226,8 @@ void
 xfs_symlink (ref<xfscall> xfsc) 
 {
   xfs_message_symlink *h = msgcast<xfs_message_symlink> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_symlink \n";
-    warn << h->header.sequence_num << ":" <<" parent_handle ("
-	 << (int) h->parent_handle.a << ","
-	 << (int) h->parent_handle.b << ","
-	 << (int) h->parent_handle.c << ","
-	 << (int) h->parent_handle.d << ")\n";
-    warn << "file name: " << h->name << "\n";
-  }
+  display ("xfs_symlink", h->header.sequence_num, 
+	   "xfs_parent_handle", &h->parent_handle, NULL, h->name);  
  
   lbfs_symlink (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
@@ -258,15 +236,8 @@ void
 xfs_remove (ref<xfscall> xfsc) 
 {
   xfs_message_remove *h = msgcast<xfs_message_remove> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_remove\n";
-    warn << h->header.sequence_num << ":" <<" xfs_parenthandle ("
-	 << (int) h->parent_handle.a << ","
-	 << (int) h->parent_handle.b << ","
-	 << (int) h->parent_handle.c << ","
-	 << (int) h->parent_handle.d << ")\n";
-    warn << "file name: " << h->name << "\n";
-  }
+  display ("xfs_remove", h->header.sequence_num, 
+	   "xfs_parent_handle", &h->parent_handle, NULL, h->name);  
 
   lbfs_remove (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
@@ -275,15 +246,8 @@ void
 xfs_rmdir (ref<xfscall> xfsc) 
 {
   xfs_message_remove *h = msgcast<xfs_message_remove> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_rmdir\n";
-    warn << h->header.sequence_num << ":" <<" xfs_parenthandle ("
-	 << (int) h->parent_handle.a << ","
-	 << (int) h->parent_handle.b << ","
-	 << (int) h->parent_handle.c << ","
-	 << (int) h->parent_handle.d << ")\n";
-    warn << "file name: " << h->name << "\n";
-  }
+  display ("xfs_rmdir", h->header.sequence_num, 
+	   "xfs_parent_handle", &h->parent_handle, NULL, h->name);  
 
   lbfs_remove (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
@@ -292,21 +256,12 @@ void
 xfs_rename (ref<xfscall> xfsc) 
 {
   xfs_message_rename *h = msgcast<xfs_message_rename> (xfsc->argp);
-  if (lbcd_trace > 1) {
-    warn << "Received xfs_rename\n";
-    warn << h->header.sequence_num << ":" <<" xfs_old_parenthandle ("
-	 << (int) h->old_parent_handle.a << ","
-	 << (int) h->old_parent_handle.b << ","
-	 << (int) h->old_parent_handle.c << ","
-	 << (int) h->old_parent_handle.d << ")\n";
-    warn << "old name: " << h->old_name << "\n";
-    warn << h->header.sequence_num << ":" <<" xfs_new_parenthandle ("
-	 << (int) h->new_parent_handle.a << ","
-	 << (int) h->new_parent_handle.b << ","
-	 << (int) h->new_parent_handle.c << ","
-	 << (int) h->new_parent_handle.d << ")\n";
-    warn << "new name: " << h->new_name << "\n";
-  }
+  display ("xfs_rename", h->header.sequence_num, 
+	   "xfs_old_parent_handle", &h->old_parent_handle, 
+	   NULL, h->old_name);  
+  display ("xfs_rename", h->header.sequence_num, 
+	   "xfs_new_parent_handle", &h->new_parent_handle, 
+	   NULL, h->new_name);  
 
   lbfs_rename (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }

@@ -27,9 +27,8 @@
 #include "axprt_compress.h"
 #include <xfs/xfs_message.h>
 #include "lbfsdb.h"
+
 extern fp_db lbfsdb;
-
-
 extern int server_fd;
 extern ptr<aclnt> sfsc;
 extern ptr<aclnt> nfsc;
@@ -40,4 +39,36 @@ extern ptr<axprt_crypt> xc;
 sfs_aid xfscred2aid (const xfs_cred *xc);
 AUTH *lbfs_authof (sfs_aid sa);
 int sfsInit(const char* hostpath);
+
+struct xfscall {
+
+  xfs_cred *cred;
+  u_int32_t opcode;
+  int fd;
+  ref<xfs_message_header> argp;
+
+  xfscall (u_int32_t oc, int file_des, ref<xfs_message_header> ap, xfs_cred *xc = NULL) : 
+    cred(xc), opcode(oc), fd(file_des), argp(ap) { }
+  ~xfscall () { }
+  sfs_aid getaid () const { return xfscred2aid (cred); }
+  sfs_aid getaid (const xfs_cred *xc) const { return xfscred2aid (xc); }
+  ref<xfs_message_header> getarg () { return argp; }
+};
+  
+typedef void (*xfs_message_function) (ref<xfscall>);
+
+struct lbfscall {
+  /* NFS rpc */
+  const authunix_parms *const aup;
+  const u_int32_t procno;
+  void *const argp;
+  void *resp;
+
+  /* XFS msg */
+  xfs_cred *cred;
+  u_int32_t opcode;
+  ref<xfs_message_header> xfs_msg;
+  
+};
+
 #endif

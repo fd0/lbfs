@@ -10,6 +10,7 @@
 int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 2);
 int lbcd_trace (getenv("LBCD_TRACE") ? atoi (getenv ("LBCD_TRACE")) : 0);
 unsigned FILE_DES = 0;
+int OLD = 0;
 
 extern bool lbfsdb_is_dirty;
 
@@ -118,10 +119,15 @@ struct attr_obj {
     struct xfs_message_getattr *h1 = (xfs_message_getattr *) h;
     cred = h1->cred;
     seqnum = h1->header.sequence_num;
+#if 1
     gres = New refcounted<ex_getattr3res>; 
     c->call (lbfs_NFSPROC3_GETATTR, &fh, gres,
 	     wrap (this, &attr_obj::gotattr, timenow), 
 	     lbfs_authof (sa));
+#else
+   void *res = lbfs_program_3.tbl[lbfs_NFSPROC3_GETATTR].alloc_res ();
+   
+#endif   
   }
   
   attr_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1,
@@ -852,7 +858,7 @@ struct getfp_obj {
 	    }
 	  } while (!found && !(ci->next (&c)));
 	}
-	delete ci;
+      	delete ci;
       }
       if (!found) {
 	if (lbcd_trace > 1)
@@ -1234,10 +1240,9 @@ public:
 	lbfs_readfile (fd, h1, e, sa, c, wrap (this, &open_obj::done)); 
 	break;
       default:
-	if (lbcd_trace > 1)
-	  warn << h->header.sequence_num << ":"  
-	       << "open_obj: File type " << e->nfs_attr.type
-	       << " not handled\n";
+	warn << h->header.sequence_num << ":"  
+	     << "open_obj: File type " << e->nfs_attr.type
+	     << " not handled\n";
 	break;
       }
     }
@@ -1425,9 +1430,8 @@ struct link_obj {
       int parent_fd = assign_cachefile (fd, h->header.sequence_num, e2, 
 					msg1.cache_name, &msg1.cache_handle,
 					O_CREAT | O_WRONLY | O_APPEND);
-      e2->incache = false;
+      e2->incache = false; // sad mtime update problem with openbsd nfsd
       close(parent_fd);
-      //e1->incache = false; // sad mtime update problem with openbsd nfsd
       msg1.header.opcode = XFS_MSG_INSTALLDATA;
       h0 = (struct xfs_message_header *) &msg1;
       h0_len = sizeof (msg1);
@@ -1488,14 +1492,16 @@ lbfs_link (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
 struct symlink_obj {
   int fd;
   ref<aclnt> c;
-  
+
   ref<xfs_message_header> hh;
   xfs_message_symlink *h;
   sfs_aid sa;
   cache_entry *e;
+#if OLD
   ptr<ex_diropres3> res;
+#endif
   
-  void do_symlink (time_t rqt, clnt_stat err) 
+  void do_symlink (ex_diropres3 *res, time_t rqt, clnt_stat err) 
   {
     if (!err && res->status == NFS3_OK) {
       struct xfs_message_installdata msg1;	//install change in parent dir
@@ -1508,7 +1514,6 @@ struct symlink_obj {
 
       assert (res->resok->dir_wcc.after.present);
       e->nfs_attr = *(res->resok->dir_wcc.after.attributes);
-      nfsobj2xfsnode (h->cred, e, &msg1.node);
 
       assert (res->resok->obj.present && res->resok->obj_attributes.present);
       cache_entry *e2 = update_cache (*(res->resok->obj.handle), 
@@ -1518,9 +1523,10 @@ struct symlink_obj {
       int parent_fd = assign_cachefile (fd, h->header.sequence_num, e, 
 					msg1.cache_name, &msg1.cache_handle,
 					O_CREAT | O_WRONLY | O_APPEND);
-      e->incache = false;
+      e->incache = false; // sad mtime update problem with openbsd nfsd
       close (parent_fd);
-      //e->incache = false; // sad mtime update problem with openbsd nfsd
+
+      nfsobj2xfsnode (h->cred, e, &msg1.node);
       msg1.flag = 0;
       msg1.header.opcode = XFS_MSG_INSTALLDATA;
       h0 = (struct xfs_message_header *) &msg1;
@@ -1537,7 +1543,9 @@ struct symlink_obj {
       h1_len = sizeof (msg2);
 
       xfs_send_message_wakeup_multiple (fd, h->header.sequence_num,
-					0, h0, h0_len, h1, h1_len, NULL, 0);     
+					0, h0, h0_len, h1, h1_len, NULL, 0);   
+      //
+      xdr_delete (lbfs_program_3.tbl[lbfs_NFSPROC3_LINK].xdr_res, res);
     } else {
       xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
     }
@@ -1545,7 +1553,8 @@ struct symlink_obj {
   }
 
   symlink_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, 
-	       ref<aclnt> c1) : fd(fd1), c(c1), hh(h1), sa(sa1) 
+	       ref<aclnt> c1) : 
+    fd(fd1), c(c1), hh(h1), sa(sa1)
   {
     h = msgcast<xfs_message_symlink> (hh);
     e = xfsindex[h->parent_handle];
@@ -1562,14 +1571,23 @@ struct symlink_obj {
     xfsattr2nfsattr (h->header.opcode, h->attr, 
 		     &(sla.symlink.symlink_attributes));
     sla.symlink.symlink_data.setbuf (h->contents, strlen (h->contents));
+#if OLD
     res = New refcounted <ex_diropres3>;
     c->call (lbfs_NFSPROC3_SYMLINK, &sla, res,
 	     wrap (this, &symlink_obj::do_symlink, timenow), lbfs_authof (sa));
+#else
+    void *res = lbfs_program_3.tbl[lbfs_NFSPROC3_SYMLINK].alloc_res ();
+    c->call (lbfs_NFSPROC3_SYMLINK, &sla, res, 
+	     wrap (&process_reply, res, 
+		   wrap (this, &symlink_obj::do_symlink, (ex_diropres3 *) res, timenow)),
+	     lbfs_authof (sa));
+#endif
   }
 };
 
 void 
-lbfs_symlink (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
+lbfs_symlink (int fd, ref<xfs_message_header> h, sfs_aid sa, 
+	      ref<aclnt> c)
 {
   vNew symlink_obj (fd, h, sa, c);
 }

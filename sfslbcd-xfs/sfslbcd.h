@@ -46,6 +46,8 @@
 #define MOUNT_XFS       "xfs"           /* xfs */
 #endif
 
+extern int lbcd_trace;
+
 /* xfs.C */
 void xfs_message_init (void);
 int  xfs_message_send (int fd, struct xfs_message_header *h, u_int size);
@@ -60,34 +62,13 @@ msgcast (ref<xfs_message_header> h)
   return reinterpret_cast<T *> (h.get ());
 }
 
-struct xfscall {
-
-  xfs_cred *cred;
-  u_int32_t opcode;
-  int inst;
-  int fd;
-  time_t rqtime;
-  ref<xfs_message_header> argp;
-  void *resp[5];
-
-  xfscall (u_int32_t oc, int file_des, ref<xfs_message_header> ap, xfs_cred *xc = NULL) : 
-    cred(xc), opcode(oc), inst(-1), fd(file_des), argp(ap) { }
-  ~xfscall () { }
-  sfs_aid getaid () const { return xfscred2aid (cred); }
-  sfs_aid getaid (const xfs_cred *xc) const { return xfscred2aid (xc); }
-  ref<xfs_message_header> getarg () { return argp; }
-  void *getvoidres (int i) { return resp[i]; }
-};
-  
-typedef void (*xfs_message_function) (ref<xfscall>);
 extern xfs_message_function rcvfuncs[XFS_MSG_COUNT];
-/* xfs.C */
-
-extern int lbcd_trace;
+/* End xfs.C */
 
 /* server.C */
 extern ex_fsinfo3resok nfs_fsinfo;
 //void nfs_dispatch (ref<xfscall>, time_t, clnt_stat err);
+void process_reply (void *res, aclnt_cb cb, clnt_stat err);
 void xfs_wakeup (ref<xfscall>);
 void xfs_getroot (ref<xfscall>);
 void xfs_getnode (ref<xfscall>);
@@ -107,7 +88,7 @@ void xfs_rename (ref<xfscall>);
 void xfs_pioctl (ref<xfscall>);
 
 void cbdispatch(svccb *sbp);
-/* server.C */
+/* End server.C */
 
 /* helper.C */
 #define NFS_MAXDATA 8192
@@ -127,7 +108,6 @@ void lbfs_getnode (int, ref<xfs_message_header>, sfs_aid, ref<aclnt>);
 typedef callback<void, ptr<ex_getattr3res>, time_t, clnt_stat>::ptr attr_cb_t;
 void lbfs_attr (int, ref<xfs_message_header>, sfs_aid, const nfs_fh3 &, 
 		   ref<aclnt>, attr_cb_t);
-//callback<void, const ex_getattr3res *, clnt_stat> = NULL);
 void lbfs_open (int fd, ref<xfs_message_header>, sfs_aid sa, 
 		ref<aclnt> c);
 void lbfs_readexist (int fd, ref<xfs_message_header> h, cache_entry *e);
@@ -136,7 +116,7 @@ void lbfs_create (int fd, ref<xfs_message_header> h, sfs_aid sa,
 void lbfs_link (int fd, ref<xfs_message_header> h, sfs_aid sa, 
 		ref<aclnt> c);
 void lbfs_symlink (int fd, ref<xfs_message_header> h, sfs_aid sa, 
-		   ref<aclnt> c);
+		   ref<aclnt> c); 
 void lbfs_setattr (int fd, ref<xfs_message_header> h, sfs_aid sa, 
 		   ref<aclnt> c);
 void lbfs_remove (int fd, ref<xfs_message_header> h, sfs_aid sa, 
@@ -145,7 +125,7 @@ void lbfs_rename (int fd, ref<xfs_message_header> h, sfs_aid sa,
 		  ref<aclnt> c);
 void lbfs_putdata (int fd, ref<xfs_message_header> h, sfs_aid sa, 
 		   ref<aclnt> c);
-/* helper.C */
+/* End helper.C */
 
 #undef export
 

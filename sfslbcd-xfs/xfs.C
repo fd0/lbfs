@@ -129,6 +129,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
   switch (opcode) {
   case XFS_MSG_GETATTR:
     //lookup in attr cache
+    //also come here in other cases where there are attributes to update
     break;
   case XFS_MSG_INACTIVENODE:
   case XFS_MSG_PIOCTL:

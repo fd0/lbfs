@@ -58,7 +58,8 @@ xfscred2aid (const xfs_cred *xc)
 AUTH *
 lbfs_authof (sfs_aid sa) 
 {
-  /* This is very crude. Need better authentication. */
+  /* This is very crude. Need better authentication. 
+     Move it into the lbfscall structure. */
   //return authunix_create ("localhost", (uid_t) sa, (gid_t) 100, 0, NULL);
   return auth_default;
 }
@@ -175,25 +176,16 @@ sfsConnect (str hostname, sfs_hash hid, str path, int fd)
   sfsc = aclnt::alloc (x, sfs_program_1);
   nfsc = aclnt::alloc (x, lbfs_program_3);
   nfscbs = asrv::alloc (x, ex_nfscb_program_3, wrap (&cbdispatch));
+
   sfs_connectarg arg;
-#if 1
   arg.set_civers (5);
   arg.ci5->release = sfs_release;
   arg.ci5->service = SFS_SFS;
   arg.ci5->sname = path;
   arg.ci5->extensions.set (sfs_extensions.base (), sfs_extensions.size (),
 			   freemode::NOFREE);
-#else
-  arg.set_civers (4);
-  arg.ci4->service = SFS_SFS;
-  arg.ci4->name = hostname;
-  arg.ci4->hostid = hid;
-  arg.ci4->extensions.set (sfs_extensions.base (), sfs_extensions.size (),
-			   freemode::NOFREE);
-#endif
   sfsc->call (SFSPROC_CONNECT, &arg, &conres, 
 	      wrap (&gotconres, fd, hostname, hid));
-
 }
 
 void
@@ -216,12 +208,16 @@ sfsInit (const char* path)
     warn << strerror(ENOENT) << ": " << path << "\n";
     return -1;
   } 
+
   warn << "path = " << path << " port = " << port << "\n";
   strcpy(sfs_path, path);
+
   tcpconnect(hostname, port, wrap(sfsConnect, hostname, hid, path));
   random_init_file (sfsdir << "/random_seed");
+
   lbfsdb.open_and_truncate(FP_DB);
   delaycb(LBCD_GC_PERIOD, wrap(db_sync));
+
   if (open("cache", O_RDONLY, 0666) < 0) {
     if (errno == ENOENT) {
       warn << "Creating dir: cache\n";
