@@ -32,7 +32,7 @@
 #include "fingerprint.h"
 #include "lbfs.h"
 
-#define DEBUG 0
+#define DEBUG 2
 
 #if DEBUG > 1
 struct timeval tv0, tv1;

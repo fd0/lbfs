@@ -41,12 +41,14 @@ void done()
   if (_requests == 0) {
     extern unsigned min_size_chunks;
     extern unsigned max_size_chunks;
-    printf("# %d files\n", _totalfns);
-    printf("# %u total chunks\n", total_chunks);
-    printf("# %u min size chunks\n", min_size_chunks);
-    printf("# %u max size chunks\n", max_size_chunks);
-    for (int i=0; i<NBUCKETS; i++) {
-      printf("%d %d\n", i<<7, buckets[i]);
+    if (_totalfns > 0) {
+      printf("# %d files\n", _totalfns);
+      printf("# %u total chunks\n", total_chunks);
+      printf("# %u min size chunks\n", min_size_chunks);
+      printf("# %u max size chunks\n", max_size_chunks);
+      for (int i=0; i<NBUCKETS; i++) {
+        printf("%d %d\n", i<<7, buckets[i]);
+      }
     }
     exit(0);
   }
@@ -106,10 +108,10 @@ read_directory(const char *dpath, DIR *dirp = 0L)
     snprintf(newpath, PATH_MAX, "%s/%s", dpath, de->d_name);
 
     struct stat sb;
-    stat(fspath, &sb);
+    lstat(fspath, &sb);
     if (S_ISDIR(sb.st_mode))
       read_directory(newpath);
-    else {
+    else if (S_ISREG(sb.st_mode) && !S_ISLNK(sb.st_mode)) {
       _requests++;
       _totalfns++;
       char *dpath2 = New char[PATH_MAX];

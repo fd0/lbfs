@@ -12,16 +12,16 @@ sfslbsd_SOURCES = \
 sfslbsd_LDADD = $(LDADD) $(DB3_LIB) $(ZLIB_LIB)
 
 mkdb_SOURCES = mkdb.C getfh3.C
-mkdb_LDADD = $(LDADD) $(DB3_LIB)
+mkdb_LDADD = $(LDADD) $(DB3_LIB) $(ZLIB_LIB)
 
 chunk_SOURCES = chunk.C
-chunk_LDADD = $(LDADD)
+chunk_LDADD = $(LDADD) $(DB3_LIB)
 
 cfh_SOURCES = cfh.C getfh3.C
-cfh_LDADD = $(LDADD)
+cfh_LDADD = $(LDADD) $(ZLIB_LIB)
 
 dbtest_SOURCES = dbtest.C getfh3.C
-dbtest_LDADD = $(LDADD) $(DB3_LIB)
+dbtest_LDADD = $(LDADD) $(DB3_LIB) $(ZLIB_LIB)
 
 EXTRA_DIST = .cvsignore
 CLEANFILES = core *.core *~ *.rpo
