@@ -18,14 +18,15 @@
 # endif /* UNION_ONLY_DEFAULT */
 #endif
 
+%#include "sfs_prot.h"
 %#include "nfs3exp_prot.h"
 
 struct lbfs_condwrite3args {
   nfs_fh3 file; 
   uint64 offset; 
   uint32 count; 
-  stable_how stable; 
   uint64 fingerprint; 
+  sfs_hash hash;
 };
 
 union lbfs_condwrite3res switch (nfsstat3 status) {

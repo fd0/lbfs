@@ -21,11 +21,14 @@
  *
  */
 
+#include "sha1.h"
 #include "sfsrwsd.h"
+#include <grp.h>
+
 #include "lbfsdb.h"
 #include "fingerprint.h"
 #include "lbfs.h"
-#include <grp.h>
+
 
 ihash<const u_int64_t, client, &client::generation, &client::glink> clienttab;
 
@@ -89,6 +92,15 @@ client::renamecb_1 (svccb *sbp, void *_res, filesrv::reqstate rqs,
 			     sbp, res, rqs, ares), auth);
 }
 
+// returns 0 if sha1 hash of data is equals to the given hash
+static inline int
+compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
+{
+  char h[sha1::hashsize];
+  sha1_hash(h, data, count);
+  return strncmp(h, hash.base(), sha1::hashsize);
+}
+
 void
 client::condwrite_read_cb (svccb *sbp, void *_res, filesrv::reqstate rqs,
                            lbfs_db::chunk_iterator *iter, 
@@ -99,7 +111,8 @@ client::condwrite_read_cb (svccb *sbp, void *_res, filesrv::reqstate rqs,
   iter->get(&c);
 
   if (err || count != cwa->count ||
-      fingerprint(data, count) != cwa->fingerprint) {
+      fingerprint(data, count) != cwa->fingerprint ||
+      compare_sha1_hash(data, count, cwa->hash)) {
     delete data;
     // only remove record if it is not an error, so transient 
     // failures won't cause db to be incorrected deleted.
@@ -122,7 +135,7 @@ client::condwrite_read_cb (svccb *sbp, void *_res, filesrv::reqstate rqs,
     w3arg.file = cwa->file;
     w3arg.offset = cwa->offset;
     w3arg.count = cwa->count;
-    w3arg.stable = cwa->stable;
+    w3arg.stable = UNSTABLE;  // is this correct?
     w3arg.data.set(reinterpret_cast<char*>(data), count, freemode::DELETE);
     fsrv->c->call (NFSPROC3_WRITE, &w3arg, _res,
 		   wrap (mkref (this), &client::nfs3reply, sbp, _res, rqs),
@@ -130,7 +143,7 @@ client::condwrite_read_cb (svccb *sbp, void *_res, filesrv::reqstate rqs,
     delete iter;
   }
 
-  nfs3reply (sbp, _res, rqs, RPC_FAILED);
+  nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
   delete iter;
 }
 
@@ -153,7 +166,7 @@ client::condwrite (svccb *sbp, void *_res, filesrv::reqstate rqs)
       delete iter; 
     }
   }
-  nfs3reply (sbp, _res, rqs, RPC_FAILED);
+  nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
 
 void
