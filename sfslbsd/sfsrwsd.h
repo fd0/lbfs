@@ -39,6 +39,7 @@
 #include "lbfs.h"
 #include "lbfsdb.h"
 #include "fingerprint.h"
+#include "axprt_compress.h"
 
 #define FATTR3 fattr3exp
 
@@ -279,6 +280,7 @@ protected:
   client (ref<axprt_crypt> x);
   ~client ();
   ptr<rabin_priv> doconnect (const sfs_connectarg *, sfs_servinfo *);
+  ref<axprt> getx (ref<axprt_crypt> x x) { return axprt_compress::alloc (xx); }
 
 public:
   ptr<aclnt> nfscbc;

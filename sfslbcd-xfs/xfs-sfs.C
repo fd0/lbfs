@@ -28,6 +28,7 @@ ptr<aclnt> sfsc = NULL;
 ptr<aclnt> nfsc = NULL;
 ptr<asrv>  nfscbs = NULL;
 ref<axprt> *x;
+ref<axprt_crypt> *xc;
 vec<sfs_extension> sfs_extensions;
 sfs_connectres conres;
 
@@ -137,7 +138,8 @@ void sfsConnect(str hostname, sfs_hash hid, int fd) {
   }
 
   tcp_nodelay (fd);
-  x = New ref<axprt>(axprt_stream::alloc (fd));
+  xc = axprt_crypt::alloc (fd);
+  x = axprt_compress::alloc (xc);
   sfsc = aclnt::alloc (*x, sfs_program_1);
   nfsc = aclnt::alloc (*x, lbfs_program_3);
   nfscbs = asrv::alloc (*x, ex_nfscb_program_3,
@@ -150,7 +152,7 @@ void sfsConnect(str hostname, sfs_hash hid, int fd) {
   arg.extensions.set (sfs_extensions.base (), sfs_extensions.size (),
 		      freemode::NOFREE);
   sfsc->call (SFSPROC_CONNECT, &arg, &conres, 
-	   wrap (&gotconres, fd, hostname, hid));
+	      wrap (&gotconres, fd, hostname, hid));
 
 }
 
