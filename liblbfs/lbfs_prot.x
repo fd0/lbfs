@@ -37,6 +37,12 @@ struct lbfs_committmp3args {
   nfs_fh3 commit_to;
 };
 
+struct lbfs_getfp3args {
+  nfs_fh3 file;
+  uint64 offset;
+  uint32 count;
+};
+
 struct lbfs_fp3 {
   uint32 count;
   uint64 fingerprint;
