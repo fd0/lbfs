@@ -105,6 +105,7 @@ struct read_obj {
     if (!errorcb) {
       ftruncate (fe->fd, 0);
       close (fe->fd);
+      fe->fd = -1;
       errorcb = true;
       cb (true,false);
     }
@@ -117,6 +118,7 @@ struct read_obj {
       cb (outstanding_reads == 0,true);
     if (outstanding_reads == 0) {
       close (fe->fd);
+      fe->fd = -1;
       delete this;
     }
   }
@@ -130,7 +132,7 @@ struct read_obj {
     assert(fe);
 
     if (fe->fd < 0) {
-      fe->fd = open (fn, O_CREAT | O_TRUNC | O_RDWR, 0666);
+      fe->fd = open (fn, O_CREAT | O_RDWR, 0666);
       if (fe->fd < 0) {
         perror ("update cache file\n");
         fail();
