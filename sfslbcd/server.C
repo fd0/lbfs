@@ -250,6 +250,7 @@ server::write_to_cache_write (nfscall *sbp, file_cache *e,
     sbp->reply (&res);
   }
 
+  // check if there are any CLOSE or COMMIT that we blocked
   run_rpcs (e);
 }
 
@@ -283,6 +284,15 @@ server::truncate_cache_open (nfscall *sbp, file_cache *e, uint64 size,
 }
 
 void
+server::dispatch_to_server (nfscall *nc)
+{
+  void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
+  nfsc->call (nc->proc (), nc->getvoidarg (), res,
+              wrap (mkref(this), &server::getreply, timenow, nc, res),
+	            authof (nc->getaid ()));
+}
+
+void
 server::truncate_cache_truncate (nfscall *nc, file_cache *e, uint64 size,
                                  int err)
 {
@@ -292,11 +302,7 @@ server::truncate_cache_truncate (nfscall *nc, file_cache *e, uint64 size,
     return;
   }
   e->fa.size = size;
-
-  void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
-  nfsc->call (nc->proc (), nc->getvoidarg (), res,
-              wrap (mkref(this), &server::getreply, timenow, nc, res),
-	            authof (nc->getaid ()));
+  dispatch_to_server (nc);
 }
 
 void
@@ -308,10 +314,14 @@ server::flush_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok)
     e->fa = fa;
     // update osize to reflect what the server knows
     e->osize = fa.size;
-    if (nc->proc () == cl_NFSPROC3_CLOSE)
-      e->open ();
+    if (e->mstart == e->mend && e->mstart == 0) {
+      if (nc->proc () == cl_NFSPROC3_CLOSE)
+        e->open ();
+      else
+        e->idle ();
+    }
     else
-      e->idle ();
+      e->dirty ();
     if (nc->proc () == NFSPROC3_COMMIT) {
       commit3res res (NFS3_OK);
       res.resok->verf = verf3;
@@ -351,8 +361,27 @@ server::flush_cache (nfscall *nc, file_cache *e)
   // checking will work
   fattr3 fa = e->fa;
   fa.size = e->osize;
+
+  uint64 start = e->mstart;
+  uint64 size = e->mend - e->mstart;
+
+  if (nc->proc () == NFSPROC3_COMMIT) {
+    commit3args *a = nc->template getarg<commit3args> ();
+    start = a->offset;
+    size = a->count;
+  }
+
+  if (start <= e->mstart && (start+size) > e->mstart)
+    e->mstart = start + size;
+  if (start + size >= e->mend)
+    e->mend = start;
+  if (e->mstart >= e->mend) {
+    e->mstart = 0;
+    e->mend = 0;
+  }
+
   lbfs_write
-    (fn, e, e->fh, e->fa.size, fa, mkref(this), authof(aid),
+    (fn, e, e->fh, start, size, fa, mkref(this), authof(aid),
      wrap(mkref(this), &server::flush_done, nc, e->fh));
 }
 
@@ -682,14 +711,15 @@ server::dont_run_rpc (nfscall *nc)
   if (nc->proc () != NFSPROC3_SETATTR &&
       nc->proc () != NFSPROC3_READ &&
       nc->proc () != NFSPROC3_WRITE &&
-      nc->proc () != cl_NFSPROC3_CLOSE)
+      nc->proc () != cl_NFSPROC3_CLOSE &&
+      nc->proc () != NFSPROC3_COMMIT)
     return false;
 
   nfs_fh3 *fh = static_cast<nfs_fh3 *> (nc->getvoidarg ());
   file_cache *e = file_cache_lookup(*fh);
 
   if (e) {
-    if (nc->proc () == cl_NFSPROC3_CLOSE) {
+    if ((nc->proc () == cl_NFSPROC3_CLOSE || nc->proc () == NFSPROC3_COMMIT)) {
       if (!e->is_dirty() && !e->is_flush() && !e->being_modified ())
         return false;
       else if (e->being_modified ()) {
@@ -785,147 +815,163 @@ server::dispatch (nfscall *nc)
   if (dont_run_rpc (nc))
     return;
 
-  if (nc->proc () == NFSPROC3_ACCESS) {
-    access3args *a = nc->template getarg<access3args> ();
-    int32_t perm = ac.access_lookup (a->object, nc->getaid (), a->access);
-    if (perm > 0) {
-      fattr3 fa =
-	*reinterpret_cast<const fattr3 *> (ac.attr_lookup (a->object));
-      if (fa.type == NF3REG) {
-        file_cache *e = file_cache_lookup(a->object);
-        if (!e) {
-          file_cache_insert (a->object);
-          e = file_cache_lookup(a->object);
-          assert(e);
-	  e->fa.mtime.seconds = 0;
-	  e->fa.mtime.nseconds = 0;
-          e->open();
+  switch (nc->proc ()) {
+  case NFSPROC3_ACCESS:
+    {
+      access3args *a = nc->template getarg<access3args> ();
+      int32_t perm = ac.access_lookup (a->object, nc->getaid (), a->access);
+      if (perm > 0) {
+        fattr3 fa =
+	  *reinterpret_cast<const fattr3 *> (ac.attr_lookup (a->object));
+        if (fa.type == NF3REG) {
+          file_cache *e = file_cache_lookup(a->object);
+          if (!e) {
+            file_cache_insert (a->object);
+            e = file_cache_lookup(a->object);
+            assert(e);
+	    e->fa.mtime.seconds = 0;
+	    e->fa.mtime.nseconds = 0;
+            e->open();
+          }
+          else if (e->is_idle())
+            e->open();
         }
-        else if (e->is_idle())
-          e->open();
-      }
-      access3res res(NFS3_OK);
-      res.resok->obj_attributes.set_present (true);
-      *res.resok->obj_attributes.attributes = fa;
-      res.resok->access = perm;
-      nc->reply (&res);
-      return;
-    }
-    void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
-    nfsc->call (nc->proc (), nc->getvoidarg (), res,
-	        wrap (mkref(this), &server::access_reply, timenow, nc, res),
-	        authof (nc->getaid ()));
-    return;
-  }
-
-  else if (nc->proc () == NFSPROC3_READ) {
-    read3args *a = nc->template getarg<read3args> ();
-    file_cache *e = file_cache_lookup(a->file);
-    if (e) {
-      read_from_cache (nc, e);
-      return;
-    }
-    else
-      warn << "dangling read: " << a->file << "\n";
-  }
-
-  // XXX should also flush on commit
-  else if (nc->proc() == cl_NFSPROC3_CLOSE) {
-    nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
-    file_cache *e = file_cache_lookup(*a);
-    assert(!e->is_flush());
-    
-    if (e && e->is_dirty()) {
-      flush_cache (nc, e);
-      return;
-    }
-
-    if (!e)
-      warn << "dangling close: " << *a << "\n";
-
-    if (e && e->afh != 0 && !e->is_fetch ()) {
-      e->afh->close (wrap (&server::file_closed));
-      e->afh = 0;
-    }
-    
-    nc->error (NFS3_OK);
-    return;
-  }
-
-  else if (nc->proc () == NFSPROC3_WRITE) {
-    write3args *a = nc->template getarg<write3args> ();
-    file_cache *e = file_cache_lookup(a->file);
-    if (e) {
-      write_to_cache (nc, e);
-      return;
-    }
-    else
-      warn << "dangling write: " << a->file << "\n";
-  }
-
-  else if (nc->proc () == NFSPROC3_SETATTR) {
-    // for a set-size SETATTR: truncate cache file to the appropriate
-    // size. set size attribute on the cache file, but not mtime. do
-    // wcc checking. don't mark the file dirty: if it wasn't dirty
-    // before, and will not be modified, we cannot flush file content
-    // to server because SETATTR may not always follow ACCESS, so file
-    // content may not be up to date.
-    setattr3args *a = nc->template getarg<setattr3args> ();
-    file_cache *e = file_cache_lookup(a->object);
-    if (a->new_attributes.size.set && e) {
-      truncate_cache (nc, e, *(a->new_attributes.size.val));
-      return;
-    }
-  }
-  
-  else if (nc->proc () == NFSPROC3_COMMIT)
-    warn << "sfslbcd sees COMMIT, forward to server\n";
-
-  else if (nc->proc () == NFSPROC3_LOOKUP) {
-    diropargs3 *a = nc->template getarg<diropargs3> ();
-    dir_lc **dp = lc[a->dir];
-    const ex_fattr3 *f = ac.attr_lookup (a->dir);
-
-    if (dp && f && (*dp)->attr.mtime < f->mtime) // directory is newer
-      lc_clear(a->dir);
-    else if (dp) {
-      bool has_negative = nlc_lookup(a->dir, a->name);
-      if (has_negative) {
-        lookup3res res(NFS3ERR_NOENT);
-	res.resfail->set_present (false);
-	if (f) {
-          res.resfail->set_present (true);
-          *res.resfail->attributes = *reinterpret_cast<const fattr3 *> (f);
-	}
+        access3res res(NFS3_OK);
+        res.resok->obj_attributes.set_present (true);
+        *res.resok->obj_attributes.attributes = fa;
+        res.resok->access = perm;
         nc->reply (&res);
         return;
       }
-      else if (f) {
-	nfs_fh3 fh;
-        bool hit = lc_lookup(a->dir, a->name, fh);
-	if (hit) {
-	  const ex_fattr3 *objf = ac.attr_lookup (fh);
-	  if (objf) {
-            lookup3res res(NFS3_OK);
-	    res.resok->object = fh;
-            res.resok->dir_attributes.set_present (true);
-            *res.resok->dir_attributes.attributes
-	      = *reinterpret_cast<const fattr3 *> (f);
-            res.resok->obj_attributes.set_present (true);
-            *res.resok->obj_attributes.attributes
-	      = *reinterpret_cast<const fattr3 *> (objf);
-            nc->reply (&res);
-            return;
-	  }
-	}
-      }
+      void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
+      nfsc->call (nc->proc (), nc->getvoidarg (), res,
+	          wrap (mkref(this), &server::access_reply, timenow, nc, res),
+	          authof (nc->getaid ()));
+      return;
     }
+
+  case NFSPROC3_READ:
+    {
+      read3args *a = nc->template getarg<read3args> ();
+      file_cache *e = file_cache_lookup(a->file);
+      if (e) {
+        read_from_cache (nc, e);
+        return;
+      }
+      else
+        warn << "dangling read: " << a->file << "\n";
+      break;
+    }
+
+  case cl_NFSPROC3_CLOSE:
+  case NFSPROC3_COMMIT:
+    {
+      nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
+      file_cache *e = file_cache_lookup(*a);
+      assert(!e->is_flush());
+
+      if (e && e->is_dirty()) {
+        flush_cache (nc, e);
+        return;
+      }
+
+      if (!e)
+        warn << "dangling close: " << *a << "\n";
+
+      if (nc->proc () == cl_NFSPROC3_CLOSE && e &&
+	  e->afh != 0 && !e->is_fetch ()) {
+	e->afh->close (wrap (&server::file_closed));
+	e->afh = 0;
+      }
+
+      if (nc->proc () == NFSPROC3_COMMIT) {
+        commit3res res (NFS3_OK);
+        res.resok->verf = verf3;
+        nc->reply (&res);
+      }
+      else
+        nc->error (NFS3_OK);
+      return;
+    }
+
+  case NFSPROC3_WRITE:
+    {
+      write3args *a = nc->template getarg<write3args> ();
+      file_cache *e = file_cache_lookup(a->file);
+      if (e) {
+        write_to_cache (nc, e);
+        return;
+      }
+      else
+        warn << "dangling write: " << a->file << "\n";
+      break;
+    }
+
+  case NFSPROC3_SETATTR:
+    {
+      // for a set-size SETATTR: truncate cache file to the appropriate
+      // size. set size attribute on the cache file, but not mtime. do
+      // wcc checking. don't mark the file dirty: if it wasn't dirty
+      // before, and will not be modified, we cannot flush file content
+      // to server because SETATTR may not always follow ACCESS, so file
+      // content may not be up to date.
+      setattr3args *a = nc->template getarg<setattr3args> ();
+      file_cache *e = file_cache_lookup(a->object);
+      if (a->new_attributes.size.set && e) {
+        truncate_cache (nc, e, *(a->new_attributes.size.val));
+        return;
+      }
+      break;
+    }
+
+  case NFSPROC3_LOOKUP:
+    {
+      diropargs3 *a = nc->template getarg<diropargs3> ();
+      dir_lc **dp = lc[a->dir];
+      const ex_fattr3 *f = ac.attr_lookup (a->dir);
+
+      if (dp && f && (*dp)->attr.mtime < f->mtime) // directory is newer
+        lc_clear(a->dir);
+      else if (dp) {
+        bool has_negative = nlc_lookup(a->dir, a->name);
+        if (has_negative) {
+          lookup3res res(NFS3ERR_NOENT);
+	  res.resfail->set_present (false);
+	  if (f) {
+            res.resfail->set_present (true);
+            *res.resfail->attributes = *reinterpret_cast<const fattr3 *> (f);
+	  }
+          nc->reply (&res);
+          return;
+        }
+        else if (f) {
+	  nfs_fh3 fh;
+          bool hit = lc_lookup(a->dir, a->name, fh);
+	  if (hit) {
+	    const ex_fattr3 *objf = ac.attr_lookup (fh);
+	    if (objf) {
+              lookup3res res(NFS3_OK);
+	      res.resok->object = fh;
+              res.resok->dir_attributes.set_present (true);
+              *res.resok->dir_attributes.attributes
+	        = *reinterpret_cast<const fattr3 *> (f);
+              res.resok->obj_attributes.set_present (true);
+              *res.resok->obj_attributes.attributes
+	        = *reinterpret_cast<const fattr3 *> (objf);
+              nc->reply (&res);
+              return;
+	    }
+	  }
+        }
+      }
+      break;
+    }
+
+  default:
+    break;
   }
 
-  void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
-  nfsc->call (nc->proc (), nc->getvoidarg (), res,
-	      wrap (mkref(this), &server::getreply, timenow, nc, res),
-	      authof (nc->getaid ()));
+  dispatch_to_server (nc);
 }
 
 void

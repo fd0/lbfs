@@ -243,6 +243,8 @@ protected:
   void flush_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok);
 
   void run_rpcs (file_cache *e);
+  void dispatch_to_server (nfscall *nc);
+
   static void file_closed (int) {}
 
   str fh2fn(nfs_fh3 fh) {
@@ -366,7 +368,8 @@ public:
 void lbfs_read (str fn, nfs_fh3 fh, uint64 size, ref<server> srv,
                 AUTH *a, callback<void, bool, bool>::ref cb);
 void lbfs_write (str fn, file_cache *fe,
-                 nfs_fh3 fh, uint64 size, fattr3 fa, ref<server> srv,
+                 nfs_fh3 fh, uint64 start, uint64 size, fattr3 fa,
+		 ref<server> srv,
                  AUTH *a, callback<void, fattr3, bool>::ref cb);
 
 #endif

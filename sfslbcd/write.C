@@ -32,6 +32,7 @@ struct write_obj {
   fattr3 fa;
   file_cache *fe;
   AUTH *auth;
+  uint64 start;
   uint64 size;
   uint64 written;
   unsigned int outstanding_writes;
@@ -145,7 +146,7 @@ struct write_obj {
     if (written < size) {
       unsigned s = size-written;
       s = s > srv->wtpref ? srv->wtpref : s;
-      nfs3_write (written, s);
+      nfs3_write (start+written, s);
       written += s;
     }
     if (written == size && !commit) {
@@ -191,10 +192,11 @@ struct write_obj {
     }
   }
 
-  write_obj (str fn, file_cache *fe, 
-             nfs_fh3 fh, uint64 size, fattr3 fa, ref<server> srv,
+  write_obj (str fn, file_cache *fe, nfs_fh3 fh,
+             uint64 start, uint64 size, fattr3 fa, ref<server> srv,
              AUTH *a, write_obj::cb_t cb)
-    : cb(cb), srv(srv), fh(fh), fa(fa), fe(fe), auth(a), size(size), written(0),
+    : cb(cb), srv(srv), fh(fh), fa(fa), fe(fe), auth(a),
+      start(start), size(size), written(0),
       outstanding_writes(0), callback(false), commit(false)
   {
     assert (fe->afh);
@@ -210,10 +212,10 @@ struct write_obj {
 };
 
 void
-lbfs_write (str fn, file_cache *fe,
-            nfs_fh3 fh, uint64 size, fattr3 fa, ref<server> srv,
+lbfs_write (str fn, file_cache *fe, nfs_fh3 fh,
+            uint64 start, uint64 size, fattr3 fa, ref<server> srv,
             AUTH *a, write_obj::cb_t cb)
 {
-  vNew write_obj (fn, fe, fh, size, fa, srv, a, cb);
+  vNew write_obj (fn, fe, fh, start, size, fa, srv, a, cb);
 }
 
