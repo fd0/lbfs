@@ -31,7 +31,6 @@ struct read_obj {
   ref<server> srv;
   nfs_fh3 fh;
   AUTH *auth;
-  int fd;
   uint64 size;
   unsigned int outstanding_reads;
   bool errorcb;
@@ -45,11 +44,12 @@ struct read_obj {
     if (!err)
       srv->getxattr (rqtime, NFSPROC3_READ, 0, arg, res);
     if (!errorcb && !err && res->status == NFS3_OK) {
-      if (lseek(fd, off, SEEK_SET) < 0) {
+      if (lseek(fe->fd, off, SEEK_SET) < 0) {
 	fail();
 	return;
       }
-      if (write(fd, res->resok->data.base (), res->resok->count) < (int)cnt) {
+      if (write(fe->fd, res->resok->data.base (),
+	        res->resok->count) < (int)cnt) {
 	fail();
 	return;
       }
@@ -103,8 +103,8 @@ struct read_obj {
 
   void fail() {
     if (!errorcb) {
-      ftruncate (fd, 0);
-      close (fd);
+      ftruncate (fe->fd, 0);
+      close (fe->fd);
       errorcb = true;
       cb (true,false);
     }
@@ -116,7 +116,7 @@ struct read_obj {
     if (!errorcb)
       cb (outstanding_reads == 0,true);
     if (outstanding_reads == 0) {
-      close (fd);
+      close (fe->fd);
       delete this;
     }
   }
@@ -126,18 +126,20 @@ struct read_obj {
     : cb(cb), srv(srv), fh(fh), auth(a), size(size),
       outstanding_reads(0), errorcb(false)
   {
-    fd = open (fn, O_CREAT | O_TRUNC | O_WRONLY, 0666);
-    if (fd < 0) {
-      perror ("update cache file\n");
-      fail();
+    fe = srv->file_cache_lookup(fh);
+    assert(fe);
+
+    if (fe->fd < 0) {
+      fe->fd = open (fn, O_CREAT | O_TRUNC | O_RDWR, 0666);
+      if (fe->fd < 0) {
+        perror ("update cache file\n");
+        fail();
+        return;
+      }
     }
-    else {
-      fe = srv->file_cache_lookup(fh);
-      assert(fe);
-      bool eof = false;
-      for (int i=0; i<PARALLEL_READS && !eof; i++)
-        eof = do_read();
-    }
+    bool eof = false;
+    for (int i=0; i<PARALLEL_READS && !eof; i++)
+      eof = do_read();
     if (!outstanding_reads) // nothing to do
       ok();
   }
