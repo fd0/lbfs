@@ -65,6 +65,24 @@ struct hashfh3 {
   }
 };
 
+//
+// tmp fh to name translation
+//
+struct tmpfh {
+#define TMPFN_MAX 1024
+  nfs_fh3 fh;
+  char name[TMPFN_MAX];
+  int len;
+  ihash_entry<tmpfh> hlink;
+
+  tmpfh (const nfs_fh3 &f, const char *s, unsigned l);
+  ~tmpfh ();
+};
+
+struct lbfs_tmpfh_tab {
+  ihash<const nfs_fh3, tmpfh, &tmpfh::fh, &tmpfh::hlink> tab;
+};
+
 struct filesys {
   typedef qhash<u_int64_t, u_int64_t> inotab_t;
 
@@ -190,6 +208,7 @@ class client : public virtual refcount, public sfsserv {
   ptr<asrv> nfssrv;
 
   lbfs_db lbfsdb;
+  lbfs_tmpfh_tab tmpfh_tab;
 
   static u_int64_t nextgen ();
 
@@ -212,7 +231,7 @@ class client : public virtual refcount, public sfsserv {
                           const unsigned char *, size_t, off_t);
   void condwrite (svccb *sbp, filesrv::reqstate rqs);
 
-  void mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, 
+  void mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, char *path,
                      void *_cres, clnt_stat err);
   void mktmpfile (svccb *sbp, filesrv::reqstate rqs);
   

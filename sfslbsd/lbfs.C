@@ -1,7 +1,21 @@
 
+#include "ihash.h"
 #include "sfsrwsd.h"
 #include "nfs3_prot.h"
 #include "lbfsdb.h"
+
+tmpfh::tmpfh(const nfs_fh3 &f, const char *s, unsigned l)
+{
+  fh = f;
+  assert (l <= TMPFN_MAX-1);
+  memmove(&name[0], s, l);
+  name[l] = '\0';
+  len = l;
+}
+
+tmpfh::~tmpfh()
+{
+}
 
 void lookupfh3 (ref<aclnt> c, const nfs_fh3 &start, str path,
 		callback<void, const nfs_fh3 *, const FATTR3 *, str>::ref cb);

@@ -214,19 +214,25 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 }
 
 void
-client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, 
+client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, char *path,
                       void *_cres, clnt_stat err)
 {
   diropres3 *cres = static_cast<diropres3 *>(_cres);
-  if (err) 
+  if (err) {
+    delete[] path;
     nfs3reply (sbp, _cres, rqs, RPC_SUCCESS);
+  }
   else {
     switch(cres->status) {
       case NFS3ERR_EXIST:
 	delete cres;
+        delete[] path;
 	mktmpfile(sbp, rqs);
 	break;
       default:
+	tmpfh_tab.tab.insert
+	  (new tmpfh(*(cres->resok->obj.handle),path,strlen(path)));
+	delete[] path;
 	nfs3reply (sbp, _cres, rqs, RPC_SUCCESS);
     }
   }
@@ -240,7 +246,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   str fhstr = armor32(mta->commit_to.data.base(), mta->commit_to.data.size());
   int r = rand();
   str rstr = armor32((void*)&r, sizeof(int));
-  char tmpfile[5+fhstr.len()+1+rstr.len()+1];
+  char *tmpfile = new char[5+fhstr.len()+1+rstr.len()+1];
   sprintf(tmpfile, "sfs.%s.%s", fhstr.cstr(), rstr.cstr());
   warn << "MKTMPFILE: " << tmpfile << "\n";
   
@@ -254,7 +260,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   void *cres = nfs_program_3.tbl[NFSPROC3_CREATE].alloc_res ();
   fsrv->c->call (NFSPROC3_CREATE, &c3arg, cres,
 		 wrap (mkref (this),
-		       &client::mktmpfile_cb, sbp, rqs, cres),
+		       &client::mktmpfile_cb, sbp, rqs, tmpfile, cres),
 		 authtab[authno]);
 }
 
@@ -262,11 +268,10 @@ void
 client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
                       const FATTR3 *attr, commit3res *res, str err)
 {
-  nfs3reply (sbp, res, rqs, RPC_SUCCESS);
+  lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
   chunker->stop();
   vec<lbfs_chunk *> *cv = chunker->cvp;
   if (!err) {
-    lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
     for (unsigned i=0; i<cv->size(); i++) {
       (*cv)[i]->loc.set_fh(cta->commit_to);
       lbfsdb.add_chunk((*cv)[i]->fingerprint, &((*cv)[i]->loc)); 
@@ -277,6 +282,17 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   for (unsigned i=0; i<cv->size(); i++) delete (*cv)[i];
   delete cv;
   delete chunker;
+
+  nfs_fh3& fh = cta->commit_from;
+  tmpfh *tfh = tmpfh_tab.tab[fh];
+  if (tfh) {
+    tfh->name[tfh->len] = '\0';
+    warn ("COMITTMP: remove %s\n", tfh->name);
+    // XXX - actually remove file
+    tmpfh_tab.tab.remove(tfh);
+    delete tfh;
+  }
+  nfs3reply (sbp, res, rqs, RPC_SUCCESS);
 }
 
 void
