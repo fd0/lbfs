@@ -66,25 +66,38 @@ lbfs_load_reusable_chunks(int new_fd,
 }
 
 int
-lbfs_add_file(const char *path, vec<lbfs_chunk *> &new_chunks)
+lbfs_add_file(const char *path, const char *tmppath)
 {
-  vec<lbfs_chunk *> old_chunks;
-  chunk_file(path, &old_chunks);
+  vec<lbfs_chunk *> old_chunks[NUM_CHUNK_SIZES];
+  for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++)
+    chunk_file(path, CHUNK_SIZES(j), &(old_chunks[j]));
   
+  if (rename(tmppath, path)) {
+    for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++)
+      for (unsigned i = 0; i < old_chunks[j].size(); i++)
+        delete old_chunks[j][i];
+    return -1;
+  }
+
   lbfs_db db(FMAP_DB);
   db.open();
 
-  for (unsigned i = 0; i < old_chunks.size(); i++) { 
-    if (db.remove_chunk(old_chunks[i]->fingerprint, old_chunks[i]) != 0) 
-      printf("db inconsistent: old chunk for %s does not exist!\n", path);
-    delete old_chunks[i];
+  for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
+    for (unsigned i = 0; i < old_chunks[j].size(); i++) { 
+      if (db.remove_chunk(old_chunks[j][i]->fingerprint, old_chunks[j][i]))
+        printf("db inconsistent: old chunk for %s does not exist!\n", path);
+      delete old_chunks[j][i];
+    }
   }
-
-  for (unsigned i = 0; i < new_chunks.size(); i++) { 
-    lbfs_chunk c(path, new_chunks[i]->pos, 
-	         new_chunks[i]->size, new_chunks[i]->fingerprint);
-    int ret = db.add_chunk(new_chunks[i]->fingerprint, &c);
-    assert(ret == 0);
+  
+  for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
+    vec<lbfs_chunk *> new_chunks;
+    chunk_file(path, CHUNK_SIZES(j), &new_chunks);
+    for (unsigned i = 0; i < new_chunks.size(); i++) { 
+      lbfs_chunk c(path, new_chunks[i]->pos, 
+	           new_chunks[i]->size, new_chunks[i]->fingerprint);
+      db.add_chunk(new_chunks[i]->fingerprint, &c);
+    }
   }
 
   return 0;

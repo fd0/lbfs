@@ -7,9 +7,8 @@
 
 #define FMAP_DB "fmap.db"
 
-// we keep P(t), x, and K the same for whole file
-// system, so two equivalent files would have the same
-// breakmarks. for string A, fingerprint of A is
+// we keep P(t), x, and K the same for whole file system, so two equivalent
+// files would have the same breakmarks. for string A, fingerprint of A is
 //
 //   f(A) = A(t) mod P(t) 
 //
@@ -17,11 +16,17 @@
 //
 //   f(A) mod K = x
 //
-// we use K = 8192 so that average chunk size is 8k.
+// we use K = 8192 so that average chunk size is 8k. we allow multiple K
+// values so we can do multi-level chunking.
 
 #define FINGERPRINT_PT     0xbfe6b8a5bf378d83LL
-#define BREAKMARK_X        0x78
-#define BREAKMARK_K        8192
+#define BREAKMARK_VALUE    0x78
+#define NUM_CHUNK_SIZES    4
+#define CHUNK_SIZES(i) \
+  (i == 0 ? 8192 : \
+   (i == 1 ? 32768 : \
+    (i == 2 ? 131072 : \
+     (i == 3 ? 524288 : 0))))
 
 #define MY_PATH_MAX 1024
 

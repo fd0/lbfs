@@ -25,11 +25,12 @@ lbfs_load_reusable_chunks(int new_fd,
                           vec<lbfs_chunk *> &reusable_chunks);
 
 
-// add a new file to the database: remove the file's old chunk information
-// from the db, and insert new chunk information into the db. returns 0 if
-// successful.
+// add a new file, currently named by tmppath, to the database and filesystem
+// as file named by path: remove the file's old chunk information from the db,
+// and insert new chunk information into the db. rename tmppath to oldpath.
+// returns 0 if successful.
 int
-lbfs_add_file(const char *path, vec<lbfs_chunk *> &new_chunks);
+lbfs_add_file(const char *path, const char *tmppath);
 
 #endif _LBFS_H_
 

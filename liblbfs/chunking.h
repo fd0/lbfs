@@ -10,9 +10,10 @@
  * in the vector, so they will have to be freed by
  * caller.
  */
-int chunk_file(const char *path, vec<lbfs_chunk *> *cvp);
-int chunk_data(const char *path, const unsigned char *data, 
-               size_t size, vec<lbfs_chunk *> *cvp);
+int chunk_file(const char *path, unsigned csize, vec<lbfs_chunk *> *cvp);
+int chunk_data(const char *path, unsigned csize, 
+               const unsigned char *data, size_t size, 
+	       vec<lbfs_chunk *> *cvp);
 
 #endif _CHUNKING_H_
 

@@ -7,6 +7,8 @@
 #include "chunking.h"
 #include "lbfs.h"
 
+#define DEBUG_ONLY 0
+
 // algorithm for "adding" a file:
 //
 //  - from new list of chunks (new_chunks vector), assemble a vector
@@ -32,10 +34,18 @@ main(int argc, char *argv[])
   ssize_t unknown_bytes = 0;
 
   vec<lbfs_chunk *> new_chunks;
-  if (chunk_file(newfile, &new_chunks) < 0) {
+  if (chunk_file(newfile, CHUNK_SIZES(0), &new_chunks) < 0) {
     printf("cannot open %s for chunking\n", newfile);
     return -1;
   }
+
+#if DEBUG_ONLY
+  for (unsigned i = 0; i < new_chunks.size(); i++) {
+    lbfs_chunk *c = new_chunks[i];
+    printf("%s %d: %ld, 0x%016qx\n", c->path, i, c->pos, c->fingerprint);
+  }
+  return 0;
+#endif
 
   vec<lbfs_chunk *> reusable_chunks;
   lbfs_search_reusable_chunks(new_chunks, reusable_chunks);
@@ -64,7 +74,9 @@ main(int argc, char *argv[])
   }
   close(nfd);
 
-  lbfs_add_file(oldfile, new_chunks);
+  int ret = -1;
+  if (move_tmp) 
+    ret = lbfs_add_file(oldfile, tmpfile);
 
   for (unsigned i = 0; i < new_chunks.size(); i++) { 
     if (reusable_chunks[i])
@@ -72,12 +84,7 @@ main(int argc, char *argv[])
     delete new_chunks[i];
   }
 
-  if (move_tmp && rename(tmpfile, oldfile)) {
-    printf("cannot move %s to %s\n", tmpfile, oldfile);
-    return -1;
-  }
-
   printf("%d bytes unknown\n", unknown_bytes);
-  return 0;
+  return ret;
 }
 

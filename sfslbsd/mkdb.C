@@ -31,11 +31,14 @@ add_directory(const char *path, lbfs_db &db)
     if (S_ISDIR(sb.st_mode))
       add_directory(fullpath, db);
     else if (S_ISREG(sb.st_mode)) {
-      vec<lbfs_chunk *> cv;
-      if (chunk_file(fullpath, &cv) == 0) {
-        for(unsigned i=0; i<cv.size(); i++) {
-          db.add_chunk(cv[i]->fingerprint, cv[i]);
-          delete cv[i];
+      for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
+        vec<lbfs_chunk *> cv;
+        if (chunk_file(fullpath, CHUNK_SIZES(j), &cv) == 0) {
+	  // printf("%s: %d, %d chunks\n", fullpath, CHUNK_SIZES(j), cv.size());
+          for(unsigned i=0; i<cv.size(); i++) {
+            db.add_chunk(cv[i]->fingerprint, cv[i]);
+            delete cv[i];
+          }
         }
       }
     }
