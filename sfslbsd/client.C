@@ -118,11 +118,10 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
   chunker0->stop();
-  const vec<lbfs_chunk *>& cv = chunker0->chunk_vector();
+  const vec<chunk *>& cv = chunker0->chunk_vector();
 
   if (err || count != cwa->count || cv.size() != 1 || 
-      cv[0]->fingerprint != cwa->fingerprint ||
-      memcmp(cv[0]->hash.base(), cwa->hash.base(), sha1::hashsize) != 0) {
+      cv[0]->fingerprint() != cwa->fingerprint || !cv[0]->hash_eq(cwa->hash)) {
 #if DEBUG > 0
     if (err) 
       warn << "CONDWRITE: error reading file: " << err << "\n";
@@ -130,7 +129,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
       warn << "CONDWRITE: size does not match, old chunk? " 
 	   << "want " << cwa->count << " got " << count << "\n";
     else 
-    if (cv.size() != 1 || cv[0]->fingerprint != cwa->fingerprint)
+    if (cv.size() != 1 || cv[0]->fingerprint() != cwa->fingerprint)
       warn << "CONDWRITE: fingerprint mismatch\n";
     else 
       warn << "CONDWRITE: sha1 hash mismatch\n";
@@ -138,7 +137,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     delete[] data;
     delete chunker0;
     iter->del(); 
-    lbfs_chunk_loc c;
+    chunk_location c;
     if (!iter->next(&c)) { 
       nfs_fh3 fh; 
       c.get_fh(fh); 
@@ -197,7 +196,7 @@ client::condwrite_read_cb(unsigned char *buf, off_t pos0, Chunker *chunker,
                           const unsigned char *data, size_t count, off_t pos)
 {
   memmove(buf+(pos-pos0), data, count);
-  chunker->chunk(data, count);
+  chunker->chunk_data(data, count);
 }
 
 void
@@ -207,7 +206,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
   fp_db::iterator *iter = 0;
   if (fpdb.get_iterator(cwa->fingerprint, &iter) == 0) {
     if (iter) { 
-      lbfs_chunk_loc c; 
+      chunk_location c; 
       if (!iter->get(&c)) { 
 	nfs_fh3 fh; 
 	c.get_fh(fh);
@@ -309,15 +308,15 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   }
 
   chunker->stop();
-  const vec<lbfs_chunk *>& cv = chunker->chunk_vector();
+  const vec<chunk *>& cv = chunker->chunk_vector();
   if (!err) {
     for (unsigned i=0; i<cv.size(); i++) {
-      cv[i]->loc.set_fh(fh);
-      fpdb.add_entry(cv[i]->fingerprint, &(cv[i]->loc)); 
+      cv[i]->location().set_fh(fh);
+      fpdb.add_entry(cv[i]->fingerprint(), &(cv[i]->location())); 
 #if DEBUG > 1
-      warn << "COMMITTMP: adding " << cv[i]->fingerprint << " @"
-	   << cv[i]->loc.pos() << " " 
-	   << cv[i]->loc.count() << " to database\n";
+      warn << "COMMITTMP: adding " << cv[i]->fingerprint() << " @"
+	   << cv[i]->location().pos() << " " 
+	   << cv[i]->location().count() << " to database\n";
 #endif
     }
     fpdb.sync();
@@ -352,7 +351,7 @@ void
 client::chunk_data 
   (Chunker *chunker, const unsigned char *data, size_t count, off_t)
 {
-  chunker->chunk(data, count);
+  chunker->chunk_data(data, count);
 }
 
 void
@@ -374,7 +373,7 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
 #endif
   if (!err && !rres->status && rres->resok->eof) 
     chunker->stop();
-  const vec<lbfs_chunk *>& cv = chunker->chunk_vector();
+  const vec<chunk *>& cv = chunker->chunk_vector();
   lbfs_getfp3res *res = New lbfs_getfp3res;
   if (!err && !rres->status) {
     unsigned i = 0;
@@ -382,12 +381,12 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     res->resok->fprints.setsize(n);
     for (; i<n; i++) {
       struct lbfs_fp3 x;
-      x.fingerprint = cv[i]->fingerprint;
-      x.hash = cv[i]->hash;
-      x.count = cv[i]->loc.count();
+      x.fingerprint = cv[i]->fingerprint();
+      x.hash = cv[i]->hash();
+      x.count = cv[i]->location().count();
       res->resok->fprints[i] = x;
 #if DEBUG > 2
-      warn << "GETFP: " << cv[i]->fingerprint << " " 
+      warn << "GETFP: " << cv[i]->fingerprint() << " " 
 	   << armor32(x.hash.base(), sha1::hashsize) << "\n";
 #endif
     }

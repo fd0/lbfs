@@ -66,7 +66,7 @@ NULL						/* gc nodes */
 #endif
 };
 
-void sendwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk);
+void sendwrite (ref<condwrite3args > cwa, chunk * chunk);
 void lbfs_condwrite(ref<condwrite3args> cwa, clnt_stat err);
 void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count);
 void nfs3_rmdir(int fd, ref<struct xfs_message_rmdir> h, 
@@ -489,7 +489,7 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
 					h0, h0_len, NULL, 0);
 
       // add chunk to the database
-      vec <lbfs_chunk *>cvp;
+      vec <chunk *>cvp;
       if (chunk_file(cvp, (char const *) ga->msg.cache_name) < 0) {
 #if DEBUG > 0
 	warn << strerror (errno) << "(" << errno << "): nfs3_read(chunkfile)\n";
@@ -498,10 +498,10 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
       }
       for (uint i = 0; i < cvp.size (); i++) {
 #if DEBUG > 0
-	warn << "adding fp = " << cvp[i]->fingerprint << " to lbfsdb\n";
+	warn << "adding fp = " << cvp[i]->fingerprint() << " to lbfsdb\n";
 #endif
-	cvp[i]->loc.set_fh (e->nh);
-	lbfsdb.add_entry (cvp[i]->fingerprint, &(cvp[i]->loc));
+	cvp[i]->location().set_fh (e->nh);
+	lbfsdb.add_entry (cvp[i]->fingerprint(), &(cvp[i]->location()));
         delete cvp[i];
       }
       lbfsdb.sync ();
@@ -562,7 +562,7 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
   fp_db::iterator * ci = NULL;
   bool found = false;
   nfs_fh3 fh;
-  lbfs_chunk_loc c;
+  chunk_location c;
   cache_entry *e = NULL;
 
   for (uint i=0; i<res->resok->fprints.size(); i++) {
@@ -1275,26 +1275,26 @@ sendcommittmp (ref<condwrite3args > cwa)
 }
 
 void 
-nfs3_write (ref<condwrite3args > cwa, lbfs_chunk *chunk, 
+nfs3_write (ref<condwrite3args > cwa, chunk *chunk, 
             ref<ex_write3res > res, clnt_stat err)
 {
   if (outstanding_condwrites > 0) outstanding_condwrites--;
   if (!err && res->status == NFS3_OK) {
 #if DEBUG > 0
     warn << cwa->h->header.sequence_num << " nfs3_write: @"
-         << chunk->loc.pos() << ", "
+         << chunk->location().pos() << ", "
          << res->resok->count << " total needed "
-	 << chunk->loc.count() << " had "
+	 << chunk->location().count() << " had "
 	 << chunk->aux_count << "\n";
 #endif
-    chunk->aux_count += res->resok->count;
-    assert(chunk->aux_count <= chunk->loc.count());
-    if (chunk->aux_count == chunk->loc.count()) 
+    chunk->got_bytes(res->resok->count);
+    assert(chunk->bytes() <= chunk->location().count());
+    if (chunk->bytes() == chunk->location().count()) 
       cwa->blocks_written++;
 #if DEBUG > 0
     warn << cwa->h->header.sequence_num << " nfs3_write: @"
-         << chunk->loc.pos() << " +"
-	 << chunk->loc.count() << " "
+         << chunk->location().pos() << " +"
+	 << chunk->location().count() << " "
          << cwa->blocks_written << " blocks written " 
 	 << cwa->total_blocks << " needed, eof? "
 	 << cwa->eof << "\n";
@@ -1330,12 +1330,12 @@ nfs3_write (ref<condwrite3args > cwa, lbfs_chunk *chunk,
 }
 
 void 
-sendwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
+sendwrite (ref<condwrite3args > cwa, chunk * chunk)
 {
   int err, ost;
   char iobuf[NFS_MAXDATA];
-  uint64 offst = chunk->loc.pos ();
-  uint32 count = chunk->loc.count ();
+  uint64 offst = chunk->location().pos ();
+  uint32 count = chunk->location().count ();
 
   if (cwa->commited) {
 #if DEBUG > 0
@@ -1385,24 +1385,24 @@ sendwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
 }
 
 void 
-lbfs_sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk,
+lbfs_sendcondwrite (ref<condwrite3args > cwa, chunk * chunk,
 		    ref<ex_write3res > res, clnt_stat err)
 {
   if (outstanding_condwrites > 0) outstanding_condwrites--;
   if (!err && res->status == NFS3_OK) {
-    if (res->resok->count != chunk->loc.count ()) {
+    if (res->resok->count != chunk->location().count ()) {
 #if DEBUG > 0
       warn << "lbfs_sendcondwrite: did not write the whole chunk...\n";
 #endif
       sendwrite (cwa, chunk);
       return;
     }
-    chunk->aux_count += chunk->loc.count();
+    chunk->got_bytes(chunk->location().count());
     cwa->blocks_written++;
 #if DEBUG > 0
     warn << cwa->h->header.sequence_num << " condwrite: @"
-         << chunk->loc.pos() << " +"
-	 << chunk->loc.count() << " "
+         << chunk->location().pos() << " +"
+	 << chunk->location().count() << " "
          << cwa->blocks_written << " blocks written " 
 	 << cwa->total_blocks << " needed, eof? "
 	 << cwa->eof << "\n";
@@ -1437,7 +1437,7 @@ lbfs_sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk,
 }
 
 void 
-sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
+sendcondwrite (ref<condwrite3args > cwa, chunk * chunk)
 {
   if (cwa->commited) {
 #if DEBUG > 0
@@ -1448,9 +1448,9 @@ sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
 
   lbfs_condwrite3args cw;
   cw.file = cwa->tmpfh;
-  cw.offset = chunk->loc.pos ();
-  cw.count = chunk->loc.count ();
-  cw.fingerprint = chunk->fingerprint;
+  cw.offset = chunk->location().pos ();
+  cw.count = chunk->location().count ();
+  cw.fingerprint = chunk->fingerprint();
 
   int rfd = open (cwa->fname, O_RDONLY, 0666);
   if (rfd < 0) {
@@ -1461,7 +1461,7 @@ sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
     return;
   }
 
-  lseek (rfd, chunk->loc.pos (), SEEK_SET);
+  lseek (rfd, chunk->location().pos (), SEEK_SET);
   char buf[cw.count];
   unsigned total_read = 0;
   while (total_read < cw.count) {
@@ -1558,7 +1558,7 @@ void condwrite_chunk(ref<condwrite3args> cwa)
   unsigned char buf[4096];
   while ((count = read(data_fd, buf, 4096)) > 0) {
     cwa->cur_pos += count;
-    cwa->chunker->chunk(buf, count);
+    cwa->chunker->chunk_data(buf, count);
     if (cwa->chunker->chunk_vector().size() > v_size) {
       v_size = cwa->chunker->chunk_vector().size();
       cwa->total_blocks = v_size;
@@ -1566,11 +1566,10 @@ void condwrite_chunk(ref<condwrite3args> cwa)
 #if DEBUG > 0
 	warn << "chindex = " << index << " size = " << v_size << "\n";
 #endif
-	cwa->chunker->chunk_vector()[index]->aux_count = 0;
 	outstanding_condwrites++;
         sendcondwrite(cwa, cwa->chunker->chunk_vector()[index]);
-	lbfsdb.add_entry (cwa->chunker->chunk_vector()[index]->fingerprint,
-			  &(cwa->chunker->chunk_vector()[index]->loc));
+	lbfsdb.add_entry (cwa->chunker->chunk_vector()[index]->fingerprint(),
+			  &(cwa->chunker->chunk_vector()[index]->location()));
       }
       if (outstanding_condwrites >= OUTSTANDING_CONDWRITES) break;
     }
@@ -1591,7 +1590,6 @@ void condwrite_chunk(ref<condwrite3args> cwa)
 #if DEBUG > 0
       warn << "chindex = " << index << " size = " <<  cwa->total_blocks<< "\n";
 #endif
-      cwa->chunker->chunk_vector()[index]->aux_count = 0;
       sendcondwrite(cwa, cwa->chunker->chunk_vector()[index]);
     }
     cwa->eof = true;

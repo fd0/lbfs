@@ -3,7 +3,6 @@
 #include <stdio.h>
 
 #include "sha1.h"
-#include "chunk.h"
 #include "rabinpoly.h"
 #include "fingerprint.h"
   
@@ -73,9 +72,9 @@ void
 Chunker::stop()
 {
   if (_cur_pos != _last_pos) {
-    lbfs_chunk *c = New lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
+    chunk *c = New chunk(_last_pos, _cur_pos-_last_pos, _fp);
     if (_hash) { 
-      sha1_hash(c->hash.base(), _hbuf, _hbuf_cursor); 
+      c->compute_hash(_hbuf, _hbuf_cursor); 
       _hbuf_cursor = 0; 
     }
     _cv.push_back(c);
@@ -83,7 +82,7 @@ Chunker::stop()
 }
 
 void
-Chunker::chunk(const unsigned char *data, size_t size)
+Chunker::chunk_data(const unsigned char *data, size_t size)
 {
   u_int64_t f_break = 0;
   size_t start_i = 0;
@@ -96,13 +95,13 @@ Chunker::chunk(const unsigned char *data, size_t size)
       max_size_suppress++;
     if (((f_break % chunk_size) == BREAKMARK_VALUE && cs >= MIN_CHUNK_SIZE) 
 	|| cs >= MAX_CHUNK_SIZE) {
-      lbfs_chunk *c = New lbfs_chunk(_last_pos, cs, _fp);
+      chunk *c = New chunk(_last_pos, cs, _fp);
       _w.reset();
       _fp = 0;
       if (_hash) {
 	if (i-start_i > 0) 
 	  handle_hash(data+start_i, i-start_i);
-	sha1_hash(c->hash.base(), _hbuf, _hbuf_cursor);
+	c->compute_hash(_hbuf, _hbuf_cursor);
 	_hbuf_cursor = 0;
       }
       _cv.push_back(c);
@@ -116,7 +115,7 @@ Chunker::chunk(const unsigned char *data, size_t size)
     handle_hash(data+start_i, size-start_i);
 }
 
-int chunk_file(vec<lbfs_chunk *>& cvp, const char *path)
+int chunk_file(vec<chunk *>& cvp, const char *path)
 {
   int fd = open(path, O_RDONLY);
   if (fd < 0) return -1;
@@ -124,17 +123,17 @@ int chunk_file(vec<lbfs_chunk *>& cvp, const char *path)
   int count;
   Chunker chunker;
   while ((count = read(fd, buf, 4096))>0)
-    chunker.chunk(buf, count);
+    chunker.chunk_data(buf, count);
   chunker.stop();
   close(fd);
   chunker.copy_chunk_vector(cvp);
   return 0;
 }
 
-int chunk_data(vec<lbfs_chunk *>& cvp, const unsigned char *data, size_t size)
+int chunk_data(vec<chunk *>& cvp, const unsigned char *data, size_t size)
 {
   Chunker chunker;
-  chunker.chunk(data, size);
+  chunker.chunk_data(data, size);
   chunker.stop();
   chunker.copy_chunk_vector(cvp);
   return 0;

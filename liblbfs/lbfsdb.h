@@ -169,10 +169,9 @@ db_base<K,V>::add_entry(K k, V *v, int size)
   return _dbp->put(_dbp, NULL, &key, &data, 0);
 }
 
-#include "chunk.h"
-
+#include "fingerprint.h"
 #define FP_DB "fp.db"
-typedef db_base<u_int64_t, lbfs_chunk_loc> fp_db;
+typedef db_base<u_int64_t, chunk_location> fp_db;
 
 #endif _LBFS_DB_
 

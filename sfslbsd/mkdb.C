@@ -32,22 +32,12 @@ static int _totalfns = 0;
 static int _requests = 0;
 
 static int read_directory(const char *dpath, DIR *dirp = 0L);
-#define NBUCKETS ((MAX_CHUNK_SIZE+1)>>7)
-unsigned buckets[NBUCKETS];
-unsigned total_chunks = 0;
 
 void done()
 {
   if (_requests == 0) {
-    if (_totalfns > 0) {
-      printf("# %d files\n", _totalfns);
-      printf("# %u total chunks\n", total_chunks);
-      printf("# %u min size chunks\n", Chunker::min_size_suppress);
-      printf("# %u max size chunks\n", Chunker::max_size_suppress);
-      for (int i=0; i<NBUCKETS; i++) {
-        printf("%d %d\n", i<<7, buckets[i]);
-      }
-    }
+    if (_totalfns > 0) 
+      printf("%d files\n", _totalfns);
     exit(0);
   }
 }
@@ -65,15 +55,13 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
     int count;
     Chunker chunker;
     while ((count = read(fd, buf, 4096))>0)
-      chunker.chunk(buf, count);
+      chunker.chunk_data(buf, count);
     chunker.stop();
     for (unsigned i=0; i<chunker.chunk_vector().size(); i++) {
-      lbfs_chunk *c = chunker.chunk_vector()[i];
-      c->loc.set_fh(*fhp);
-      _fp_db.add_entry(c->fingerprint, &(c->loc));
-      buckets[c->loc.count()>>7]++;
+      chunk *c = chunker.chunk_vector()[i];
+      c->location().set_fh(*fhp);
+      _fp_db.add_entry(c->fingerprint(), &(c->location()));
     }
-    total_chunks += chunker.chunk_vector().size();
     close(fd);
     _fp_db.sync();
     warn << fspath << " " << chunker.chunk_vector().size() << " chunks\n";
@@ -175,9 +163,6 @@ main(int argc, char *argv[])
   _dbfn = argv[1];
   _host = argv[2];
   _mntp = argv[3];
-
-  for (int i=0; i<NBUCKETS; i++)
-    buckets[i] = 0;
 
   aclntudp_create (_host, 0, nfs_program_3, wrap(getnfsc));
   amain();

@@ -1,11 +1,11 @@
 
-// usage: chunk path
+// usage: chunk path search_db create_db
 //
 // chunk all files under path, create chunk statistics
 //
 // for example
 //
-// ./chunk /usr/lib
+// ./chunk /usr/lib fp.db tmp.db
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -17,19 +17,46 @@
 
 #define NBUCKETS ((MAX_CHUNK_SIZE+1)>>7)
 unsigned buckets[NBUCKETS];
-unsigned total_chunks = 0;
-unsigned total_size = 0;
-fp_db db;
+unsigned totalchunks = 0;
+unsigned totalfiles = 0;
+uint64 totalsize = 0;
+uint64 searchtime = 0;
+uint64 inserttime = 0;
+uint64 chunktime = 0;
+fp_db sdb;
+fp_db cdb;
+
+struct timeval t0;
+struct timeval t1;
+inline unsigned timediff() {
+  return (t1.tv_sec*1000000+t1.tv_usec)-(t0.tv_sec*1000000+t0.tv_usec);
+}
 
 void done()
 {
-  printf("# %u total chunks\n", total_chunks);
-  if (total_chunks != 0) 
-    printf("# %u bytes on average\n", total_size/total_chunks);
-  printf("# %u min size chunks\n", Chunker::min_size_suppress);
-  printf("# %u max size chunks\n", Chunker::max_size_suppress);
-  for (int i=0; i<NBUCKETS; i++)
-    printf("%d %d %d\n", i, i<<7, buckets[i]);
+  unsigned median = 0;
+  unsigned m = totalchunks/2;
+  for (int i=0; i<NBUCKETS; i++) {
+    if (buckets[i] >= m) {
+      median = i<<7;
+      break;
+    }
+    m -= buckets[i];
+  }
+
+  printf("# %u files, %u chunks\n", totalfiles, totalchunks);
+  if (totalchunks != 0) {
+    printf("# chunk size average %qu, median %u\n", 
+	   totalsize/totalchunks, median);
+    printf("# average insert time: %qu usec\n", inserttime/totalchunks);
+    printf("# average search time: %qu usec\n", searchtime/totalchunks);
+    printf("# chunk time: %qu usec/chunk, %qu usec/Kbyte\n",
+	   chunktime/totalchunks, chunktime/(totalsize/1024));
+    printf("# %u min size supprssed\n", Chunker::min_size_suppress);
+    printf("# %u max size supprssed\n", Chunker::max_size_suppress);
+    for (int i=0; i<NBUCKETS; i++)
+      printf("%d %d\n", i<<7, buckets[i]);
+  }
 }
 
 void
@@ -39,29 +66,34 @@ chunk_file(const char *path)
   unsigned char buf[4096];
   int count;
   Chunker chunker;
-  while ((count = read(fd, buf, 4096))>0)
-    chunker.chunk(buf, count);
+  while ((count = read(fd, buf, 4096))>0) {
+    gettimeofday(&t0,0L);
+    chunker.chunk_data(buf, count);
+    gettimeofday(&t1,0L);
+    chunktime += timediff();
+  }
   chunker.stop();
-  int matches = 0;
   for (unsigned i=0; i<chunker.chunk_vector().size(); i++) {
-    lbfs_chunk *c = chunker.chunk_vector()[i];
-    total_size += c->loc.count();
-    buckets[(c->loc.count())>>7]++;
+    chunk *c = chunker.chunk_vector()[i];
+    totalsize += c->location().count();
+    buckets[(c->location().count())>>7]++;
     fp_db::iterator *iter = 0;
-    if (db.get_iterator(c->fingerprint, &iter) == 0) {
-      iter->next(0);
-      while(*iter) {
-	matches++;
-	iter->next(0);
-      }
-    }
-    delete iter;
+    gettimeofday(&t0,0L);
+    sdb.get_iterator(c->fingerprint(), &iter);
+    gettimeofday(&t1,0L);
+    searchtime += timediff();
+    if (iter) 
+      delete iter;
+    gettimeofday(&t0,0L);
+    cdb.add_entry(c->fingerprint(), &c->location());
+    gettimeofday(&t1,0L);
+    inserttime += timediff();
   }
   close(fd);
-  total_chunks += chunker.chunk_vector().size();
+  totalchunks += chunker.chunk_vector().size();
+  totalfiles++;
 #if 0
-  warn << path << " " << chunker.chunk_vector().size() << " chunks, "
-       << matches << " matches\n";
+  warn << path << " " << chunker.chunk_vector().size() << " chunks\n";
 #endif
 }
 
@@ -89,11 +121,12 @@ read_directory(const char *dpath)
 int 
 main(int argc, char *argv[]) 
 {
-  if (argc != 3) {
-    printf("usage: %s path db\n", argv[0]);
+  if (argc != 4) {
+    printf("usage: %s path search_db create_db\n", argv[0]);
     return -1;
   }
-  db.open(argv[2]);
+  sdb.open(argv[2]);
+  cdb.open_and_truncate(argv[3]);
   for (int i=0; i<NBUCKETS; i++) buckets[i] = 0;
   read_directory(argv[1]);
   done();

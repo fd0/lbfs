@@ -7,7 +7,7 @@ liblbfs_la_SOURCES = \
 axprt_compress.C fingerprint.C lbfs_prot.C lbfsxattr.C rabinpoly.C
 
 sfsinclude_HEADERS = lbfs_prot.x \
-axprt_compress.h fingerprint.h lbfs.h lbfs_prot.h lbfsdb.h rabinpoly.h chunk.h
+axprt_compress.h fingerprint.h lbfs.h lbfs_prot.h lbfsdb.h rabinpoly.h
 
 lbfs_prot.h: $(srcdir)/lbfs_prot.x
 	@rm -f $@
