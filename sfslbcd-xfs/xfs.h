@@ -52,7 +52,6 @@ struct xfscall {
   int inst;
   int fd;
   time_t rqtime;
-  //void *const argp;
   ref<xfs_message_header> argp;
   void *resp[5];
 

@@ -198,12 +198,13 @@ struct getroot_obj {
   {
     assert (!err && sfs_fsi->prog == ex_NFS_PROGRAM && 
 	    sfs_fsi->nfs->vers == ex_NFS_V3);
+    if (!strcmp(getenv ("LBFS"), "1"))
+      x->compress();
 
     x->compress();
     nfs_fsi = New refcounted<ex_fsinfo3res>;
     nc->call (lbfs_NFSPROC3_FSINFO, &sfs_fsi->nfs->v3->root, nfs_fsi,
 	      wrap (this, &getroot_obj::gotnfs_fsinfo), lbfs_authof (sa));
-    //const struct xfs_message_putattr *h1 = (xfs_message_putattr *) h;
     lbfs_attr (fd, hh, sa, sfs_fsi->nfs->v3->root, 
 	       nc, wrap (this, &getroot_obj::gotattr));
   }
@@ -554,7 +555,6 @@ struct readdir_obj {
     if (greater (maxtime, e->ltime)) 
       readdir ();
     else {
-      //xfs_message_getdata *h1 = (xfs_message_getdata *) h;
       lbfs_readexist (fd, hh, e);
       delete this;
     }
@@ -573,7 +573,6 @@ struct readdir_obj {
       readdir ();
     } else {
       if (owriters > 0) {
-	//xfs_message_getdata *h1 = (xfs_message_getdata *) h;
 	lbfs_readexist (fd, hh, e);
 	delete this; return;
       } else {
@@ -582,7 +581,6 @@ struct readdir_obj {
 	     << (uint32) timenow << " ltime " << e->ltime.seconds << "\n";
 #endif
 	if (e->nfs_attr.expire < (uint32) timenow) {
-	  //const struct xfs_message_putattr *h1 = (xfs_message_putattr *) h;
 	  lbfs_attr (fd, hh, sa, e->nh, c, 
 		     wrap (this, &readdir_obj::get_updated_copy));
 	} else get_updated_copy (NULL, 0, clnt_stat (0));
@@ -1051,11 +1049,10 @@ struct readfile_obj {
     } 
     nfstime3 maxtime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
     if (greater (maxtime, e->ltime)) 
-      if (LBFS)
+      if (!strcmp(getenv ("LBFS"), "2"))
 	lbfs_getfp (fd, hh, e, sa, c, wrap (this, &readfile_obj::done));
       else lbfs_read (fd, hh, e, sa, c, cb);
     else {
-      //xfs_message_getdata *h1 = (xfs_message_getdata *) h;
       lbfs_readexist (fd, hh, e);
       delete this; return;
     }
@@ -1075,17 +1072,15 @@ struct readfile_obj {
     }
     
     if (!e->incache)
-      if (LBFS)
+      if (!strcmp(getenv ("LBFS"), "2"))
 	lbfs_getfp (fd, hh, e, sa, c, wrap (this, &readfile_obj::done));
       else lbfs_read (fd, hh, e, sa, c, cb);
     else {
       if (owriters > 0) {
-	//xfs_message_getdata *h1 = (xfs_message_getdata *) h;
 	lbfs_readexist (fd, hh, e);
 	delete this; return;
       } else 
 	if (e->nfs_attr.expire < (uint32) timenow) {
-	  //const struct xfs_message_putattr *h1 = (xfs_message_putattr *) h;
 	  lbfs_attr (fd, hh, sa, e->nh, c,
 		     wrap (this, &readfile_obj::get_updated_copy));
 	} else get_updated_copy (NULL, 0, clnt_stat (0));
@@ -1822,6 +1817,8 @@ struct putdata_obj {
   const int OUTSTANDING_CONDWRITES;
   int outstanding_condwrites;
   ptr<ex_diropres3> mtres;
+  uint64 bytes_sent;
+  uint condwrites_sent, writes_sent;
   
   void do_committmp (ref<ex_commit3res> res, time_t rqtime, clnt_stat err)
   {
@@ -2103,7 +2100,8 @@ struct putdata_obj {
   putdata_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
     fd(fd1), c(c1), hh(h1), sa(sa1), blocks_written(0), total_blocks(0), 
     eof(false), retries(0), committed(false), cur_pos(0), 
-    OUTSTANDING_CONDWRITES(4), outstanding_condwrites(0)
+    OUTSTANDING_CONDWRITES(4), outstanding_condwrites(0), 
+    bytes_sent(0), condwrites_sent(0), writes_sent(0)
   {
     h = msgcast<xfs_message_putdata> (hh);
     chunker = New Chunker;
@@ -2215,7 +2213,7 @@ struct write_obj {
 void
 lbfs_putdata (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
 {
-  if (LBFS)
+  if (!strcmp(getenv ("LBFS"), "2"))
     vNew putdata_obj (fd, h, sa, c);
   else vNew write_obj (fd, h, sa, c);
 }

@@ -103,13 +103,7 @@ xfs_message_init (void)
   
   assert (sizeof(rcvfuncs_name) / sizeof(*rcvfuncs_name) == XFS_MSG_COUNT);
 }
-#if 0
-template<class T> inline T *
-msgcast (ptr<xfs_msg_header> h)
-{
-  return reinterpret_cast<T *> (h.get ());
-}
-#endif
+
 void
 xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 {
@@ -130,109 +124,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
   memcpy ((void*)hh, h, size);
 
   ptr<xfscall> xfsc;
-#if 0
-  switch (opcode) {
-  case XFS_MSG_GETROOT: {
-    //xfs_message_getroot *zz = msgcast<xfs_message_getroot> (hh);
-    
-    //struct xfs_message_getroot *hh = (struct xfs_message_getroot *) msgstr;
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_GETNODE: {
-    struct xfs_message_getnode *hh = 
-      (struct xfs_message_getnode *) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_GETATTR: {
-    struct xfs_message_getattr *hh = 
-      (struct xfs_message_getattr *) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_INACTIVENODE: {
-    struct xfs_message_inactivenode *hh = 
-      (struct xfs_message_inactivenode*) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh);
-    break;
-  }
-  case XFS_MSG_GETDATA: {
-    struct xfs_message_getdata *hh = 
-      (struct xfs_message_getdata *) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_OPEN: {
-    struct xfs_message_open *hh = 
-      (struct xfs_message_open *) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_PUTDATA: {
-    struct xfs_message_putdata *hh = 
-      (struct xfs_message_putdata*) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_PUTATTR: {
-    struct xfs_message_putattr *hh = 
-      (struct xfs_message_putattr*) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_CREATE: {
-    struct xfs_message_create *hh = 
-      (struct xfs_message_create*) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_MKDIR: {
-    struct xfs_message_mkdir *hh = 
-      (struct xfs_message_mkdir*) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_LINK: {
-    struct xfs_message_link *hh = (struct xfs_message_link*) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_SYMLINK: {
-    struct xfs_message_symlink *hh = 
-      (struct xfs_message_symlink*) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_REMOVE: 
-  case XFS_MSG_RMDIR: {
-    struct xfs_message_remove *hh = (struct xfs_message_remove*) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_RENAME: {
-    struct xfs_message_rename *hh = (struct xfs_message_rename *) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
-    break;
-  }
-  case XFS_MSG_PIOCTL: {
-    struct xfs_message_pioctl *hh = (struct xfs_message_pioctl*) msgstr; 
-    xfsc = New refcounted<xfscall> (opcode, fd, hh);
-    break;
-  }
-#if 0 /* Other cases */
-  case XFS_MSG_UPDATEFID:
-  case XFS_MSG_ADVLOCK:
-  case XFS_MSG_GC_NODES:
-#endif /* Other cases */
-  default:
-#if DEBUG > 0
-    warn << "Opcode "<< opcode << ": Function not implemented !!!!!!!!! \n";
-#endif
-    assert (0);
-    break;
-  }
-#endif
+
   switch (opcode) {
   case XFS_MSG_INACTIVENODE:
   case XFS_MSG_PIOCTL:
@@ -244,7 +136,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
   case XFS_MSG_GC_NODES:
 #endif /* Other cases */
   default:
-    xfsc = New refcounted<xfscall> (opcode, fd, hh /*, &hh->cred*/);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh);
   }  
   (*rcvfuncs[opcode])(xfsc);
 }

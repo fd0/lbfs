@@ -22,8 +22,6 @@
 #ifndef _XFS_SFS_H_
 #define _XFS_SFS_H_ 1
 
-#define LBFS 1
-
 #include "sfsmisc.h"
 #include "axprt_crypt.h"
 #include "axprt_compress.h"
