@@ -21,6 +21,9 @@
 
 #include "axprt_compress.h"
 
+int lbfs_compress = 
+  (getenv("LBFS_COMPRESS")?atoi(getenv("LBFS_COMPRESS")):Z_DEFAULT_COMPRESSION);
+
 axprt_compress::axprt_compress (ref<axprt> xx)
   : axprt (true, true, xx->socksize), docompress (false), x (xx)
 {
@@ -30,7 +33,8 @@ axprt_compress::axprt_compress (ref<axprt> xx)
   if (int zerr = inflateInit (&zin))
     panic ("inflateInit: %d\n", zerr);
   bzero (&zout, sizeof (zout));
-  if (int zerr = deflateInit (&zout, Z_DEFAULT_COMPRESSION))
+  warn << "using compression level " << lbfs_compress << "\n";
+  if (int zerr = deflateInit (&zout, lbfs_compress))
     panic ("deflateInit: %d\n", zerr);
 
   bufsize = ps ();		// XXX - should use x's packet size
