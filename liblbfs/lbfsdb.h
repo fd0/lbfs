@@ -35,26 +35,26 @@ struct lbfs_chunk_loc {
   off_t pos;		// 8 bytes
   ssize_t size; 	// 4 bytes
   unsigned unused;	// 4 bytes	
-
-  lbfs_chunk_loc() {}
-  lbfs_chunk_loc(nfs_fh3 h, off_t p, ssize_t s) {
-    fh = h;
-    // mtime = 0;
-    pos = p;
-    size = s;
+  
+  lbfs_chunk_loc &operator= (const lbfs_chunk_loc &l) {
+    memmove(&fh, &l.fh, sizeof(fh));
+    mtime = l.mtime;
+    pos = l.pos;
+    size = l.size;
+    return *this;
   }
 };
 
+
+
 struct lbfs_chunk {
   u_int64_t fingerprint;
-  struct lbfs_chunk_loc where;
+  struct lbfs_chunk_loc loc;
  
   lbfs_chunk() {}
-  lbfs_chunk(nfs_fh3 h, off_t p, ssize_t s, u_int64_t fp) {
-    where.fh = h;
-    // where.mtime = 0;
-    where.pos = p;
-    where.size = s;
+  lbfs_chunk(off_t p, ssize_t s, u_int64_t fp) {
+    loc.pos = p;
+    loc.size = s;
     fingerprint = fp;
   }
 };
@@ -121,8 +121,10 @@ lbfs_db::chunk_iterator::get(lbfs_chunk_loc *c)
   Dbt key;
   Dbt data;
   int ret = _cursor->get(&key, &data, DB_CURRENT);
-  if (ret == 0 && data.get_data())
-    *c = *(reinterpret_cast<lbfs_chunk_loc*>(data.get_data()));
+  if (ret == 0 && data.get_data()) {
+    lbfs_chunk_loc *loc = reinterpret_cast<lbfs_chunk_loc*>(data.get_data());
+    *c = *loc;
+  }
   return ret;
 }
 

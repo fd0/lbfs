@@ -11,26 +11,7 @@
 // successful, -1 otherwise.
 int
 lbfs_search_reusable_chunks(vec<lbfs_chunk *> &new_chunks,
-                            vec<lbfs_chunk *> &reusable_chunks);
-
-// for each lbfs_chunk object in reusable_chunks list, load the chunk into
-// new_fd at position specified by the corresponding lbfs_chunk object in
-// new_chunks list. if the write is unsuccessful, the lbfs_chunk object in
-// reusable_chunks list is deleted and the ptr in the list is set to 0.
-// otherwise the object is untouched. returns the number of failed chunks.
-// new_chunks list is untouched.
-int
-lbfs_load_reusable_chunks(int new_fd, 
-                          vec<lbfs_chunk *> &new_chunks,
-                          vec<lbfs_chunk *> &reusable_chunks);
-
-
-// add a new file, currently named by tmppath, to the database and filesystem
-// as file named by path: remove the file's old chunk information from the db,
-// and insert new chunk information into the db. rename tmppath to oldpath.
-// returns 0 if successful.
-int
-lbfs_add_file(const char *path, const char *tmppath);
+                            vec<lbfs_chunk_loc *> &reusable_chunks);
 
 #endif _LBFS_H_
 

@@ -3,7 +3,7 @@
 
 $(PROGRAMS): $(LDEPS)
 
-sfslib_PROGRAMS = sfslbsd mkdb
+sfslib_PROGRAMS = sfslbsd mkdb dbif
 
 noinst_HEADERS = lbfs.h sfsrwsd.h
 
@@ -13,8 +13,8 @@ sfslbsd_LDADD = $(LDADD) $(DB3_LIB)
 mkdb_SOURCES = mkdb.C getfh3.C
 mkdb_LDADD = $(LDADD) $(DB3_LIB)
 
-# dbif_SOURCES = dbif.C lbfs.C
-# dbif_LDADD = $(LDADD) $(DB3_LIB)
+dbif_SOURCES = dbif.C lbfs.C
+dbif_LDADD = $(LDADD) $(DB3_LIB)
 
 EXTRA_DIST = .cvsignore
 CLEANFILES = core *.core *~ *.rpo

@@ -37,12 +37,12 @@ lbfs_db::get_chunk_iterator(u_int64_t fingerprint,
   if (_fp_dbp.cursor(NULL, &cursor, 0) == 0) { 
     Dbt key(&fingerprint, sizeof(fingerprint)); 
     Dbt data;
-    cursor->get(&key, &data, DB_SET); 
-    *iterp = new chunk_iterator(cursor);
-    return 0;
+    if (cursor->get(&key, &data, DB_SET) == 0) {
+      *iterp = new chunk_iterator(cursor);
+      return 0;
+    }
   } 
-  else 
-    return -1;
+  return -1;
 }
 
 int

@@ -14,39 +14,41 @@ ptr<aclnt> _c;
 
 static const char *_host;
 static const char *_root;
-static lbfs_db *_db = 0;
+static int _totalfns = 0;
 static int _requests = 0;
+static lbfs_db _db;
 
 void
 gotfh(const char *path, const nfs_fh3 *fhp, str err)
 {
   if (!err) {
+#if 0
     for(int i=0; i<64; i++)
       printf ("%d.", (int)((char*)fhp)[i]);
     printf("\n");
-      
+#endif  
     const u_char *fp;
     size_t fl; 
     mapfile (&fp, &fl, path); 
     for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
       vec<lbfs_chunk *> cv;
-      if (chunk_data(path, fhp, CHUNK_SIZES(j), fp, fl, &cv) == 0) { 
-	printf("%s: %d, %d chunks\n", path, CHUNK_SIZES(j), cv.size()); 
+      if (chunk_data(path, CHUNK_SIZES(j), fp, fl, &cv) == 0) { 
 	for(unsigned i=0; i<cv.size(); i++) { 
-	  _db->add_chunk(cv[i]->fingerprint, &(cv[i]->where)); 
+	  cv[i]->loc.fh = *fhp;
+          printf("add %s 0x%016qx %d\n", 
+	         path, cv[i]->fingerprint, cv[i]->loc.size);
+	  _db.add_chunk(cv[i]->fingerprint, &(cv[i]->loc)); 
 	  delete cv[i]; 
 	}
       }
+      if (cv.size()==1) break;
     }
     munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
-
-  } else {
-    warn << path << ": " << err << "!!!\n";
   }
   delete path;
   _requests--;
   if (_requests == 0) {
-    delete _db;
+    printf("%d files\n", _totalfns);
     exit(0);
   }
 }
@@ -55,10 +57,8 @@ int
 add_directory(const char *path)
 {
   DIR *dirp;
-  if ((dirp = opendir (path)) == 0) {
-    printf("%s is not a directory\n", path);
+  if ((dirp = opendir (path)) == 0)
     return -1;
-  }
 
   struct dirent *de = NULL;
   while ((de = readdir (dirp))) { 
@@ -73,6 +73,7 @@ add_directory(const char *path)
       add_directory(fullpath);
     else if (S_ISREG(sb.st_mode)) {
       _requests++;
+      _totalfns++;
       getfh3(_mountc, fullpath, wrap(gotfh, fullpath));
     }
   }
@@ -91,8 +92,7 @@ getmountc(ptr<aclnt> nc, clnt_stat stat)
   }
   _mountc = nc;
  
-  _db = new lbfs_db();
-  _db->open();
+  _db.open();
   add_directory(_root);
 }
 
