@@ -327,23 +327,34 @@ void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res, ti
 void write_file(ref<getfp_args> ga, uint64 offset, uint32 count, ex_read3res *res,
 		lbfs_getfp3res *fpres) {
 //, clnt_stat cl_err) {
-
+#if 0
   if (fht.setcur(ga->h->handle)) {
     warn << "nfs3_readdir: Can't find node handle\n";
     return;
   }
-  
+#endif  
+  warn << "filename = " << ga->out_fname << " offset = " << offset << "\n";
+  int out_fd = open(ga->out_fname, O_CREAT | O_WRONLY, 0666);
+  if (out_fd < 0) {
+    warn << "write_file1: " << ga->out_fname << " " <<  strerror(errno) << "\n";
+    return;
+  }
+
   int err;
-  if ((err = lseek(ga->cfd, offset, SEEK_SET)) < 0) {
-    warn << "write_file: " << strerror(errno) << "\n";
+  if ((err = lseek(out_fd, offset, SEEK_SET)) < 0) {
+    warn << "write_file2: " << ga->out_fname << " " << strerror(errno) << "\n";
     return;
   }
   
-  err = write(ga->cfd, res->resok->data.base(), res->resok->data.size());
-  if (err != (int)res->resok->data.size()) {
-    warn << "write error or short write!!\n";
+  if ((err = write(out_fd, res->resok->data.base(), res->resok->data.size())) < 0) {
+    warn << "write_file3: " << ga->out_fname << " " << strerror(errno) << "\n";
     return;
-  }
+  } else
+    if (err != (int)res->resok->data.size()) {
+      warn << "write error or short write!!\n";
+      return;
+    }
+  close(out_fd);
 
   if (res->resok->count < count)
     normal_read(ga, offset+res->resok->count, count-res->resok->count, fpres);
@@ -358,7 +369,7 @@ void nfs3_read(ref<getfp_args> ga, uint64 offset, uint32 count, lbfs_getfp3res *
 
     write_file(ga, offset, count, res, fpres); 
 
-    if (ga->blocks_written == fpres->resok->fprints.size()) {
+    if (ga->blocks_written == ga->total_blocks) {//fpres->resok->fprints.size()) {
 
       //add chunk to the database
       vec<lbfs_chunk *> cvp;
@@ -371,8 +382,8 @@ void nfs3_read(ref<getfp_args> ga, uint64 offset, uint32 count, lbfs_getfp3res *
 	cvp[i]->loc.set_fh(fht.getnh(fht.getcur()));
 	lbfsdb.add_chunk(cvp[i]->fingerprint, &(cvp[i]->loc));
       }
-
-      close(ga->cfd);
+      lbfsdb.sync();
+      //close(ga->cfd);
       fht.setopened(true);
 	
       struct xfs_message_header *h0 = NULL;
@@ -411,12 +422,12 @@ void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count,
 
 void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
 
-  int err, chfd;
+  int err, chfd, out_fd;
   uint64 offset = ga->offset; //chunk position
 
   lbfs_db::chunk_iterator *ci = NULL;
   bool found = false;
-  ga->blocks_written = 0;
+  //  ga->blocks_written = 0;
   unsigned char *buf;
   nfs_fh3 fh;
   lbfs_chunk_loc c;
@@ -473,13 +484,18 @@ void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
   
 	  if (found) {
 	    warn << "FOUND!! compose_file: fp = " << res->resok->fprints[i].fingerprint << " in client DB\n";
-	    
+	    out_fd = open(ga->out_fname, O_CREAT | O_WRONLY, 0666);
+	    if (out_fd < 0) {
+	      warn << "compose_file: " << strerror(errno) << "\n";
+	      return;
+	    }
+
 	    //write that chunk to the file
-	    if (lseek(ga->cfd, offset, SEEK_SET) < 0) {
+	    if (lseek(out_fd, offset, SEEK_SET) < 0) {
 	      warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
 	      return;	    
 	    } 
-	    if ((err = write(ga->cfd, buf, c.count())) > -1) {
+	    if ((err = write(out_fd, buf, c.count())) > -1) {
 	      if ((uint32)err != c.count()) {
 		warn << "compose_file: error: " << err << " != " << c.count() << "\n";
 		return;
@@ -488,7 +504,8 @@ void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
 	      warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
 	      return;	    	     
 	    }
-	    //	    delete buf;
+	    delete buf;
+	    close(out_fd);
 	    ga->blocks_written++;
 	  }
 	} while (!found && !(ci->next(&c)));
@@ -502,8 +519,9 @@ void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
     offset += res->resok->fprints[i].count;
   }
   ga->offset = offset; //offset is 'the' current position in the file
-  if (ga->blocks_written == res->resok->fprints.size() && res->resok->eof) {
-    close(ga->cfd);
+  if (ga->blocks_written == ga->total_blocks) { 
+    //res->resok->fprints.size() && res->resok->eof) {
+    //close(ga->cfd);
     fht.setopened(true);
     
     struct xfs_message_header *h0 = NULL;
@@ -532,7 +550,9 @@ void lbfs_getfp(ref<getfp_args> ga, lbfs_getfp3res *res, time_t rqtime,
     fht.set_nfsattr(attr);
     fht.set_ltime(attr.mtime, attr.ctime);
 
+    ga->total_blocks += res->resok->fprints.size();
     compose_file(ga, res); 
+
     if (!res->resok->eof) {
       //ga->offset += gfp->count; //ga->res->resok->count;
       lbfs_getfp3args gfp;
@@ -603,6 +623,7 @@ void getfp(int fd, struct xfs_message_getdata *h) {
     warn << "xfs_message_getdata: " << strerror(errno) << "\n";
     return;
   }
+  close(cfd);
   
   fhandle_t cfh;
   if (getfh(msg.cache_name, &cfh)) {
@@ -612,16 +633,18 @@ void getfp(int fd, struct xfs_message_getdata *h) {
   memmove(&msg.cache_handle, &cfh, sizeof(cfh));
   
   ref<getfp_args> ga = New refcounted<getfp_args> (fd, h);
-  
+  ga->msg = msg;
+  ga->out_fname = new char[MAXPATHLEN];
+  strcpy(ga->out_fname, fht.getcache_name());
+
   lbfs_getfp3args gfp;
   gfp.file = fht.getnh(fht.getcur());
   gfp.offset = 0;
   gfp.count = LBFS_MAXDATA;
   
-  ga->offset = 0;
+  //ga->offset = 0;
   //ga->fpres = New lbfs_getfp3res;
-  ga->cfd = cfd;
-  ga->msg = msg;
+  //ga->cfd = cfd;
 
   lbfs_getfp3res *fpres = New lbfs_getfp3res;
   
@@ -696,7 +719,7 @@ void nfs3_readlink(int fd, struct xfs_message_getdata *h, ex_readlink3res *res,
       | XFS_OPEN_NW | XFS_DATA_W; //This line is a hack...need to get read access 
     strcpy(msg.cache_name, fht.getcache_name());
      
-    int lfd = open(msg.cache_name, O_CREAT | O_RDWR | O_TRUNC, 0666); 
+    int lfd = open(msg.cache_name, O_CREAT | O_WRONLY | O_TRUNC, 0666); 
     if (lfd < 0) 
       return;
  
@@ -832,7 +855,7 @@ void committmp(ref<condwrite3args> cwa, ex_commit3res *res, time_t rqtime, clnt_
 void sendcommittmp(ref<condwrite3args> cwa) {
 
   //signal the server to commit the tmp file
-  close(cwa->rfd);
+  //  close(cwa->rfd);
   lbfs_committmp3args ct;
   ct.commit_from = cwa->tmpfh;
 
@@ -864,11 +887,18 @@ void sendwrite(ref<condwrite3args> cwa, lbfs_chunk *chunk) {
   char iobuf[NFS_MAXDATA];
   uint64 offst = chunk->loc.pos();
   uint32 count = chunk->loc.count();
+
+  int rfd = open(cwa->fname, O_RDONLY, 0666);
+  if (rfd < 0) {
+    warn << "sendwrite: " << strerror(errno) << "\n";
+    return;
+  }
+
   while (count > 0) {
-    ost = lseek(cwa->rfd, offst, SEEK_SET);
+    ost = lseek(rfd, offst, SEEK_SET);
     if (count < NFS_MAXDATA)
-      err = read(cwa->rfd, iobuf, count);
-    else err = read(cwa->rfd, iobuf, NFS_MAXDATA);
+      err = read(rfd, iobuf, count);
+    else err = read(rfd, iobuf, NFS_MAXDATA);
     count -= err;
     offst += err;
     if (err < 0) {
@@ -887,6 +917,7 @@ void sendwrite(ref<condwrite3args> cwa, lbfs_chunk *chunk) {
     nfsc->call(lbfs_NFSPROC3_WRITE, &wa, res, 
 	       wrap(&nfs3_write, cwa, res));
   }
+  close(rfd);
 }
 
 void lbfs_sendcondwrite(ref<condwrite3args> cwa, lbfs_chunk *chunk, 
@@ -916,9 +947,15 @@ void sendcondwrite(ref<condwrite3args> cwa, lbfs_chunk *chunk) {
   cw.count = chunk->loc.count();
   cw.fingerprint = chunk->fingerprint;
 
-  lseek(cwa->rfd, chunk->loc.pos(), SEEK_SET);
+  int rfd = open(cwa->fname, O_RDONLY, 0666);
+  if (rfd < 0) {
+    warn << "sendcondwrite: " << cwa->fname << ".." << strerror(errno) << "\n";
+    return;
+  }
+
+  lseek(rfd, chunk->loc.pos(), SEEK_SET);
   char *buf = New char[cw.count];
-  int err = read(cwa->rfd, buf, cw.count);
+  int err = read(rfd, buf, cw.count);
   if (err < 0) {
     warn << "lbfs_condwrite: error: " << strerror(errno) << "(" << errno << ")\n";
     return;
@@ -928,6 +965,7 @@ void sendcondwrite(ref<condwrite3args> cwa, lbfs_chunk *chunk) {
   }
   sha1_hash(&cw.hash, buf, err);
   delete buf;
+  close(rfd);
   
   ex_write3res *res = New ex_write3res;
 
@@ -954,13 +992,16 @@ void lbfs_mktmpfile(int fd, struct xfs_message_putdata* h,
   
   ref<condwrite3args> cwa = New refcounted<condwrite3args> (fd, h, 
 							    *res->resok->obj.handle);
+  cwa->fname = new char[MAXPATHLEN];
+  strcpy(cwa->fname, fht.getcache_name());
+#if 0
   cwa->rfd = open(fht.getcache_name(), O_RDONLY, 0666);
   if (cwa->rfd < 0) {
     warn << "lbfs_mktmpfile: " << strerror(errno) << "\n";
     return;
   }
-
-  int data_fd = open(fht.getcache_name(), O_RDONLY, 0666);
+#endif
+  int data_fd = open(cwa->fname, O_RDONLY, 0666);
   if (data_fd < 0) {
     warn << "lbfs_mktmpfile: " << strerror(errno) << "\n";
     return;

@@ -51,7 +51,8 @@ public:
   int fd;
   struct xfs_message_putdata* h;
   nfs_fh3 tmpfh;
-  int rfd;
+  //int rfd;
+  char *fname;
   uint blocks_written;
   uint total_blocks;
   bool done;
@@ -60,14 +61,14 @@ public:
 class getfp_args {
  public:
   getfp_args(int f, struct xfs_message_getdata *header) : 
-    fd(f), h(header) {}
+    fd(f), h(header), offset(0), blocks_written(0), total_blocks(0) {}
 
  int fd;
  struct xfs_message_getdata *h;
  uint64 offset; 
- // lbfs_getfp3res *fpres; 
- int cfd; 
+ //int cfd;
  struct xfs_message_installdata msg;
+ char *out_fname;
  uint blocks_written;
  uint total_blocks;
 };
