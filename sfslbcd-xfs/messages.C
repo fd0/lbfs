@@ -872,7 +872,7 @@ xfs_message_getdata (int fd, ref<struct xfs_message_getdata> h, u_int size)
   return 0;
 }
 
-int 
+int
 xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
 {
 
@@ -919,13 +919,15 @@ xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
 	getfp (fd, h, e);
   }
   else {
-    // XXX don't worry about exclusiveness for now
-    if ((h->tokens & (XFS_OPEN_NW|XFS_OPEN_EW)) && e->writers > 1) {
+    
+    // don't read if there are other writers on the cache
+    if (e->writers > 1) {
       ref<struct xfs_message_getdata> hga = 
         New refcounted <struct xfs_message_getdata>;
       *hga = *(*(reinterpret_cast< ref<struct xfs_message_getdata>* >(&h)));
       nfs3_read_exist (fd, hga, e);
     }
+
     if (e->nfs_attr.expire < (uint32) timenow) {
       nfs_fh3 fh = e->nh;
       ptr < ex_getattr3res > res = New refcounted < ex_getattr3res >;

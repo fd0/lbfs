@@ -224,8 +224,10 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
   }
   case XFS_MSG_GETDATA:
     {
-    struct xfs_message_getdata *hh = (struct xfs_message_getdata *)msgstr.cstr();
-    ref<struct xfs_message_getdata> msg = New refcounted<struct xfs_message_getdata>;
+    struct xfs_message_getdata *hh = 
+      (struct xfs_message_getdata *)msgstr.cstr();
+    ref<struct xfs_message_getdata> msg = 
+      New refcounted<struct xfs_message_getdata>;
     msg->header = hh->header;
     msg->cred = hh->cred;
     msg->handle = hh->handle;
