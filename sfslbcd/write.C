@@ -183,6 +183,7 @@ struct write_obj {
   void ok() {
     if (outstanding_writes == 0) {
       if (!callback) {
+	warn << "close after flush\n";
         fe->afh->close (wrap (&write_obj::file_closed));
         fe->afh = 0;
         callback = true;

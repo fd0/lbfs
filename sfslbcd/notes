@@ -17,6 +17,30 @@ consistency
  3) if lease has expired, fetch attribute; if cache time does not
     match mtime, update cache
 
+what happens between open and close of a file is not covered by
+close-to-open consistency. e.g. what should happen on a synchronous
+write? what should happen if the caching client receives a COMMIT from
+the in-kernel client?
+
+in our implementation, the following happens:
+ 
+  - a synchronous write or COMMIT causes the cached content to be
+    flushed to server within N seconds (currently N=2).
+
+  - on a CLOSE, the caching client always flushes cached content to
+    server before replying.
+
+this semantics differ from expected semantics in two ways. one, a
+synchronous write or COMMIT does not cause the data to be stored
+permanently on a server immediately. two, content is not visible to
+another client immediately after a synchronous write or COMMIT.
+
+this means if an application crashes within N seconds of sending a
+synchronous write or commit, content may be lost. to be safe, an
+application should close the file then re-open it.
+
+we may try to fix this problem in a later version of lbfs.
+
 
 operations on cached file:
 --------------------------
@@ -99,15 +123,12 @@ in cache changes, osize does not change. osize is updated when the
 cached object is updated, flushed, or when setattr is processed (since
 setattr is always forwarded to server)
 
+note, we cannot return correct wcc information to the in-kernel nfs
+client, because writes to the server are delayed. thus, on the first
+open after a close that modified the content on the server, the
+in-kernel nfs client will ask the lbfs caching client for data, even
+though it is the only client that wrote to the file. the lbfs caching
+client will return content from its cache, but it won't need to
+contact the server.
 
-misc:
------
-
-can we depend on nfs client to always send an ACCESS rpc before any
-read? we don't do access control upon seeing a READ rpc: we just
-return data from the cached file. if an user cannot access a file, the
-ACCESS rpc will fail, and therefore no READ rpcs will be sent.
-
-is it bad to evict from lrucache a file with an user count greater
-than zero?
 

@@ -34,6 +34,7 @@
 #include "lrucache.h"
 #include "ranges.h"
 #include "aiod.h"
+#include "attrcache.h"
 
 inline bool
 operator== (const nfs_fh3 &a, const nfs_fh3 &b)
@@ -70,55 +71,10 @@ operator< (const nfstime3 &t1, const nfstime3 &t2) {
   return (ts1 < ts2 || (ts1 == ts2 && tns1 < tns2));
 }
 
-class lbfs_attr_cache {
-  struct access_dat {
-    u_int32_t mask;
-    u_int32_t perm;
-
-    access_dat (u_int32_t m, u_int32_t p) : mask (m), perm (p) {}
-  };
-
-public:
-  struct attr_dat {
-    lbfs_attr_cache *const cache;
-    const nfs_fh3 fh;
-    ex_fattr3 attr;
-    qhash<sfs_aid, access_dat> access;
-
-    ihash_entry<attr_dat> fhlink;
-    tailq_entry<attr_dat> lrulink;
-
-    attr_dat (lbfs_attr_cache *c, const nfs_fh3 &f, const ex_fattr3 *a);
-    ~attr_dat ();
-    void touch ();
-    void set (const ex_fattr3 *a, const wcc_attr *w);
-    bool valid () { return timenow < implicit_cast<time_t> (attr.expire); }
-  };
-
-private:
-  friend class attr_dat;
-  ihash<const nfs_fh3, attr_dat, &attr_dat::fh, &attr_dat::fhlink> attrs;
-
-  static void remove_aid (sfs_aid aid, attr_dat *ad)
-    { ad->access.remove (aid); }
-
-public:
-  ~lbfs_attr_cache () { attrs.deleteall (); }
-  void flush_attr () { attrs.deleteall (); }
-  void flush_access (sfs_aid aid) { attrs.traverse (wrap (remove_aid, aid)); }
-  void flush_access (const nfs_fh3 &fh, sfs_aid);
-
-  void attr_enter (const nfs_fh3 &, const ex_fattr3 *, const wcc_attr *);
-  const ex_fattr3 *attr_lookup (const nfs_fh3 &);
-
-  void access_enter (const nfs_fh3 &, sfs_aid aid,
-		     u_int32_t mask, u_int32_t perm);
-  int32_t access_lookup (const nfs_fh3 &, sfs_aid, u_int32_t mask);
-};
-
 class file_cache {
   friend class read_obj;
 public:
+  sfs_aid aid;
   nfs_fh3 fh;
   int status;
   fattr3 fa;
@@ -128,6 +84,9 @@ public:
   int outstanding_ops;
   uint64 mstart;
   uint64 mend;
+  
+  bool flush_scheduled;
+  bool flush_wait;
 
 private:
   static const int fcache_open  = 0;
@@ -140,7 +99,7 @@ private:
   vec<uint64> pri;
   ranges *rcv;
   ranges *req;
-
+  
   void cr() {
     if (rcv) {
       delete rcv;
@@ -158,7 +117,11 @@ private:
 public:
   file_cache(nfs_fh3 fh)
     : fh(fh), status(fcache_open), afh(0), outstanding_ops(0),
-      mstart(0), mend(0), rcv(0), req(0) {}
+      mstart(0), mend(0), rcv(0), req(0)
+  {
+    flush_scheduled = flush_wait = false;
+  }
+
   ~file_cache() { if (rcv) delete rcv; assert(rpcs.size() == 0); }
 
   bool is_idle()    const { return status == fcache_idle; }
@@ -216,6 +179,7 @@ protected:
   void fixlc (nfscall *nc, void *res);
   bool dont_run_rpc (nfscall *nc);
 
+  void delayed_flush (nfs_fh3 fh);
   void flush_cache (nfscall *nc, file_cache *e);
 
   void read_from_cache (nfscall *nc, file_cache *e);

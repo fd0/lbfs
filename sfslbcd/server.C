@@ -22,6 +22,7 @@
 
 // implementation description is in "notes"
 
+#define FILESYNC_DELAY 2
 #define warn_debug  if (0) warn
 
 #include <typeinfo>
@@ -40,6 +41,7 @@ server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
   assert(e && e->is_open());
   warn_debug << "checking cache for " << obj <<  "\n";
   if (fa.type == NF3REG) {
+    e->aid = aid;
     // update file cache if cache time != mtime
     if (e->fa.mtime < fa.mtime ||
 	fa.mtime < e->fa.mtime) {
@@ -219,10 +221,10 @@ server::write_to_cache_write (nfscall *sbp, file_cache *e,
   }
   else {
     e->dirty ();
+
+    uint64 osize = e->fa.size;
     if (a->offset+sz > e->fa.size)
       e->fa.size = a->offset+sz;
-
-    // XXX if stable, flush data
 
     // mark region as modified
     if (e->mstart == 0 && e->mend == 0) {
@@ -236,21 +238,29 @@ server::write_to_cache_write (nfscall *sbp, file_cache *e,
         e->mend = a->offset + a->count;
     }
 
+    if (a->stable != UNSTABLE && !e->flush_scheduled) {
+      // schedule file flush
+      warn << "schedule delayed flush after sync write\n";
+      delaycb (FILESYNC_DELAY, wrap (this, &server::delayed_flush, e->fh));
+      e->flush_scheduled = true;
+    }
+
     write3res res(NFS3_OK);
     res.resok->count = a->count;
-    res.resok->committed = FILE_SYNC; // XXX
-  
+    res.resok->committed = FILE_SYNC;
+
     res.resok->file_wcc.before.set_present (true);
-    (res.resok->file_wcc.before.attributes)->size = e->fa.size;
+    (res.resok->file_wcc.before.attributes)->size = osize;
     (res.resok->file_wcc.before.attributes)->mtime = e->fa.mtime;
     (res.resok->file_wcc.before.attributes)->ctime = e->fa.ctime;
+
     res.resok->file_wcc.after.set_present (true);
     *(res.resok->file_wcc.after.attributes) = e->fa;
     res.resok->verf = verf3;
     sbp->reply (&res);
   }
 
-  // check if there are any CLOSE or COMMIT that we blocked
+  // check if there are any CLOSE
   run_rpcs (e);
 }
 
@@ -310,36 +320,36 @@ server::flush_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok)
 {
   file_cache *e = file_cache_lookup(fh);
   assert(e && e->is_flush());
+  warn << "flush done " << e->fh << "\n";
   if (ok) {
     e->fa = fa;
     // update osize to reflect what the server knows
     e->osize = fa.size;
-    if (e->mstart == e->mend && e->mstart == 0) {
-      if (nc->proc () == cl_NFSPROC3_CLOSE)
-        e->open ();
-      else
-        e->idle ();
-    }
-    else
+    if (e->mstart == e->mend && e->mstart == 0)
+      e->open ();
+    else {
+      warn << "after flush, file still dirty\n";
       e->dirty ();
-    if (nc->proc () == NFSPROC3_COMMIT) {
-      commit3res res (NFS3_OK);
-      res.resok->verf = verf3;
-      nc->reply (&res);
     }
-    else
+    if (nc)
       nc->error (NFS3_OK);
   }
   else {
+    warn << "flush failed\n";
     e->error();
-    nc->reject (SYSTEM_ERR);
+    if (nc)
+      nc->reject (SYSTEM_ERR);
   }
+  e->flush_wait = e->flush_scheduled = false;
   run_rpcs (e);
 }
 
 void
 server::run_rpcs (file_cache *e)
 {
+  if (e->flush_wait)
+    delayed_flush (e->fh);
+
   vec<nfscall *> rpcs;
   for (unsigned i=0; i<e->rpcs.size(); i++)
     rpcs.push_back(e->rpcs[i]);
@@ -349,9 +359,33 @@ server::run_rpcs (file_cache *e)
 }
 
 void
+server::delayed_flush (nfs_fh3 fh)
+{
+  file_cache *e = file_cache_lookup(fh);
+  if (!e)
+    return;
+  else {
+    if (!e->is_dirty () && !e->being_modified ()) {
+      warn << "file no longer dirty, delayed flush canceled\n";
+      e->flush_wait = e->flush_scheduled = false;
+      return;
+    }
+    else if (e->being_modified ()) {
+      warn << "file being modified, delay flush\n";
+      e->flush_wait = true;
+      return;
+    }
+    warn << "file is dirty, delayed flush running\n";
+    flush_cache (0L, e); 
+  }
+}
+
+void
 server::flush_cache (nfscall *nc, file_cache *e)
 {
-  sfs_aid aid = nc->getaid();
+  // sfs_aid aid = nc->getaid();
+  sfs_aid aid = e->aid;
+
   // mark e as being flushed. after lbfs_write finishes we will update
   // the attribute cache.
   assert(e->is_dirty());
@@ -364,12 +398,6 @@ server::flush_cache (nfscall *nc, file_cache *e)
 
   uint64 start = e->mstart;
   uint64 size = e->mend - e->mstart;
-
-  if (nc->proc () == NFSPROC3_COMMIT) {
-    commit3args *a = nc->template getarg<commit3args> ();
-    start = a->offset;
-    size = a->count;
-  }
 
   if (start <= e->mstart && (start+size) > e->mstart)
     e->mstart = start + size;
@@ -719,7 +747,20 @@ server::dont_run_rpc (nfscall *nc)
   file_cache *e = file_cache_lookup(*fh);
 
   if (e) {
-    if ((nc->proc () == cl_NFSPROC3_CLOSE || nc->proc () == NFSPROC3_COMMIT)) {
+    if (nc->proc () == NFSPROC3_COMMIT) {
+      warn << "see commit\n";
+      if (e->is_dirty() && !e->flush_scheduled) {
+        warn << "schedule delayed flush\n";
+        delaycb (FILESYNC_DELAY, wrap (this, &server::delayed_flush, e->fh));
+        e->flush_scheduled = true;
+      }
+      commit3res res (NFS3_OK);
+      res.resok->verf = verf3;
+      nc->reply (&res);
+      return true;
+    }
+
+    if (nc->proc () == cl_NFSPROC3_CLOSE) {
       if (!e->is_dirty() && !e->is_flush() && !e->being_modified ())
         return false;
       else if (e->being_modified ()) {
@@ -864,7 +905,6 @@ server::dispatch (nfscall *nc)
     }
 
   case cl_NFSPROC3_CLOSE:
-  case NFSPROC3_COMMIT:
     {
       nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
       file_cache *e = file_cache_lookup(*a);
@@ -878,19 +918,13 @@ server::dispatch (nfscall *nc)
       if (!e)
         warn << "dangling close: " << *a << "\n";
 
-      if (nc->proc () == cl_NFSPROC3_CLOSE && e &&
-	  e->afh != 0 && !e->is_fetch ()) {
+      if (e && e->afh != 0 && !e->is_fetch ()) {
+	warn << "closing file " << e->fh << "\n";
 	e->afh->close (wrap (&server::file_closed));
 	e->afh = 0;
       }
 
-      if (nc->proc () == NFSPROC3_COMMIT) {
-        commit3res res (NFS3_OK);
-        res.resok->verf = verf3;
-        nc->reply (&res);
-      }
-      else
-        nc->error (NFS3_OK);
+      nc->error (NFS3_OK);
       return;
     }
 

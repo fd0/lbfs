@@ -19,7 +19,7 @@
  *
  */
 
-#include "sfslbcd.h"
+#include "attrcache.h"
 
 enum { max_attr_dat = 1024 };
 
