@@ -112,8 +112,8 @@ struct filesys {
   inotab_t *inotab;
 };
 
-#define SFS_TRASH_DIR_BUCKETS   256 // number of buckets
-#define SFS_TRASH_DIR_SIZE    50000 // total number of trash files
+#define SFS_TRASH_DIR_BUCKETS   254 // number of buckets (256-2, for . and ..)
+#define SFS_TRASH_DIR_SIZE    64516 // total trash files (254 in each bucket)
 #define SFS_TRASH_WIN_SIZE      100 // empty slots to nfs3_link to
 
 struct trash_dir {

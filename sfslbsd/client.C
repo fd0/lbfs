@@ -306,9 +306,11 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
   nfs_fh3 fh = cta->commit_to;
   u_int32_t authno = sbp->getaui ();
   unsigned fsno = rqs.fsno;
-  
+ 
+#if DEBUG > 1
   gettimeofday(&t1, 0L);
   warn << "committmp: " << timediff() << " usecs\n";
+#endif
 
   commit3res *cres = New commit3res;
   if (!res)
@@ -387,7 +389,9 @@ void
 client::committmp (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
+#if DEBUG > 1
   gettimeofday(&t0, 0L);
+#endif
   nfs3_copy (fsrv->c, cta->commit_from, cta->commit_to,
              wrap(read_cb_nop),
              wrap(mkref(this), &client::committmp_cb, sbp, rqs));
@@ -546,6 +550,7 @@ client::nfs3dispatch (svccb *sbp)
 #endif
     getfp(sbp, rqs);
   }
+#if KEEP_TMP_VERSIONS == 0
   // keep removed files, so we can use their chunks
   else if (sbp->proc () == NFSPROC3_REMOVE) {
     diropargs3 *arg = sbp->template getarg<diropargs3> ();
@@ -568,6 +573,7 @@ client::nfs3dispatch (svccb *sbp)
 	           wrap (mkref(this), &client::oscar_lookup_cb, sbp, rqs, res),
 	           authtab[authno]);
   }
+#endif
   else {
 #if DEBUG > 2
     if (sbp->proc () == NFSPROC3_LOOKUP) 
