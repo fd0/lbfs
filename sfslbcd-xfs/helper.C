@@ -50,8 +50,17 @@ struct attr_obj {
       
       cache_entry *ce;
       if (h->header.opcode == XFS_MSG_PUTATTR) {
-	if (wres->wcc->after.present)
+	if (wres->wcc->after.present) {
+	  ce = nfsindex[fh];
+	  if ((*wres->wcc->before.attributes).size == ce->nfs_attr.size &&
+	      (*wres->wcc->before.attributes).mtime == ce->nfs_attr.mtime &&
+	      (*wres->wcc->before.attributes).ctime == ce->nfs_attr.ctime) {
+	    truncate(ce->cache_name, (*wres->wcc->after.attributes).size);
+            ce->ltime = max((*wres->wcc->after.attributes).mtime, 
+		            (*wres->wcc->after.attributes).ctime);
+	  }
 	  ce = update_cache (fh, *wres->wcc->after.attributes);
+	}
 	else 
 	  if (wres->wcc->before.present) {
 	    ce = nfsindex[fh];
@@ -74,6 +83,7 @@ struct attr_obj {
 	  update_dir_expire = true;
       }
       ce->set_exp (rqt, update_dir_expire);
+#if 0
       if (h->header.opcode == XFS_MSG_PUTATTR)
 	if (saa.new_attributes.size.set) {
 	  if (lbcd_trace > 1)
@@ -82,6 +92,7 @@ struct attr_obj {
 	  // can't depend on client set time to expire cache data
 	  truncate(ce->cache_name, *(saa.new_attributes.size.val));
 	}
+#endif
       nfsobj2xfsnode (cred, ce, &msg.node);
       
       xfs_send_message_wakeup_multiple (fd, seqnum,
