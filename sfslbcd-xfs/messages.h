@@ -38,7 +38,7 @@
 #include "sha1.h"
 
 #define NFS_MAXDATA 8192
-#define LBFS_MAXDATA 2097152
+#define LBFS_MAXDATA 262144
 
 extern fh_map fht;
 
@@ -66,7 +66,7 @@ public:
 class getfp_args {
  public:
   getfp_args(int f, struct xfs_message_getdata *header) : 
-    fd(f), h(header), offset(0), blocks_written(0), total_blocks(0) {
+    fd(f), h(header), offset(0), blocks_written(0), total_blocks(0), eof(0) {
     out_fname = New char[MAXPATHLEN];
   }
   ~getfp_args() {
@@ -81,6 +81,7 @@ class getfp_args {
  char *out_fname;
  uint blocks_written;
  uint total_blocks;
+ uint eof;
 };
 
 class rename_args {

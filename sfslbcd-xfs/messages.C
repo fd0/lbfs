@@ -378,7 +378,7 @@ void nfs3_read(ref<getfp_args> ga, uint64 offset, uint32 count,
 
     write_file(ga, offset, count, res); 
 
-    if (ga->blocks_written == ga->total_blocks) {
+    if (ga->blocks_written == ga->total_blocks && ga->eof) {
 
       //add chunk to the database
       vec<lbfs_chunk *> cvp;
@@ -527,9 +527,7 @@ void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
     offset += res->resok->fprints[i].count;
   }
   ga->offset = offset; //offset is 'the' current position in the file
-  if (ga->blocks_written == ga->total_blocks) { 
-    //res->resok->fprints.size() && res->resok->eof) {
-    //close(ga->cfd);
+  if (ga->blocks_written == ga->total_blocks && ga->eof) { 
     fht.setopened(true);
     
     struct xfs_message_header *h0 = NULL;
@@ -559,6 +557,7 @@ void lbfs_getfp(ref<getfp_args> ga, lbfs_getfp3res *res, time_t rqtime,
     fht.set_ltime(attr.mtime, attr.ctime);
 
     ga->total_blocks += res->resok->fprints.size();
+    ga->eof = res->resok->eof;
     compose_file(ga, res); 
 
     if (!res->resok->eof) {
