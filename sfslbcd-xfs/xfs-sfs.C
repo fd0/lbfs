@@ -33,7 +33,7 @@ vec<sfs_extension> sfs_extensions;
 sfs_connectres conres;
 
 #if LBFS_READ
-lbfs_db lbfsdb;
+fp_db lbfsdb;
 #endif
 
 bool
@@ -168,7 +168,7 @@ void sfsInit(const char* path) {
   strcpy(sfs_path, path);
   tcpconnect(hostname, port, wrap(sfsConnect, hostname, hid));
 #if LBFS_READ
-  lbfsdb.open_and_truncate();
+  lbfsdb.open_and_truncate(FP_DB);
 #endif
 }
 

@@ -111,7 +111,7 @@ compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
 
 void
 client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
-                             lbfs_db::chunk_iterator *iter,
+                             fp_db::iterator *iter,
 			     unsigned char *data, 
 			     size_t count, read3res *, str err)
 {
@@ -193,8 +193,8 @@ void
 client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
-  lbfs_db::chunk_iterator *iter = 0;
-  if (lbfsdb.get_chunk_iterator(cwa->fingerprint, &iter) == 0) {
+  fp_db::iterator *iter = 0;
+  if (lbfsdb.get_iterator(cwa->fingerprint, &iter) == 0) {
     if (iter) { 
       lbfs_chunk_loc c; 
       if (!iter->get(&c)) { 
@@ -288,19 +288,17 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     nfs3reply (sbp, cres, rqs, RPC_FAILED);
 
   chunker->stop();
-  vec<lbfs_chunk *> *cv = chunker->cvp;
+  const vec<lbfs_chunk *>& cv = chunker->chunk_vector();
   if (!err) {
-    for (unsigned i=0; i<cv->size(); i++) {
-      (*cv)[i]->loc.set_fh(fh);
-      lbfsdb.add_chunk((*cv)[i]->fingerprint, &((*cv)[i]->loc)); 
+    for (unsigned i=0; i<cv.size(); i++) {
+      cv[i]->loc.set_fh(fh);
+      lbfsdb.add_entry(cv[i]->fingerprint, &(cv[i]->loc)); 
 #if DEBUG > 2
-      warn << "COMMITTMP: adding " << (*cv)[i]->fingerprint << " to database\n";
+      warn << "COMMITTMP: adding " << cv[i]->fingerprint << " to database\n";
 #endif
     }
     lbfsdb.sync();
   }
-  for (unsigned i=0; i<cv->size(); i++) delete (*cv)[i];
-  delete cv;
   delete chunker;
 
   tmpfh_record *tfh_rec = fhtab.tab[tmpfh];
@@ -338,8 +336,7 @@ void
 client::committmp (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
-  vec<lbfs_chunk *> *v = New vec<lbfs_chunk*>;
-  Chunker *chunker = New Chunker(CHUNK_SIZES(0), v);
+  Chunker *chunker = New Chunker(CHUNK_SIZES(0));
   nfs3_copy (fsrv->c, cta->commit_from, cta->commit_to,
              wrap(mkref(this), &client::chunk_data, chunker),
              wrap(mkref(this), &client::committmp_cb, sbp, rqs, chunker));
@@ -352,21 +349,21 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   lbfs_getfp3args *arg = sbp->template getarg<lbfs_getfp3args> ();
   if (!err && rres->resok->eof) 
     chunker->stop();
-  vec<lbfs_chunk *> *cv = chunker->cvp;
+  const vec<lbfs_chunk *>& cv = chunker->chunk_vector();
   lbfs_getfp3res *res = New lbfs_getfp3res;
   if (!err) {
     unsigned i = 0;
-    unsigned n = cv->size() < 1024 ? cv->size() : 1024;
-    size_t off = (*cv)[0]->loc.pos();
+    unsigned n = cv.size() < 1024 ? cv.size() : 1024;
+    size_t off = cv[0]->loc.pos();
     res->resok->fprints.setsize(n);
     for (; i<n; i++) {
       struct lbfs_fp3 x;
-      x.count = (*cv)[i]->loc.count();
-      x.fingerprint = (*cv)[i]->fingerprint;
-      x.hash = *(chunker->hv[i]);
+      x.count = cv[i]->loc.count();
+      x.fingerprint = cv[i]->fingerprint;
+      x.hash = cv[i]->hash;
       res->resok->fprints[i] = x;
 #if DEBUG > 2
-      warn << "GETFP: " << off+arg->offset << " " << (*cv)[i]->fingerprint 
+      warn << "GETFP: " << off+arg->offset << " " << cv[i]->fingerprint 
 	   << " " << armor32(x.hash.base(), sha1::hashsize) << "\n";
 #endif
       off += x.count;
@@ -393,9 +390,6 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     else
       nfs3reply (sbp, res, rqs, RPC_FAILED);
   }
-
-  for (unsigned i=0; i<cv->size(); i++) delete (*cv)[i];
-  delete cv;
   delete chunker;
 }
 
@@ -406,8 +400,7 @@ client::getfp (svccb *sbp, filesrv::reqstate rqs)
 #if DEBUG > 1
   warn << "GETFP: ask for " << arg->offset << " and " << arg->count << "\n"; 
 #endif
-  vec<lbfs_chunk *> *v = New vec<lbfs_chunk*>;
-  Chunker *chunker = New Chunker(CHUNK_SIZES(0), v, true);
+  Chunker *chunker = New Chunker(CHUNK_SIZES(0), true);
   nfs3_read 
     (fsrv->c, arg->file, 
      wrap(mkref(this), &client::chunk_data, chunker),
@@ -483,7 +476,7 @@ client::client (ref<axprt_crypt> x)
 				(gid_t) -1, 0, NULL);
   clienttab.insert (this);
 
-  lbfsdb.open ();
+  lbfsdb.open (FP_DB);
 }
 
 client::~client ()

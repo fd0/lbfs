@@ -24,7 +24,7 @@
 #include "sfsrwsd.h"
 #include "lbfs.h"
   
-lbfs_db _db;
+fp_db _db;
 static int _requests = 0;
 static char *_host;
 static char *_file;
@@ -39,8 +39,8 @@ lbfs_search_reusable_chunks(vec<lbfs_chunk *> &new_chunks,
 
   reusable_chunks.setsize(new_chunks.size());
   for (unsigned i = 0; i < new_chunks.size(); i++) {
-    lbfs_db::chunk_iterator *iter = 0;
-    if (_db.get_chunk_iterator(new_chunks[i]->fingerprint, &iter) == 0) {
+    fp_db::iterator *iter = 0;
+    if (_db.get_iterator(new_chunks[i]->fingerprint, &iter) == 0) {
       if (iter) {
         lbfs_chunk_loc *c = New lbfs_chunk_loc();
         if (iter->get(c) == 0)
@@ -101,7 +101,7 @@ getnfsc(ptr<aclnt> nc, clnt_stat stat)
   }
 
   vec<lbfs_chunk_loc *> reusable_chunks;
-  _db.open();
+  _db.open(FP_DB);
   lbfs_search_reusable_chunks(new_chunks, reusable_chunks);
  
   for (unsigned i=0; i<new_chunks.size(); i++) {

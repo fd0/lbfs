@@ -390,7 +390,7 @@ void nfs3_read(ref<getfp_args> ga, uint64 offset, uint32 count,
       for (uint i=0; i<cvp.size(); i++) {
 	warn << "adding fp = " << cvp[i]->fingerprint << " to lbfsdb\n";
 	cvp[i]->loc.set_fh(fht.getnh(fht.getcur()));
-	lbfsdb.add_chunk(cvp[i]->fingerprint, &(cvp[i]->loc));
+	lbfsdb.add_entry(cvp[i]->fingerprint, &(cvp[i]->loc));
       }
       lbfsdb.sync();
       //close(ga->cfd);
@@ -435,7 +435,7 @@ void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
   int err, chfd, out_fd;
   uint64 offset = ga->offset; //chunk position
 
-  lbfs_db::chunk_iterator *ci = NULL;
+  fp_db::iterator *ci = NULL;
   bool found = false;
   //  ga->blocks_written = 0;
   nfs_fh3 fh;
@@ -447,7 +447,7 @@ void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
     //find matching fp in the database
     //if found, write that chunk to the file,
     //otherwise, send for a normal read of that chunk
-    if (!lbfsdb.get_chunk_iterator(res->resok->fprints[i].fingerprint, &ci)) {
+    if (!lbfsdb.get_iterator(res->resok->fprints[i].fingerprint, &ci)) {
       if (!ci) warn << "ci is NULL\n";
       if (ci && !(ci->get(&c))) {
 	do {
@@ -1027,24 +1027,23 @@ void lbfs_mktmpfile(int fd, struct xfs_message_putdata* h,
     delete res;
     return;
   }
-  vec<lbfs_chunk *> *v = New vec<lbfs_chunk *>;
-  Chunker *chunker = New Chunker(CHUNK_SIZES(0), v);
+  Chunker *chunker = New Chunker(CHUNK_SIZES(0));
   uint count, index = 0, v_size = 0;
   unsigned char buf[4096];
   while ((count = read(data_fd, buf, 4096)) > 0) {
     chunker->chunk(buf, count);
-    if (chunker->cvp->size() > v_size) {
+    if (chunker->chunk_vector().size() > v_size) {
       //send condwrite request on last_index..size()
-      v_size = chunker->cvp->size();
+      v_size = chunker->chunk_vector().size();
       cwa->total_blocks = v_size;
       warn << "chindex = " << index << " size = " << v_size << "\n";
-      sendcondwrite(cwa, (*chunker->cvp)[index++]);
+      sendcondwrite(cwa, chunker->chunk_vector()[index++]);
     }
   }
   chunker->stop();
   close(data_fd);
   cwa->done = true;
-  cwa->total_blocks = chunker->cvp->size();
+  cwa->total_blocks = chunker->chunk_vector().size();
   warn << "blocks written = " << cwa->blocks_written
        << " total_blocks = " << cwa->total_blocks << "\n";
   if (index+1 != cwa->total_blocks) {
@@ -1053,7 +1052,7 @@ void lbfs_mktmpfile(int fd, struct xfs_message_putdata* h,
   }
   for (uint i=index; i<cwa->total_blocks; i++) {
     warn << "chindex = " << i << " size = " <<  cwa->total_blocks<< "\n";
-    sendcondwrite(cwa, (*chunker->cvp)[i]);    
+    sendcondwrite(cwa, chunker->chunk_vector()[i]);    
   }
   delete chunker;
   delete v;

@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 #include "sha1.h"
-#include "lbfsdb.h"
+#include "chunk.h"
 #include "rabinpoly.h"
 #include "fingerprint.h"
 
@@ -49,8 +49,8 @@ fingerprint(const unsigned char *data, size_t count)
   return fp;
 }
 
-Chunker::Chunker(unsigned s, vec<lbfs_chunk *> *v, bool hash)
-  : _w(FINGERPRINT_PT), _chunk_size(s), _hash(hash), cvp(v)
+Chunker::Chunker(unsigned s, bool hash)
+  : _w(FINGERPRINT_PT), _chunk_size(s), _hash(hash)
 {
   _last_pos = 0;
   _cur_pos = 0;
@@ -70,14 +70,14 @@ Chunker::Chunker(unsigned s, vec<lbfs_chunk *> *v, bool hash)
 Chunker::~Chunker()
 {
   if (_hash) {
-    for (unsigned i = 0; i < hv.size(); i++)
-      delete hv[i];
     if (_hbuf_size > 0) {
       delete[] _hbuf;
       _hbuf_size = 0;
       _hbuf_cursor = 0;
     }
   }
+  for (unsigned i = 0; i < _cv.size(); i++)
+    delete _cv[i];
 }
 
 void
@@ -101,12 +101,10 @@ Chunker::stop()
 {
   lbfs_chunk *c = New lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
   if (_hash) { 
-    sfs_hash *h = New sfs_hash; 
-    sha1_hash(h->base(), _hbuf, _hbuf_cursor); 
+    sha1_hash(c->hash.base(), _hbuf, _hbuf_cursor); 
     _hbuf_cursor = 0; 
-    hv.push_back(h); 
   }
-  cvp->push_back(c);
+  _cv.push_back(c);
 }
 
 void
@@ -125,12 +123,10 @@ Chunker::chunk(const unsigned char *data, size_t size)
       if (_hash) {
 	if (i-start_i > 0) 
 	  handle_hash(data+start_i, i-start_i);
-        sfs_hash *h = New sfs_hash;
-	sha1_hash(h->base(), _hbuf, _hbuf_cursor);
+	sha1_hash(c->hash.base(), _hbuf, _hbuf_cursor);
 	_hbuf_cursor = 0;
-	hv.push_back(h);
       }
-      cvp->push_back(c);
+      _cv.push_back(c);
       _last_pos = _cur_pos;
       start_i = i;
     }
@@ -147,19 +143,18 @@ int chunk_file(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
   const u_char *fp;
   size_t fl;
   if (mapfile (&fp, &fl, path) != 0) return -1;
-  Chunker chunker(chunk_size, cvp);
-  chunker.chunk(fp, fl);
-  chunker.stop();
+  int r = chunk_data(chunk_size, cvp, fp, fl);
   munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
-  return 0;
+  return r;
 }
 
 int chunk_data(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
                const unsigned char *data, size_t size)
 {
-  Chunker chunker(chunk_size, cvp);
+  Chunker chunker(chunk_size);
   chunker.chunk(data, size);
   chunker.stop();
+  chunker.get_chunk_vector(cvp);
   return 0;
 }
 

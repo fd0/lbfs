@@ -25,7 +25,7 @@ ptr<aclnt> _c;
 static const char *_host;
 static const char *_mntp;
 
-static lbfs_db _db;
+static fp_db _db;
 static nfs_fh3 _rootfh;
 
 static int _totalfns = 0;
@@ -57,7 +57,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
         chunk_data(CHUNK_SIZES(j), &cv, fp, fl);
 	for(unsigned i=0; i<cv.size(); i++) { 
 	  cv[i]->loc.set_fh(*fhp);
-	  _db.add_chunk(cv[i]->fingerprint, &(cv[i]->loc)); 
+	  _db.add_entry(cv[i]->fingerprint, &(cv[i]->loc)); 
 	  delete cv[i];
 	}
         if (cv.size()==1) break;
@@ -124,7 +124,7 @@ gotrootfh(const nfs_fh3 *fhp, str err)
 {
   if (!err) {
     _rootfh = *fhp;
-    _db.open(); 
+    _db.open(FP_DB); 
     read_directory("");
   }
   done();

@@ -32,7 +32,7 @@
 
 #if LBFS_READ
 #include "lbfsdb.h"
-extern lbfs_db lbfsdb;
+extern fp_db lbfsdb;
 #endif
 
 extern int server_fd;

@@ -237,7 +237,7 @@ class client : public virtual refcount, public sfsserv {
 
   ptr<asrv> nfssrv;
 
-  lbfs_db lbfsdb;
+  fp_db lbfsdb;
   tmpfh_table fhtab;
 
   static u_int64_t nextgen ();
@@ -254,7 +254,7 @@ class client : public virtual refcount, public sfsserv {
   void condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, size_t count,
                            write3res *, str err);
   void condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
-		            lbfs_db::chunk_iterator * iter, 
+		            fp_db::iterator * iter, 
 			    unsigned char *data, 
 			    size_t count, read3res *, str err);
   void condwrite_read_cb (unsigned char *, off_t, 
