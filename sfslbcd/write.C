@@ -26,7 +26,7 @@
 typedef callback<void, ptr<aiobuf>, ssize_t, int>::ref aiofh_cbrw;
 
 struct write_obj {
-  static const int PARALLEL_WRITES = 8;
+  static const unsigned int PARALLEL_WRITES = 16;
   typedef callback<void,fattr3,bool>::ref cb_t;
 
   cb_t cb;
@@ -53,7 +53,6 @@ struct write_obj {
   
   void
   committmp_reply(ref<ex_commit3res> res, clnt_stat err) {
-    warn << "committmp reply\n";
     outstanding_writes--;
     if (!callback && !err && res->status == NFS3_OK) {
       ok();
@@ -90,6 +89,7 @@ struct write_obj {
       ok();
       return;
     }
+    warn << "final commit failed\n";
     fail();
   }
 
@@ -122,6 +122,7 @@ struct write_obj {
       ok();
       return;
     }
+    warn << "write failed\n";
     fail();
   }
 
@@ -153,7 +154,6 @@ struct write_obj {
 
     outstanding_writes--;
     if (!callback && !err && res->status == NFS3_OK) {
-      warn << "hash found\n";
       do_write();
       ok();
       return;
@@ -211,14 +211,14 @@ struct write_obj {
       return;
     }
 
-    chunker.chunk_data ((unsigned char*) buf->base (), (unsigned)sz);
+    chunker.chunk_data ((unsigned char*) buf->base (), off, (unsigned)sz);
     const vec<chunk *>& cv = chunker.chunk_vector ();
     if (chunkv_sz < cv.size ()) {
       for (unsigned i=chunkv_sz; i < cv.size (); i++) {
         chunk *c = cv[i];
         uint64 off = c->location ().pos ();
         uint64 cnt = c->location ().count ();
-        warn << c->hashidx () << ": " << off << "+" << cnt << "\n";
+        // warn << c->hashidx () << ": " << off << "+" << cnt << "\n";
 
 	lbfs_condwrite3args arg;
         arg.commit_to = fh;
@@ -317,7 +317,9 @@ struct write_obj {
 		     auth);
   }
 
-  bool do_write() {
+  void do_write() {
+    if (outstanding_writes >= PARALLEL_WRITES)
+      return;
     if (written < size && !callback) {
       unsigned s = size-written;
       s = s > srv->wtpref ? srv->wtpref : s;
@@ -333,9 +335,6 @@ struct write_obj {
       commit = true;
       nfs3_commit ();
     }
-    if (written < size)
-      return false;
-    return true;
   }
 
   static void file_closed (int) { }
@@ -393,9 +392,8 @@ struct write_obj {
   }
 
   void start_write () {
-    bool eof = false;
-    for (int i=0; i<PARALLEL_WRITES && !eof; i++)
-      eof = do_write();
+    for (unsigned i=0; i<PARALLEL_WRITES/4; i++)
+      do_write();
     if (!outstanding_writes) // nothing to do
       ok();
   }

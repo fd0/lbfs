@@ -130,8 +130,12 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
       else if (count != cwa->count)
         warn << "CONDWRITE: size does not match, old chunk? " 
 	     << "want " << cwa->count << " got " << count << "\n";
-      else 
+      else {
         warn << "CONDWRITE: sha1 hash mismatch\n";
+        chunk *c = cv[0];
+        warn << c->hashidx () << ": " 
+	     << cwa->offset << "+" << cwa->count << "\n";
+      }
     }
     delete[] data;
     delete chunker0;
@@ -286,15 +290,15 @@ client::tmpwrite_cb (svccb *sbp, filesrv::reqstate rqs,
     nfs3reply(sbp, wres, rqs, err ? RPC_FAILED : RPC_SUCCESS);
   }
 
-  // if no more writes, finish off by doing the commit. in absolutely horrible
-  // case there might be some more writes left to be done as well.
-  if (u->writes == 0) {
-    for (size_t i=0; i<u->sbps.size(); i++)
-      demux(u->sbps[i],rqs);
-    u->sbps.setsize(0);
-  }
+  vec<svccb*> sbps;
+  for (size_t i=0; i<u->sbps.size(); i++)
+    sbps.push_back (u->sbps[i]);
+  u->sbps.setsize(0);
+  for (size_t i=0; i<sbps.size(); i++)
+    demux(sbps[i],rqs);
 }
 
+#define WRITES_MAX 32
 void
 client::tmpwrite (svccb *sbp, filesrv::reqstate rqs)
 {

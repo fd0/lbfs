@@ -33,6 +33,7 @@ Chunker::Chunker()
   _hbuf_cursor = 0;
   _hbuf = New unsigned char[32768];
   _hbuf_size = 32768;
+  _pfb = 0;
 }
 
 Chunker::~Chunker()
@@ -44,6 +45,15 @@ Chunker::~Chunker()
   }
   for (unsigned i = 0; i < _cv.size(); i++)
     delete _cv[i];
+  prefetched_buffer *b = _pfb;
+  prefetched_buffer *n;
+  while (b) {
+    n = b->next;
+    delete b->data;
+    delete b;
+    b = n;
+  }
+  _pfb = 0;
 }
 
 void
@@ -70,6 +80,35 @@ Chunker::stop()
     assert(_cur_pos-_last_pos == _hbuf_cursor);
     _hbuf_cursor = 0; 
     _cv.push_back(c);
+  }
+}
+
+void
+Chunker::chunk_data(const unsigned char *data, uint64 off, size_t size)
+{
+  if (off != _cur_pos) {
+    prefetched_buffer *b = New prefetched_buffer (data, off, size);
+    b->next = _pfb;
+    _pfb = b;
+  }
+  else {
+    chunk_data (data, size);
+    prefetched_buffer *b = _pfb;
+    prefetched_buffer *p = 0;
+    while (b) {
+      if (b->off == _cur_pos) {
+	if (!p) // first one
+          _pfb = b->next;
+	else
+	  p->next = b->next;
+	chunk_data (b->data, b->off, b->size);
+	delete b->data;
+	delete b;
+	return;
+      }
+      p = b;
+      b = b->next;
+    }
   }
 }
 

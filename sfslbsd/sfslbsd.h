@@ -80,7 +80,6 @@ struct ufd_rec {
   nfs_fh3 dir;
   bool inuse;
   bool error;
-#define WRITES_MAX 32767
 #define TMPFN_MAX 1024
   short writes;
   char name[TMPFN_MAX];

@@ -141,9 +141,24 @@ int chunk_file(vec<chunk *>& cvp, const char *path);
 
 class Chunker {
 private:
+  struct prefetched_buffer {
+    unsigned char *data;
+    uint64 off;
+    size_t size;
+    prefetched_buffer (const unsigned char *d, uint64 o, size_t s) {
+      data = New unsigned char[s];
+      memmove (&data[0], d, s);
+      off = o;
+      size = s;
+      next = 0;
+    }
+    struct prefetched_buffer *next;
+  };
+
   window _w;
   size_t _last_pos;
   size_t _cur_pos;
+  struct prefetched_buffer *_pfb;
   
   unsigned char *_hbuf; 
   unsigned int _hbuf_size;
@@ -158,6 +173,7 @@ public:
 
   void stop();
   void chunk_data (const unsigned char *data, size_t size);
+  void chunk_data (const unsigned char *data, uint64 off, size_t size);
 
   const vec<chunk*>& chunk_vector() { return _cv; }
   void copy_chunk_vector(vec<chunk*>&);
