@@ -43,6 +43,9 @@ int main(int argc, char **argv) {
     strcpy(hostpath, argv[2]);
   }
 
+  sigcb (SIGINT, wrap (exit, 1));
+  sigcb (SIGTERM, wrap (exit, 1));
+
   if (mount(MOUNT_XFS, "/mnt", /*MNT_UNION*/0, device_file)) {
     if (errno == EOPNOTSUPP)
       warn << strerror(errno) << ":" << errno << "\n";
