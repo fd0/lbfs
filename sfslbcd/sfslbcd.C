@@ -58,8 +58,6 @@ sfslbcd_connect(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
     sfs_connectok *p = cres;
     p->servinfo = c->servinfo;
     ma->cres = cres;
-    str proto;
-    strip_mountprot(ma->carg, proto);
     vNew refcounted<server>(sfsserverargs (ns, tcpfd, prog, ma, cb));
   }
   else {
@@ -75,36 +73,41 @@ sfslbcd_getfd(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
   if (!isunixsocket (fd))
     tcp_nodelay (fd);
   ptr<axprt> x = New refcounted<axprt_zcrypt>(fd, axprt_zcrypt::ps());
-  sfs_connectarg carg = ma->carg;
-  str p;
-  strip_mountprot(carg, p);
   sfs_connect_withx
-    (carg, wrap(&sfslbcd_connect, prog, ns, tcpfd, ma, cb), x);
+    (ma->carg, wrap(&sfslbcd_connect, prog, ns, tcpfd, ma, cb), x);
 }
 
 void
 sfslbcd_alloc(sfsprog *prog, ref<nfsserv> ns, int tcpfd,
               sfscd_mountarg *ma, sfsserver::fhcb cb)
 {
-  if (!ma->cres ||
-      (ma->carg.civers == 5 && !sfs_parsepath (ma->carg.ci5->sname))) {
-    sfs_connectarg carg = ma->carg;
+  if (ma->cres || ma->carg.civers != 5) {
+    (*cb) (NULL);
+    return;
+  }
+
+  sfs_connectarg carg = ma->carg;
+  if (!sfs_parsepath (carg.ci5->sname)) {
     str proto;
     strip_mountprot(carg, proto);
-    if (proto == "lbfs") {
-      u_int16_t port;
-      str location;
-      if (!sfs_parsepath (carg.ci5->sname, &location, NULL, &port) ||
-	  !strchr(location, '.'))
-	warn << carg.ci5->sname << ": cannot parse path\n";
-      else {
-	tcpconnect
-	  (location, port, wrap (&sfslbcd_getfd, prog, ns, tcpfd, ma, cb));
-        return;
-      }
+    if (proto != "lbfs") {
+      (*cb) (NULL);
+      return;
     }
   }
-  (*cb)(NULL);
+
+  u_int16_t port;
+  str location;
+  if (!sfs_parsepath (carg.ci5->sname, &location, NULL, &port) ||
+      !strchr(location, '.'))
+    warn << carg.ci5->sname << ": cannot parse path\n";
+  else {
+    ma->carg.ci5->sname = carg.ci5->sname;
+    tcpconnect
+      (location, port, wrap (&sfslbcd_getfd, prog, ns, tcpfd, ma, cb));
+    return;
+  }
+  (*cb) (NULL);
 }
 
 server::server (const sfsserverargs &a)

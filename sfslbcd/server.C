@@ -412,9 +412,9 @@ server::fixlc (nfscall *nc, void *res)
   else if (nc->proc () == NFSPROC3_READDIR) {
     readdir3args *a = nc->template getarg<readdir3args> ();
     ex_readdir3res *r = static_cast<ex_readdir3res *> (res);
-    if (r->status)
+    if (r->status == NFS3ERR_STALE)
       lc_clear(a->dir);
-    else {
+    else if (!r->status) {
       for (entry3 *e = r->resok->reply.entries; e; e = e->nextentry)
 	nlc_remove(a->dir, e->name);
     }
