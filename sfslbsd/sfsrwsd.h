@@ -264,6 +264,7 @@ class client : public virtual refcount, public sfsserv {
 
   void normal_dispatch (svccb *, filesrv::reqstate rqs);
   
+  void oscar_add (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh);
   void oscar_add_cb (svccb *sbp, filesrv::reqstate rqs,
                      link3res *lnres, clnt_stat err);
   void oscar_lookup_cb (svccb *sbp, filesrv::reqstate rqs,

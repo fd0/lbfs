@@ -435,7 +435,7 @@ client::getfp (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_getfp3args *arg = sbp->template getarg<lbfs_getfp3args> ();
 #if DEBUG > 1
-  warn << "GETFP: ask for " << arg->offset << " and " << arg->count << "\n"; 
+  warn << "GETFP: ask @" << arg->offset << " +" << arg->count << "\n"; 
 #endif
   Chunker *chunker = New Chunker(CHUNK_SIZES(0), true);
   nfs3_read 
@@ -458,24 +458,29 @@ void
 client::oscar_lookup_cb (svccb *sbp, filesrv::reqstate rqs, 
                          lookup3res *lres, clnt_stat err)
 {
-  if (!err && !lres->status && lres->resok->obj_attributes.present) {
-    u_int32_t authno = sbp->getaui ();
-    link3args lnarg;
-    lnarg.file = lres->resok->object;
-    unsigned r = fsrv->get_oscar(rqs.fsno);
-    str rstr = armor32((void*)&r, sizeof(r));
-    char tmpfile[7+rstr.len()+1];
-    sprintf(tmpfile, "oscar.%s", rstr.cstr());
-    lnarg.link.name = tmpfile;
-    lnarg.link.dir = fsrv->sfs_trash_fhs[rqs.fsno];
-    link3res *lnres = New link3res;
-    fsrv->c->call (NFSPROC3_LINK, &lnarg, lnres,
-	           wrap (mkref (this), &client::oscar_add_cb, sbp, rqs, lnres),
-		   authtab[authno]);
-  }
+  if (!err && !lres->status && lres->resok->obj_attributes.present)
+    oscar_add(sbp, rqs, lres->resok->object);
   else
     normal_dispatch(sbp, rqs);
   delete lres;
+}
+
+void
+client::oscar_add (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh)
+{
+  u_int32_t authno = sbp->getaui ();
+  link3args lnarg;
+  lnarg.file = fh;
+  unsigned r = fsrv->get_oscar(rqs.fsno);
+  str rstr = armor32((void*)&r, sizeof(r));
+  char tmpfile[7+rstr.len()+1];
+  sprintf(tmpfile, "oscar.%s", rstr.cstr());
+  lnarg.link.name = tmpfile;
+  lnarg.link.dir = fsrv->sfs_trash_fhs[rqs.fsno];
+  link3res *lnres = New link3res;
+  fsrv->c->call (NFSPROC3_LINK, &lnarg, lnres,
+	         wrap (mkref (this), &client::oscar_add_cb, sbp, rqs, lnres),
+		 authtab[authno]);
 }
 
 void
