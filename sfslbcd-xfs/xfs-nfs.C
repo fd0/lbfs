@@ -51,7 +51,7 @@ nfs_rights2xfs_rights (u_int32_t access, ftype3 ftype, u_int32_t mode)
 void nfsobj2xfsnode (xfs_cred cred, cache_entry *e, xfs_msg_node *node) 
 {
   node->handle = e->xh; 
-  if (lbcd_trace > 0)
+  if (lbcd_trace > 1)
     warn << "nfsfh becomes node.handle (" 
 	 << node->handle.a << ","
 	 << node->handle.b << ","
@@ -158,7 +158,7 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
 #endif
     bzero(xde, sizeof(*xde));
     xde->d_namlen = nfs_dirent->name.len();
-    if (lbcd_trace)
+    if (lbcd_trace > 1)
       warn << "xde->namlen = " << xde->d_namlen 
 	   << " nfs_dirent_len = " << nfs_dirent->name.len() << "\n";
     xde->d_reclen = reclen;
@@ -167,7 +167,7 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
 #endif
     xde->d_fileno = nfs_dirent->fileid;
     strcpy(xde->d_name, nfs_dirent->name.cstr());
-    if (lbcd_trace)
+    if (lbcd_trace > 1)
       warn << "xde->d_name = " << xde->d_name 
 	   << " nfs_dirent_name = " << nfs_dirent->name.cstr() << "\n";
 #if 1
@@ -176,11 +176,11 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
     args->last = xde;
 #else    
     if (write (args->fd, xde, reclen) != reclen) {
-      if (lbcd_trace)
+      if (lbcd_trace > 1)
 	warn << "(" << errno << "):write\n";
       return -1;
     }
-    if (lbcd_trace)
+    if (lbcd_trace > 1)
       warn << "wrote " << xde->d_name << "\n";
 #endif
     nfs_dirent = nfs_dirent->nextentry;
@@ -199,7 +199,7 @@ int conv_dir (int fd, ex_readdir3res *res)
   while (nfs_dirent != NULL) {
     bzero(xde, sizeof(*xde));
     xde->d_namlen = nfs_dirent->name.len();
-    if (lbcd_trace)
+    if (lbcd_trace > 1)
       warn << "xde->namlen = " << xde->d_namlen 
 	   << " nfs_dirent_len = " << nfs_dirent->name.len() << "\n";
     xde->d_reclen = reclen;
@@ -208,15 +208,15 @@ int conv_dir (int fd, ex_readdir3res *res)
 #endif
     xde->d_fileno = nfs_dirent->fileid;
     strcpy(xde->d_name, nfs_dirent->name.cstr());
-    if (lbcd_trace)
+    if (lbcd_trace > 1)
       warn << "xde->d_name = " << xde->d_name 
 	   << " nfs_dirent_name = " << nfs_dirent->name.cstr() << "\n";
     if (write (fd, xde, reclen) != reclen) {
-      if (lbcd_trace)
+      if (lbcd_trace > 1)
 	warn << "(" << errno << "):write\n";
       return -1;
     }
-    if (lbcd_trace)
+    if (lbcd_trace > 1)
       warn << "wrote " << xde->d_name << "\n";
     nfs_dirent = nfs_dirent->nextentry;
   }
@@ -238,7 +238,7 @@ int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid)
   xde->d_fileno = fid;
   
   if (write(fd, xde, xde->d_reclen) != xde->d_reclen) {
-    if (lbcd_trace)
+    if (lbcd_trace > 1)
       warn << strerror(errno) << "(" << errno << "):write\n";
     return -1;
   }
@@ -252,17 +252,17 @@ int xfsfile_rm_dirent(int fd1, int fd2, const char* fname)
   
   do {
     if ((err = read(fd1, xde, sizeof(*xde))) < 0) {
-      if (lbcd_trace > 3)
+      if (lbcd_trace > 1)
 	warn << "xfsfile_rm_dirent: " << strerror(errno) << "\n";
       return -1;
     }
     if (err != sizeof(*xde)) {
-      if (lbcd_trace > 3)
+      if (lbcd_trace > 1)
 	warn << "err = " << err << " ..short read..wierd\n";
       return -1;
     }
     offset += reclen;
-    if (lbcd_trace > 3) {
+    if (lbcd_trace > 1) {
       warn << "xde->d_namlen = " << xde->d_namlen << "\n";
       warn << "xde->d_name = " << xde->d_name << "\n";
       warn << "xde->d_reclen = " << xde->d_reclen << "\n";
@@ -277,7 +277,7 @@ int xfsfile_rm_dirent(int fd1, int fd2, const char* fname)
     offset += reclen;
     err = write (fd2, xde, sizeof (*xde));
     if (err != sizeof(*xde)) {
-      if (lbcd_trace > 3)
+      if (lbcd_trace > 1)
       warn << "err = " << err << " ..short write..wierd\n";
       return -1;
     }
@@ -410,7 +410,7 @@ xfs_reply_err (int fd, u_int seqnum, int err)
   struct xfs_message_header *h0 = NULL;
   size_t h0_len = 0;
 
-  if (lbcd_trace > 0) {
+  if (lbcd_trace > 1) {
     if (err == EIO)
       warn << seqnum << ": sending EIO to xfs\n";
     else warn << seqnum << ": " << strerror(err) << "\n";
