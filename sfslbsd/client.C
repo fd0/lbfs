@@ -266,8 +266,8 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
                       const FATTR3 *attr, commit3res *res, str err)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
-  nfs_fh3 &tmpfh = cta->commit_from;
-  nfs_fh3 &fh = cta->commit_to;
+  nfs_fh3 tmpfh = cta->commit_from;
+  nfs_fh3 fh = cta->commit_to;
   u_int32_t authno = sbp->getaui ();
   unsigned fsno = rqs.fsno;
   
