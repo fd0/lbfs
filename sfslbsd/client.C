@@ -47,9 +47,6 @@ client::nfs3reply (svccb *sbp, void *res, filesrv::reqstate rqs, clnt_stat err)
   }
   doleases (fsrv, generation, rqs.fsno, sbp, res);
 
-  // XXX - lbfs: should trap SETATTR, WRITE, REMOVE, and may be COMMIT so to
-  // keep the database up to date.
-
   if (fsrv->fixres (sbp, res, &rqs)) {
     nfs3_exp_enable (sbp->proc (), res);
     sbp->reply (res);
@@ -119,10 +116,17 @@ client::condwrite_read_cb (svccb *sbp, void *_res, filesrv::reqstate rqs,
   }
  
   else {
-    // match fingerprint, do write, honor stable, etc.
-    // XXX
-    delete data;
-    nfs3reply (sbp, _res, rqs, RPC_SUCCESS);
+    // fingerprint matches, do write
+    u_int32_t authno = sbp->getaui ();
+    write3args w3arg;
+    w3arg.file = cwa->file;
+    w3arg.offset = cwa->offset;
+    w3arg.count = cwa->count;
+    w3arg.stable = cwa->stable;
+    w3arg.data.set(reinterpret_cast<char*>(data), count, freemode::DELETE);
+    fsrv->c->call (NFSPROC3_WRITE, &w3arg, _res,
+		   wrap (mkref (this), &client::nfs3reply, sbp, _res, rqs),
+		   authtab[authno]);
     delete iter;
   }
 
