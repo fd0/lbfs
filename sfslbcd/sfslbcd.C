@@ -29,6 +29,9 @@
 #include "axprt_compress.h"
 #include "sfslbcd.h"
 #include "rxx.h"
+#include <errno.h>
+
+#define LBFSCACHE "/var/tmp/lbfscache"
 
 void
 sfslbcd_connect(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
@@ -89,6 +92,18 @@ sfslbcd_alloc(sfsprog *prog, ref<nfsserv> ns, int tcpfd,
   (*cb)(NULL);
 }
 
+server::server (const sfsserverargs &a)
+  : sfsserver_auth (a), fc(50000, wrap(mkref(this), &server::remove_cache))
+{
+  cdir = strbuf(LBFSCACHE) << "/" << a.ma->carg.ci5->sname;
+  if (mkdir(cdir.cstr(), 0755) < 0 && errno != EEXIST)
+    fatal ("cannot create cache directory %s\n", cdir.cstr());
+  for (int i=0; i<254; i++) {
+    str f = cdir << "/" << i;
+    if (mkdir(f.cstr(), 0755) < 0 && errno != EEXIST)
+      fatal ("cannot create cache directory %s\n", f.cstr());
+  }
+}
 
 int
 main (int argc, char **argv)
@@ -102,6 +117,9 @@ main (int argc, char **argv)
   sfsconst_init ();
   random_init_file (sfsdir << "/random_seed");
   server::keygen ();
+  
+  if (mkdir(LBFSCACHE, 0755) < 0 && errno != EEXIST)
+    fatal ("cannot create cache directory %s\n", LBFSCACHE);
 
   if (ptr<axprt_unix> x = axprt_unix_stdin ())
     // doesn't need simulated close, but mount with close option

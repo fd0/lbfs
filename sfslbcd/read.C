@@ -1,3 +1,23 @@
+/*
+ *
+ * Copyright (C) 2002 Benjie Chen (benjie@lcs.mit.edu)
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2, or (at
+ * your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
+ * USA
+ *
+ */
 
 #include "sfslbcd.h"
 #include "lbfs_prot.h"
@@ -9,6 +29,7 @@ struct read_obj {
   static const int READ_SIZE = 8192;
   typedef callback<void,bool>::ref cb_t;
 
+  server &srv;
   cb_t cb;
   ref<aclnt> c;
   nfs_fh3 fh;
@@ -18,14 +39,19 @@ struct read_obj {
   size_t requested;
   unsigned int outstanding_reads;
   bool callback;
+  bool mtime_valid;
+  nfstime3 mtime;
 
   void
   read_reply(uint64 off, size_t size, ref<ex_read3res> res, clnt_stat err) 
   {
-    warn << "read reply\n";
     outstanding_reads--;
     if (!callback && !err && res->status == NFS3_OK) {
       assert (res->resok->file_attributes.present);
+      if (!mtime_valid) {
+	mtime = (res->resok->file_attributes.attributes)->mtime;
+	mtime_valid = true;
+      }
       if (lseek(fd, off, SEEK_SET) < 0) {
 	fail();
 	return;
@@ -56,7 +82,6 @@ struct read_obj {
   }
 
   bool do_read() {
-    warn << "do_read " << requested << ":" << size << "\n";
     if (requested < size) {
       int s = size-requested;
       s = s > READ_SIZE ? READ_SIZE : s;
@@ -70,8 +95,10 @@ struct read_obj {
 
   void fail() {
     if (!callback) {
-      cb(false);
+      ftruncate(fd, 0);
+      close(fd);
       callback = true;
+      cb(false);
     }
     if (outstanding_reads == 0)
       delete this;
@@ -80,18 +107,22 @@ struct read_obj {
   void ok() {
     if (outstanding_reads == 0) {
       if (!callback) {
-	cb(true);
+	srv.fcache_insert(fh,mtime);
+	close(fd);
         callback = true;
+	cb(true);
       }
       delete this;
     }
   }
 
-  read_obj (nfs_fh3 fh, size_t size, ref<aclnt> c, AUTH *a, read_obj::cb_t cb)
-    : cb(cb), c(c), fh(fh), auth(a), size(size), requested(0),
-      outstanding_reads(0), callback(false)
+  read_obj (server &srv, nfs_fh3 fh, size_t size, ref<aclnt> c,
+            AUTH *a, read_obj::cb_t cb)
+    : srv(srv), cb(cb), c(c), fh(fh), auth(a), size(size), requested(0),
+      outstanding_reads(0), callback(false), mtime_valid(false)
   {
-    fd = open ("read_obj_tmp", O_CREAT | O_WRONLY, 0666);
+    str f = srv.fh2fn(fh);
+    fd = open (f, O_CREAT | O_TRUNC | O_WRONLY, 0666);
     if (fd < 0) {
       warn << "cannot open file for caching\n";
       fail();
@@ -105,12 +136,13 @@ struct read_obj {
       ok();
   }
 
-  ~read_obj() { close(fd); }
+  ~read_obj() {}
 };
 
 void
-lbfs_read(nfs_fh3 fh, size_t size, ref<aclnt> c, AUTH *a, read_obj::cb_t cb)
+lbfs_read(server &srv, nfs_fh3 fh, size_t size,
+          ref<aclnt> c, AUTH *a, read_obj::cb_t cb)
 {
-  vNew read_obj (fh, size, c, a, cb);
+  vNew read_obj (srv, fh, size, c, a, cb);
 }
 

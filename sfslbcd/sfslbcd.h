@@ -20,6 +20,9 @@
  *
  */
 
+#ifndef LBFSCD_H
+#define LBFSCD_H
+
 #include "arpc.h"
 #include "sfscd_prot.h"
 #include "nfstrans.h"
@@ -28,6 +31,7 @@
 #include "itree.h"
 #include "crypt.h"
 #include "list.h"
+#include "lrucache.h"
 
 inline
 const strbuf &
@@ -85,7 +89,15 @@ public:
 };
 
 class server : public sfsserver_auth {
+  str cdir;
+  struct fcache {
+    nfs_fh3 fh;
+    nfstime3 cache_time;
+    fcache(nfs_fh3 fh, nfstime3 ctime) : fh(fh), cache_time(ctime) {}
+  };
+
   attr_cache ac;
+  lrucache<nfs_fh3, fcache> fc;
 
   void dispatch_dummy (svccb *sbp);
   void cbdispatch (svccb *sbp);
@@ -94,20 +106,39 @@ class server : public sfsserver_auth {
 
   void cache_file(time_t rqtime, nfscall *nc, void *res, clnt_stat err);
   void cache_file_reply(time_t rqtime, nfscall *nc, void *res, bool ok);
+  void remove_cache(fcache e);
 
 public:
   typedef sfsserver_auth super;
   ptr<aclnt> nfsc;
   ptr<asrv> nfscbs;
 
-  server (const sfsserverargs &a) : sfsserver_auth (a) {}
+  server (const sfsserverargs &a);
   ~server () { warn << path << " deleted\n"; }
   void flushstate ();
   void authclear (sfs_aid aid);
   void setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_c);
   void dispatch (nfscall *nc);
+    
+  str fh2fn(nfs_fh3 fh) {
+    strbuf n;
+    unsigned char x = 0;
+    char *c = fh.data.base();
+    for (unsigned i=0; i<fh.data.size(); i++)
+      x = x ^ ((unsigned char)(*(c+i)));
+    n << cdir << "/" << (((unsigned int)x)%254) << "/"
+      << armor32(fh.data.base(), fh.data.size());
+    return n;
+  }
+
+  void fcache_insert(nfs_fh3 fh, nfstime3 ctime) {
+    struct fcache f(fh, ctime);
+    fc.insert(fh,f);
+  }
 };
 
-void lbfs_read(nfs_fh3 fh, size_t size, ref<aclnt> c, AUTH *a,
-               callback<void, bool>::ref cb);
+void lbfs_read(server& srv, nfs_fh3 fh, size_t size, ref<aclnt> c,
+               AUTH *a, callback<void, bool>::ref cb);
+
+#endif
 

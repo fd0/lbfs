@@ -36,7 +36,8 @@ server::cache_file(time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     access3args *a = nc->template getarg<access3args> ();
     ex_fattr3 fa = *ares->resok->obj_attributes.attributes;
     if (fa.type == NF3REG) {
-      lbfs_read(a->object, fa.size, nfsc, authof(nc->getaid()),
+      warn << "access " << a->object << "\n";
+      lbfs_read(*this, a->object, fa.size, nfsc, authof(nc->getaid()),
 	        wrap(mkref(this), &server::cache_file_reply, rqtime, nc, res));
       return;
     }
@@ -188,7 +189,6 @@ server::dispatch (nfscall *nc)
   else if (nc->proc () == NFSPROC3_ACCESS) {
     access3args *a = nc->template getarg<access3args> ();
     int32_t perm = ac.access_lookup (a->object, nc->getaid (), a->access);
-    warn << "access " << a->object << "\n";
     if (perm > 0) {
       access3res res (NFS3_OK);
       res.resok->obj_attributes.set_present (true);
@@ -211,3 +211,13 @@ server::dispatch (nfscall *nc)
 	      wrap (mkref(this), &server::getreply, timenow, nc, res),
 	      authof (nc->getaid ()));
 }
+
+void
+server::remove_cache(server::fcache e)
+{
+  str fn = fh2fn(e.fh);
+  warn << "remove " << fn << "\n";
+  if (unlink(fn.cstr()) < 0)
+    perror("removing cache file");
+}
+
