@@ -1,5 +1,6 @@
 
 #include "sfsrwsd.h"
+#include "nfs3_prot.h"
 #include "lbfsdb.h"
 
 void lookupfh3 (ref<aclnt> c, const nfs_fh3 &start, str path,
@@ -160,7 +161,7 @@ struct copy_obj {
 
   int outstanding_reads;
   int outstanding_writes;
-  int error;
+  int errors;
   u_int64_t size;
   u_int64_t next_read;
   
@@ -191,7 +192,7 @@ struct copy_obj {
   void check_finish()
   {
     if (outstanding_reads == 0 && outstanding_writes == 0) {
-      if (!error && next_read == size) {
+      if (!errors && next_read == size) {
 	commit3args arg;
 	arg.file = dst;
 	arg.offset = 0;
@@ -207,12 +208,13 @@ struct copy_obj {
   void gotwrite (u_int64_t pos, u_int32_t count, read3res *rres, 
                  write3res *wres, clnt_stat stat) 
   {
-    if (stat || wres->status) {
-      (*cb) (NULL, NULL, stat2str (wres->status, stat));
+    if (stat || wres->status || errors > 0) {
+      if (errors == 0) 
+	(*cb) (NULL, NULL, stat2str (wres->status, stat));
       delete rres;
       delete wres;
       outstanding_writes--;
-      error++;
+      errors++;
       check_finish();
       return;
     }
@@ -249,11 +251,12 @@ struct copy_obj {
 
   void gotread (u_int64_t pos, u_int32_t count, read3res *res, clnt_stat stat) 
   {
-    if (stat || res->status) {
-      (*cb) (NULL, NULL, stat2str (res->status, stat));
+    if (stat || res->status || errors) {
+      if (errors == 0)
+	(*cb) (NULL, NULL, stat2str (res->status, stat));
       delete res;
       outstanding_reads--;
-      error++;
+      errors++;
       check_finish();
     }
     else {
@@ -319,7 +322,7 @@ struct copy_obj {
             read_cb_t rcb, cb_t cb)
     : read_cb(rcb), cb(cb), c(c), src(s), dst(d)
   {
-    error = outstanding_reads = outstanding_writes = 0;
+    errors = outstanding_reads = outstanding_writes = 0;
     do_getattr();
   }
 };
@@ -331,4 +334,89 @@ nfs3_copy (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst,
 {
   vNew copy_obj (c, src, dst, rcb, cb);
 }
+
+struct write_obj {
+  typedef callback<void, write3res *, str>::ref cb_t;
+  ref<aclnt> c;
+  cb_t cb;
+
+  const nfs_fh3 fh;
+  unsigned char *data;
+  off_t pos; 
+  uint32 count;
+  uint32 total;
+  stable_how stable;
+  
+  unsigned outstanding_writes;
+  unsigned errors;
+
+  void check_finish() {
+    if (outstanding_writes == 0) {
+      delete[] data;
+      delete this;
+    }
+  }
+    
+  void done_write (write3res *res, clnt_stat stat) {
+    if (stat || res->status || errors > 0) {
+      if (errors > 0) 
+	(*cb) (res, stat2str (res->status, stat));
+      delete res;
+      outstanding_writes--;
+      errors++;
+      check_finish();
+    }
+    else {
+      if (count < total) {
+	do_write();
+        outstanding_writes--;
+      }
+      else {
+        outstanding_writes--;
+	(*cb) (res, NULL);
+	delete res;
+        check_finish();
+      }
+    }
+  }
+  
+  void do_write() {
+    for(int i=0; i<10 && count<total; i++) {
+      int cnt = total - count;
+      if (cnt > 8192) cnt = 8192;
+      write3args arg;
+      arg.file = fh;
+      arg.offset = pos;
+      arg.count = cnt;
+      arg.stable = stable;
+      arg.data.set(reinterpret_cast<char*>(data+count), cnt, freemode::NOFREE);
+      write3res *res = new write3res;
+      c->call (NFSPROC3_WRITE, &arg, res,
+	       wrap (this, &write_obj::done_write, res), auth_root);
+      pos += cnt;
+      count += cnt;
+      outstanding_writes++;
+    }
+  }
+  
+  write_obj (ref<aclnt> c, const nfs_fh3 &f, 
+             unsigned char *data, off_t p, uint32 cnt, stable_how s, cb_t cb)
+    : c(c), cb(cb), fh(f), data(data), pos(p), total(cnt), stable(s)
+  {
+    count = 0;
+    outstanding_writes = 0;
+    errors = 0;
+    do_write();
+  }
+};
+
+// cb may be called multiple times
+void
+nfs3_write (ref<aclnt> c, const nfs_fh3 &fh, 
+            write_obj::cb_t cb, 
+	    unsigned char *data, off_t pos, uint32 count, stable_how s)
+{
+  vNew write_obj (c, fh, data, pos, count, s, cb);
+}
+
 

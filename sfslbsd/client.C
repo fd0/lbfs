@@ -152,17 +152,9 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   else {
     // fingerprint matches, do write
     warn << "CONDWRITE: bingo, found a condwrite candidate\n";
-    u_int32_t authno = sbp->getaui ();
-    write3args w3arg;
-    w3arg.file = cwa->file;
-    w3arg.offset = cwa->offset;
-    w3arg.count = cwa->count;
-    w3arg.stable = UNSTABLE;  // is this correct?
-    w3arg.data.set(reinterpret_cast<char*>(data), count, freemode::DELARRAY);
-    void *res = nfs_program_3.tbl[NFSPROC3_WRITE].alloc_res ();
-    fsrv->c->call (NFSPROC3_WRITE, &w3arg, res,
-		   wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
-		   authtab[authno]);
+    nfs3_write(fsrv->c, cwa->file, 
+	       wrap(mkref(this), &client::condwrite_write_cb, sbp, rqs),
+	       data, cwa->offset, cwa->count, UNSTABLE);
     delete iter;
     return;
   }
@@ -170,6 +162,14 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   delete iter;
   warn << "CONDWRITE: ran out of files to try\n";
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
+}
+  
+void 
+client::condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, 
+                            write3res *res, str err)
+{
+  write3res wres = *res;
+  nfs3reply(sbp, &wres, rqs, RPC_SUCCESS);
 }
 
 void

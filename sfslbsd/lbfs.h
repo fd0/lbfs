@@ -42,5 +42,9 @@ void nfs3_copy (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst,
                 callback<void, const unsigned char *, size_t, off_t>::ref rcb,
                 callback<void, const FATTR3 *, commit3res *, str>::ref cb);
 
+void nfs3_write (ref<aclnt> c, const nfs_fh3 &fh, 
+                 callback<void, write3res *, str>::ref cb,
+		 unsigned char *data, off_t pos, uint32 count, stable_how s);
+
 #endif _LBFS_H_
 
