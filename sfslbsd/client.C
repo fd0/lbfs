@@ -133,10 +133,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     else 
       warn << "CONDWRITE: sha1 hash mismatch\n";
     delete[] data;
-    // only remove record if it is not an error, so transient 
-    // failures won't cause db to be incorrected deleted.
-    if (!err)
-      iter->del(); 
+    iter->del(); 
     if (!iter->next(&c)) { 
       nfs_fh3 fh; 
       c.get_fh(fh); 
@@ -470,10 +467,12 @@ client::sfs_getfsinfo (svccb *sbp)
 {
   if (fsrv) {
     sbp->replyref (fsrv->fsinfo);
+#if 0
     if (typeid (*x) != typeid (axprt_compress))
       panic ("client::sfs_getfsinfo %s != %s\n",
 	     typeid (*x).name (), typeid (axprt_compress).name ());
     static_cast<axprt_compress *> (x.get ())->compress ();
+#endif
   }
   else
     sbp->reject (PROC_UNAVAIL);
