@@ -23,6 +23,7 @@
 //#include "fingerprint.h"
 #include <xfs/xfs_pioctl.h>
 #include "pioctl.h"
+#include "crypt.h"
 
 u_int64_t cache_entry::nextxh;
 ihash<nfs_fh3, cache_entry, &cache_entry::nh,
@@ -688,7 +689,7 @@ getfp (int fd, ref<struct xfs_message_open> h, cache_entry *e)
     | XFS_OPEN_NW | XFS_DATA_W;	//This line is a hack...need to get read access 
 
   str fhstr = armor32(e->nh.data.base(), e->nh.data.size());
-  int r = rand();
+  int r = rnd.getword(); //rand();
   str rstr = armor32((void*)&r, sizeof(int));
   //char *newcache = New char[5+fhstr.len()+1+rstr.len()+1];
   str newcache = strbuf("cache/%02X/sfslbcd.%s.%s", 

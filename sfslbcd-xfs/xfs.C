@@ -21,6 +21,7 @@
 
 #include "xfs.h"
 #include "messages.h"
+#include "xfs-sfs.h"
 
 u_int *seqnums;
 
@@ -167,6 +168,9 @@ xfs_message_init (void)
 int
 xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 {
+
+  warn ("*********CLIENT: bytes SENT = %lu   bytes RECEIVED = %lu  ***********\n", xc->bytes_sent, xc->bytes_recv);
+
   unsigned opcode = h->opcode;
   
   if (opcode >= XFS_MSG_COUNT || rcvfuncs[opcode] == NULL ) {

@@ -21,6 +21,7 @@
 
 #include "xfs-sfs.h"
 #include "messages.h"
+#include "crypt.h"
 
 char *sfs_path = new char[1000];
 int server_fd = -1;
@@ -164,6 +165,7 @@ void sfsInit(const char* path) {
   warn << "path = " << path << " port = " << port << "\n";
   strcpy(sfs_path, path);
   tcpconnect(hostname, port, wrap(sfsConnect, hostname, hid));
+  random_init_file (sfsdir << "/random_seed");
   lbfsdb.open_and_truncate(FP_DB);
 }
 
