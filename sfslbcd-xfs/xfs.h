@@ -96,6 +96,14 @@ void cbdispatch(svccb *sbp);
 #define NFS_MAXDATA 8192
 #define LBFS_MAXDATA 65536
 
+static inline int
+compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
+{
+  char h[sha1::hashsize];
+  sha1_hash(h, data, count);
+  return strncmp(h, hash.base(), sha1::hashsize);
+}
+
 void lbfs_getroot (int, xfs_message_getroot &, sfs_aid, 
 		   ref<aclnt> sc1, ref<aclnt> nc1);
 void lbfs_getnode (int, xfs_message_getnode &, sfs_aid, ref<aclnt>);

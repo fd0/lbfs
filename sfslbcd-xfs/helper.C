@@ -204,7 +204,7 @@ struct lookup_obj {
 #endif
     res = New refcounted<ex_lookup3res>;
 
-    nfsc->call (lbfs_NFSPROC3_LOOKUP, &doa, res,
+    c->call (lbfs_NFSPROC3_LOOKUP, &doa, res,
 	        wrap (this, &lookup_obj::found, timenow), lbfs_authof (sa));
   }
 
@@ -267,7 +267,7 @@ struct getnode_obj {
 					h0, h0_len, NULL, 0);
     } else 
       xfs_reply_err (fd, h.header.sequence_num, err ? EIO : lres->status);
-
+    
     delete this;
   }
 
@@ -309,7 +309,7 @@ struct readlink_obj {
   void install_link (time_t rqt, clnt_stat err) 
   {
     if (!err && rlres->status == NFS3_OK) {
-
+      
       struct xfs_message_installdata msg;
       struct xfs_message_header *h0 = NULL;
       size_t h0_len = 0;
@@ -417,7 +417,8 @@ struct readdir_obj {
 
       rdres = New refcounted <ex_readdir3res>;
       c->call (lbfs_NFSPROC3_READDIR, &rda, rdres,
-		  wrap (this, &readdir_obj::write_dirfile, args, msg));
+	       wrap (this, &readdir_obj::write_dirfile, args, msg),
+	       lbfs_authof(sa));
     } else {
       close (args.fd);
       e->incache = true;
@@ -543,49 +544,336 @@ lbfs_readdir (int fd, const xfs_message_open &h, cache_entry *e, sfs_aid sa,
 }
 
 struct getfp_obj {
-
+  typedef callback<void>::ref cb_t;
+  cb_t cb;  
   int fd;
   ref<aclnt> c;
   
   const struct xfs_message_open h;
   sfs_aid sa;
   cache_entry *e;
-  ptr<lbfs_getfp3res> res;
+  lbfs_getfp3args gfa;
+  uint64 offset; 
+  int out_fd;
+  str out_fname;
+  uint blocks_written;
+  uint total_blocks;
+  bool eof;
+  int retries;
+  ptr<lbfs_getfp3res> fpres;
+
+  void installdata () 
+  {
+    struct xfs_message_installdata msg;
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+
+    e->cache_name = out_fname;
+    e->incache = true;
+
+    int cfd = assign_cachefile (fd, h.header.sequence_num, e, 
+				msg.cache_name, &msg.cache_handle);
+    if (cfd < 0)
+      delete this;
+    close(cfd);
+
+    nfsobj2xfsnode (h.cred, e, &msg.node);
+    msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R; // | XFS_OPEN_NW | XFS_DATA_W;
+    msg.header.opcode = XFS_MSG_INSTALLDATA;
+    h0 = (struct xfs_message_header *) &msg;
+    h0_len = sizeof (msg);
+
+    xfs_send_message_wakeup_multiple (fd, h.header.sequence_num, 0,
+				      h0, h0_len, NULL, 0);
+  }
+
+  void write_file (uint64 cur_offst, uint32 size, ref<ex_read3res> rres)
+  {
+#if DEBUG > 0
+    warn << "filename = " << out_fname << " offset = " << cur_offst << "\n";
+#endif
+
+    int err;
+    if ((err = lseek (out_fd, cur_offst, SEEK_SET)) < 0) {
+#if DEBUG > 0
+      warn << "getfp_obj::write_file1: " << out_fname << " " << strerror (errno) << "\n";
+#endif
+      delete this;
+    }
+    if ((err = write (out_fd, rres->resok->data.base (), 
+		      rres->resok->data.size ())) < 0) {
+#if DEBUG > 0
+      warn << "getfp_obj::write_file2: " << out_fname << " " << strerror (errno) << "\n";
+#endif
+      delete this;
+    }
+    else if (err != (int) rres->resok->data.size ()) {
+#if DEBUG > 0
+      warn << "write error or short write!!\n";
+#endif
+      delete this;
+    }
+
+    if (rres->resok->count < size)
+      nfs3_read (cur_offst + rres->resok->count, size - rres->resok->count);
+    else
+      blocks_written++;
+  }
   
+  void gotdata (uint64 cur_offst, uint32 size, ref<ex_read3res> rres, clnt_stat err) 
+  {
+    if (!err && rres->status == NFS3_OK) {
+      assert (rres->resok->file_attributes.present);
+      write_file (cur_offst, size, rres);
+      if (blocks_written == total_blocks && eof) {
+	installdata ();
+	// add chunk to the database --Why add every chunk in the file??
+	vec <chunk *> cvp;
+	if (chunk_file(cvp, (char const *) out_fname) < 0) {
+#if DEBUG > 0
+	  warn << "getfp::gotdata: " << strerror (errno) << "(" << errno << ")\n";
+#endif
+	  delete this;
+	}
+	for (uint i = 0; i < cvp.size (); i++) {
+#if DEBUG > 0
+	  warn << "adding fp = " << cvp[i]->fingerprint() << " to lbfsdb\n";
+#endif
+	  cvp[i]->location().set_fh (e->nh);
+	  lbfsdb.add_entry (cvp[i]->fingerprint(), &(cvp[i]->location()));
+	  delete cvp[i];
+	}
+	lbfsdb.sync ();
+      }
+    } else {
+      if (err && (retries++ < 1))
+	nfs3_read (cur_offst, size);
+      else {
+	xfs_reply_err (fd, h.header.sequence_num, err ? err : rres->status);
+	delete this;
+      }
+    }
+  }
+
+  void nfs3_read (uint64 cur_offst, uint32 size) 
+  {
+    read3args ra;
+    ra.file = e->nh;
+    ra.offset = cur_offst;
+    ra.count = size < NFS_MAXDATA ? size : NFS_MAXDATA;
+#if DEBUG > 0
+    warn << "getfp_obj::nfs3_read @" << offset << " +" << ra.count << "\n";
+#endif
+
+    ref<ex_read3res> rres = New refcounted <ex_read3res>;
+    c->call (lbfs_NFSPROC3_READ, &ra, rres,
+	     wrap (this, &getfp_obj::gotdata, cur_offst, size, rres),
+	     lbfs_authof (sa));
+  }
+
+  void copy_block (uint64 cur_offst, unsigned char *buf, chunk_location *c) 
+  {
+    int out_fd = open (out_fname, O_CREAT | O_WRONLY, 0666);
+    if (out_fd < 0) {
+#if DEBUG > 0
+      warn << "getfp_obj::copy_block: " << strerror (errno) << "\n";
+#endif
+      xfs_reply_err (fd, h.header.sequence_num, EIO);
+      delete this;
+    }
+
+    if (lseek (out_fd, cur_offst, SEEK_SET) < 0) {
+#if DEBUG > 0
+      warn << "compose_file: error: " << strerror (errno) 
+	   << "(" << errno << ")\n";
+#endif
+      xfs_reply_err (fd, h.header.sequence_num, EIO);
+      delete this;
+    }
+    int err;
+    if ((err = write (out_fd, buf, c->count ())) < 0
+	|| ((uint32) err != c->count ())) {
+#if DEBUG > 0
+      warn << "getfp_obj::copy_block: error: " << err << " != " 
+	   << c->count () << " or " << strerror (errno) << "\n";
+#endif
+      xfs_reply_err (fd, h.header.sequence_num, EIO);
+      delete this;
+    }     
+    close (out_fd);
+    blocks_written++;
+  }
+
+  void compose_file () 
+  {
+    int err, chfd; 
+    uint64 cur_offst = offset;
+    fp_db::iterator * ci = NULL;
+    bool found = false;
+    nfs_fh3 fh;
+    chunk_location c;
+    cache_entry *e = NULL;
+    
+    for (uint i=0; i<fpres->resok->fprints.size(); i++) {
+      found = false;
+      unsigned char buf[fpres->resok->fprints[i].count];
+      if (!lbfsdb.get_iterator (fpres->resok->fprints[i].fingerprint, &ci)) {
+	if (ci && !(ci->get (&c))) {
+	  do {
+	    found = true;
+	    c.get_fh (fh);
+	    if (c.count () != fpres->resok->fprints[i].count) {
+#if DEBUG > 0
+	      warn << "chunk size != size from server..\n";
+#endif
+	      continue;
+	    }
+	    e = nfsindex[fh];
+	    if (!e) {
+#if DEBUG > 0
+	      warn << "compose_file: null fh or Can't find node handle\n";
+#endif
+	      found = false;
+	      continue;
+	    }    
+#if DEBUG > 0
+	    warn << "reading chunks from " << e->cache_name << "\n";
+#endif
+	    chfd = open (e->cache_name, O_RDONLY, 0666);
+	    if (chfd < 0) {
+#if DEBUG > 0
+	      warn << "compose_file: error: " << strerror (errno) 
+		   << "(" << errno << ")\n";
+#endif
+	      found = false;
+	      continue;
+	    }
+	    if (lseek (chfd, c.pos (), SEEK_SET) < 0) {
+#if DEBUG > 0
+	      warn << "compose_file: error: " << strerror (errno) 
+		   << "(" << errno << ")\n";
+#endif
+	      found = false;
+	      continue;
+	    }
+	    if ((err = read (chfd, buf, c.count ())) > -1) {
+	      if ((uint32) err != c.count ()) {
+#if DEBUG > 0
+		warn << "compose_file: error: " << err << " != " 
+		     << c.count () << "\n";
+#endif
+	        found = false;
+	        continue;
+	      }
+	      if (compare_sha1_hash (buf, c.count (),
+				     fpres->resok->fprints[i].hash)) {
+#if DEBUG > 0
+		warn << "compose_file: sha1 hash mismatch\n";
+#endif
+		found = false;
+	        continue;
+	      }
+	    } else {
+#if DEBUG > 0
+	      warn << "compose_file: error: " << strerror (errno) 
+		   << "(" << errno << ")\n";
+#endif
+	      found = false;
+	      continue;
+	    }
+	    close (chfd);
+	    if (found) {
+#if DEBUG > 0
+	      warn << "FOUND!! getfp_obj::copy_block: fp = " 
+		   << fpres->resok->fprints[i].fingerprint << " in client DB\n";
+#endif
+	      copy_block (cur_offst, buf, &c);
+	    }
+	  } while (!found && !(ci->next (&c)));
+	}
+	delete ci;
+      }
+      if (!found) {
+#if DEBUG > 0
+	warn << "compose_file: fp = " << fpres->resok->fprints[i].fingerprint 
+	     << " not in DB\n";
+#endif
+	nfs3_read (cur_offst, fpres->resok->fprints[i].count);
+      }
+      cur_offst += fpres->resok->fprints[i].count;
+    }
+    offset = cur_offst;
+    if (blocks_written == total_blocks && eof) {
+      installdata ();
+    }
+  }
+
   void gotfp (time_t rqt, clnt_stat err) 
   {
-    if (!err && res->status == NFS3_OK) {
+    if (!err && fpres->status == NFS3_OK) {
+      e->nfs_attr = *(fpres->resok->file_attributes.attributes);
+      e->set_exp (rqt);
+      e->ltime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
       
-    } 
+      total_blocks += fpres->resok->fprints.size ();
+      eof = fpres->resok->eof;
+      compose_file ();
+      
+      if (!eof) {
+	gfa.offset = offset;
+	if (fpres->resok->fprints.size () == 0)
+	  gfa.count *= 2;
+	fpres = New refcounted <lbfs_getfp3res>;
+	c->call (lbfs_GETFP, &gfa, fpres, 
+		 wrap (this, &getfp_obj::gotfp, timenow), lbfs_authof (sa));
+      }
+    } else {
+      xfs_reply_err (fd, h.header.sequence_num, err ? err : fpres->status);      
+      delete this;
+    }
+  }
+
+  ~getfp_obj () 
+  { 
+    if (out_fd) close(out_fd);
+    (*cb) ();
   }
 
   getfp_obj (int fd1, const xfs_message_open &h1, cache_entry *e1, sfs_aid sa1, 
-	     ref<aclnt> c1) :
-    fd(fd1), c(c1), h(h1), sa(sa1), e(e1)    
+	     ref<aclnt> c1, getfp_obj::cb_t cb1) :
+    cb(cb1), fd(fd1), c(c1), h(h1), sa(sa1), e(e1), offset(0), blocks_written(0), 
+    total_blocks(0), eof(false), retries(0)    
   {
-#if 0
-    nfsobj2xfsnode (h->cred, e, &msg.node);
-    msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R; // | XFS_OPEN_NW | XFS_DATA_W;
-    int cfd = assign_cachefile ();
-				
+    str fhstr = armor32(e->nh.data.base(), e->nh.data.size());
+    int r = rnd.getword();
+    str rstr = armor32((void*)&r, sizeof(int));
+    out_fname = strbuf("cache/%02X/sfslbcd.%s.%s", 
+		       e->xh.a >> 8, fhstr.cstr(), rstr.cstr());
+
+    out_fd = open (out_fname, O_CREAT | O_WRONLY, 0666);
+    if (out_fd < 0) {
+#if DEBUG > 0
+      warn << "getfp_obj::getfp_obj: " << strerror (errno) << "\n";
 #endif
-    lbfs_getfp3args gfa;
+      xfs_reply_err (fd, h.header.sequence_num, EIO);
+      delete this;
+    }
     gfa.file = e->nh;
     gfa.offset = 0;
     gfa.count = LBFS_MAXDATA;
 
-    res = New refcounted <lbfs_getfp3res>;
-
-    nfsc->call (lbfs_GETFP, &gfa, res,
-		wrap (this, &getfp_obj::gotfp, timenow));
+    fpres = New refcounted <lbfs_getfp3res>;
+    c->call (lbfs_GETFP, &gfa, fpres,
+	     wrap (this, &getfp_obj::gotfp, timenow),
+	     lbfs_authof (sa));
   }
 };
 
 void
 lbfs_getfp (int fd, const xfs_message_open &h, cache_entry *e, sfs_aid sa, 
-	    ref<aclnt> c)
+	    ref<aclnt> c, getfp_obj::cb_t cb)
 {
-  vNew getfp_obj (fd, h, e, sa, c);
+  vNew getfp_obj (fd, h, e, sa, c, cb);
 }
 
 struct readfile_obj {
@@ -599,6 +887,11 @@ struct readfile_obj {
   cache_entry *e;
   ptr<ex_read3res> res;
 
+  void done () 
+  {
+    delete this;
+  }
+
   void get_updated_copy (ptr<ex_getattr3res> res, time_t rqt, clnt_stat err) {
     if (res) {
       if (!err && res->status == NFS3_OK) {
@@ -611,8 +904,7 @@ struct readfile_obj {
     } 
     nfstime3 maxtime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
     if (greater (maxtime, e->ltime)) 
-      ;
-      //getfp ();
+      lbfs_getfp (fd, h, e, sa, c, wrap (this, &readfile_obj::done));
     else {
       xfs_message_getdata *h1 = (xfs_message_getdata *) &h;
       lbfs_readexist (fd, *h1, e);
@@ -633,8 +925,7 @@ struct readfile_obj {
     }
     
     if (!e->incache)
-      ;
-      //getfp ();
+      lbfs_getfp (fd, h, e, sa, c, wrap (this, &readfile_obj::done));
     else {
       if (owriters > 0) {
 	xfs_message_getdata *h1 = (xfs_message_getdata *) &h;
@@ -707,7 +998,4 @@ void
 lbfs_open (int fd, const xfs_message_open &h, sfs_aid sa, ref<aclnt> c) 
 {
   vNew open_obj (fd, h, sa, c);
-} 
-
-
-
+}
