@@ -453,8 +453,11 @@ client::nfs3dispatch (svccb *sbp)
     committmp(sbp, rqs);
   else if (sbp->proc () == lbfs_CONDWRITE)
     condwrite(sbp, rqs);
-  else if (sbp->proc () == lbfs_GETFP)
+  else if (sbp->proc () == lbfs_GETFP) {
     getfp(sbp, rqs);
+    fflush(stdout);
+    fflush(stderr);
+  }
   else {
     if (sbp->proc () == NFSPROC3_LOOKUP) 
       warn ("server: %lu %lu\n", xc->bytes_sent, xc->bytes_recv);
