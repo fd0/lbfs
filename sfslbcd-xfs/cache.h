@@ -57,13 +57,14 @@ typedef struct cache_entry{
   nfs_fh3 nh;
   ex_fattr3 nfs_attr;
   nfstime3 ltime; //mtime of local cache
+  str name;
   str cache_name;
   bool incache;
   uint32 writers;
   ihash_entry<cache_entry> nlink;
   ihash_entry<cache_entry> xlink;
 
-  cache_entry (nfs_fh3 &n, ex_fattr3 &na);
+  cache_entry (nfs_fh3 &n, ex_fattr3 &na, char *nm = NULL);
   ~cache_entry ();
   void set_exp (time_t rqtime, bool update_dir_expire = false);
 } cache_entry;
@@ -72,15 +73,17 @@ extern ihash<nfs_fh3, cache_entry, &cache_entry::nh,
   &cache_entry::nlink> nfsindex;
 extern ihash<xfs_handle, cache_entry, &cache_entry::xh,
   &cache_entry::xlink> xfsindex;
-cache_entry *update_cache (nfs_fh3, ex_fattr3);
+cache_entry *update_cache (nfs_fh3, ex_fattr3, char *name = NULL);
 int assign_cachefile (int fd, int seqnum, cache_entry *, 
 		      char *filename, xfs_cache_handle *,
 		      int flags = O_CREAT | O_WRONLY);
 
 inline
-cache_entry::cache_entry (nfs_fh3 &n, ex_fattr3 &na)
+cache_entry::cache_entry (nfs_fh3 &n, ex_fattr3 &na, char *nm)
   : nh (n), nfs_attr(na), incache(false), writers(0)
 {
+  if (nm)
+    name = strbuf ("%s", nm);
   bzero (&xh, sizeof (xh));
   xh.a = ++nextxh;
   xh.b = nextxh >> 32;

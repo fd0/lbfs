@@ -168,7 +168,7 @@ struct getroot_obj {
     h0_len = sizeof (msg);
 
     cache_entry *e = update_cache (sfs_fsi->nfs->v3->root, 
-				   *root_attr->attributes);
+				   *root_attr->attributes, "/");
     e->set_exp (rqtime);
     nfsobj2xfsnode (h->cred, e, &msg.node);
 
@@ -318,7 +318,7 @@ struct getnode_obj {
       struct xfs_message_installnode msg;
       struct xfs_message_header *h0 = NULL;
       size_t h0_len = 0;
-      cache_entry *e = update_cache (lres->resok->object, a);
+      cache_entry *e = update_cache (lres->resok->object, a, h->name);
 
       e->set_exp (rqt);
       nfsobj2xfsnode (h->cred, e, &msg.node);
@@ -606,14 +606,12 @@ struct getfp_obj {
   sfs_aid sa;
   cache_entry *e;
   lbfs_getfp3args gfa;
-  //uint64 offset; 
   int out_fd;
   str out_fname;
   uint blocks_written;
   uint total_blocks;
   bool eof;
   int retries;
-  //ptr<lbfs_getfp3res> fpres;
   uint64 bytes_recv;
   uint getfps_sent, reads_sent;
 
@@ -638,7 +636,8 @@ struct getfp_obj {
 
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				      h0, h0_len, NULL, 0);
-    if (lbcd_trace) {
+    if (!lbcd_trace) {
+      warn << "File name           = " << e->name << "\n";
       warn << "File data received  = " << bytes_recv << " bytes\n";
       warn << "File size           = " << e->nfs_attr.size << " bytes\n";
       warn << "GETFP RPCs sent     = " << getfps_sent << "\n";
@@ -732,7 +731,7 @@ struct getfp_obj {
   {
     if (lseek (out_fd, cur_offst, SEEK_SET) < 0) {
       if (lbcd_trace)
-	warn << "compose_file: error: " << strerror (errno) 
+	warn << "copy_block: error: " << strerror (errno) 
 	     << "(" << errno << ")\n";
       xfs_reply_err (fd, h->header.sequence_num, EIO);
       delete this; return;
@@ -838,7 +837,6 @@ struct getfp_obj {
       }
       cur_offst += fpres->resok->fprints[i].count;
     }
-    //offset = cur_offst;
     if (blocks_written == total_blocks && eof) {
       installdata ();
       delete this; return;
@@ -883,7 +881,7 @@ struct getfp_obj {
 
   getfp_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
 	     ref<aclnt> c1, getfp_obj::cb_t cb1) :
-    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1), /*offset(0),*/ blocks_written(0), 
+    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1), blocks_written(0), 
     total_blocks(0), eof(false), retries(0), 
     bytes_recv(0), getfps_sent(0), reads_sent(0)    
   {
@@ -1169,7 +1167,7 @@ struct create_obj {
 
       assert (res->resok->obj.present && res->resok->obj_attributes.present);
       cache_entry *e1 = update_cache (*res->resok->obj.handle, 
-				      *res->resok->obj_attributes.attributes);
+				      *res->resok->obj_attributes.attributes, h->name);
       e1->set_exp (rqt);
       xfs_cred cred = h->cred;
       if (e1->nfs_attr.type == NF3DIR) {
@@ -1421,7 +1419,7 @@ struct symlink_obj {
 
       assert (res->resok->obj.present && res->resok->obj_attributes.present);
       cache_entry *e2 = update_cache (*(res->resok->obj.handle), 
-				      *res->resok->obj_attributes.attributes);
+				      *res->resok->obj_attributes.attributes, h->name);
 
       int parent_fd = assign_cachefile (fd, h->header.sequence_num, e, 
 					msg1.cache_name, &msg1.cache_handle,
@@ -1841,7 +1839,8 @@ struct putdata_obj {
       e->set_exp (rqtime, attr.type == NF3DIR);
       e->ltime = max(attr.mtime, attr.ctime);
       xfs_send_message_wakeup (fd, h->header.sequence_num, 0);    
-      if (lbcd_trace) {
+      if (!lbcd_trace) {
+	warn << "File name           = " << e->name << "\n";
 	warn << "File data sent      = " << bytes_sent << " bytes\n";
 	warn << "File size           = " << e->nfs_attr.size << " bytes\n";
 	warn << "CONDWRITE RPCs sent = " << condwrites_sent << "\n";
@@ -2061,10 +2060,14 @@ struct putdata_obj {
 	v_size = chunker->chunk_vector().size();
 	total_blocks = v_size;
 	for (; index < v_size; index++) {
-	  if (lbcd_trace)
+	  if (lbcd_trace) {
 	    warn << "chindex = " << index << " size = " << v_size << "\n";
+	    warn << "adding fp = " << chunker->chunk_vector()[index]->fingerprint()
+		 << " to lbfsdb \n";
+	  }
 	  outstanding_condwrites++;
 	  sendcondwrite(chunker->chunk_vector()[index]);
+	  chunker->chunk_vector()[index]->location().set_fh (e->nh);
 	  lbfsdb.add_entry (chunker->chunk_vector()[index]->fingerprint(),
 			    &(chunker->chunk_vector()[index]->location()));
 	}
@@ -2079,12 +2082,19 @@ struct putdata_obj {
       v_size = chunker->chunk_vector().size();
       total_blocks = chunker->chunk_vector().size();
       for (; index < v_size; index++) {
-	if (lbcd_trace)
+	if (lbcd_trace) {
 	  warn << "chindex = " << index << " size = " <<  total_blocks<< "\n";
+	  warn << "adding fp = " << chunker->chunk_vector()[index]->fingerprint()
+	       << " to lbfsdb \n";
+	}
 	sendcondwrite(chunker->chunk_vector()[index]);
+	chunker->chunk_vector()[index]->location().set_fh (e->nh);
+	lbfsdb.add_entry (chunker->chunk_vector()[index]->fingerprint(),
+			  &(chunker->chunk_vector()[index]->location()));
       }
       eof = true;
     }
+    lbfsdb.sync ();
     if (lbcd_trace)
       warn << "total_blocks = "  << total_blocks << " " 
 	   << count << " eof " << eof << "\n";

@@ -29,14 +29,17 @@ filename (uint32 index)
 }
 
 cache_entry *
-update_cache (nfs_fh3 fh, ex_fattr3 attr) 
+update_cache (nfs_fh3 fh, ex_fattr3 attr, char *name) 
 {
   //Also creates a new entry out of 'fh' if it's not already in cache
   cache_entry *e = nfsindex[fh];
   if (!e) {
-    e = New cache_entry(fh, attr);
-  } else
+    e = New cache_entry(fh, attr, name);
+  } else {
+    if (name)
+      e->name = strbuf ("%s", name);
     e->nfs_attr = attr;
+  }
   return e;
 }
 
