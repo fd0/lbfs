@@ -31,161 +31,142 @@ ihash<nfs_fh3, cache_entry, &cache_entry::nh,
 ihash<xfs_handle, cache_entry, &cache_entry::xh,
   &cache_entry::xlink> xfsindex;
 
-void sfs_getfsinfo (ref<xfscall>);
-void nfs3_fsinfo (ref<xfscall>);
-void nfs3_getattr (ref<xfscall>);
-
-void 
-nfs_dispatch (ref<xfscall> xfsc, time_t rqtime, clnt_stat err) {
-
-  assert(!err);
-
-  xfsc->rqtime = rqtime;
-  switch (xfsc->opcode) {
-  case XFS_MSG_GETROOT: 
-    switch (xfsc->inst) {
-    case 0:
-      sfs_getfsinfo (xfsc);
-      break;
-    case 1:
-      nfs3_fsinfo (xfsc);
-      break;
-    case 2:
-      nfs3_getattr (xfsc);
-      break;
-    }
-  case XFS_MSG_GETNODE:
-    break;
-  default:
-#if DEBUG < 0
-    warn << "Uncovered case .. opcode = " << xfsc->opcode << "\n";
-#endif
-    break;
-  }
-
-}
-
-int
-xfs_wakeup (ref<xfscall> xfsc) {
-
+void
+xfs_wakeup (ref<xfscall> xfsc) 
+{
 #if DEBUG > 0
   warn << "Received wakeup from XFS\n";
 #endif
-  return 0;
+  
 }
 
-int 
-xfs_getroot (ref<xfscall> xfsc) {
-
+void 
+xfs_getroot (ref<xfscall> xfsc) 
+{
 #if DEBUG > 0
-  warn << "Received getroot from XFS\n";
+  warn << "Received XFS_getroot\n";
 #endif
   
   lbfs_getroot (xfsc->fd, (xfs_message_getroot *) xfsc->argp, sfsc, nfsc);
 
-#if 0
-  sfs_fsinfo *fsi = New sfs_fsinfo;
-  xfsc->resp[++xfsc->inst] = fsi;
-  sfsc->call (SFSPROC_GETFSINFO, NULL, fsi,
-	      wrap (nfs_dispatch, xfsc, timenow));
-#endif 
-
-  return 0;
-}
-
-int 
-xfs_getnode (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_getattr (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_getdata (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_inactivenode (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_open (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_putdata (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_putattr (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_create (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_mkdir (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_link (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_symlink (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_remove (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_rmdir (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_rename (ref<xfscall> xfsc) {
-
-  return 0;
-}
-
-int 
-xfs_pioctl (ref<xfscall> xfsc) {
-
-  return 0;
 }
 
 void 
-cbdispatch(svccb *sbp) {
+xfs_getnode (ref<xfscall> xfsc) 
+{
+  xfs_message_getnode *h = (xfs_message_getnode *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received XFS_getnode\n";
+  warn << h->header.sequence_num << ":" <<" msg.parent_handle ("
+    << (int) h->parent_handle.a << ","
+    << (int) h->parent_handle.b << ","
+    << (int) h->parent_handle.c << ","
+    << (int) h->parent_handle.d << ")\n";
+#endif
+  
+  lbfs_getnode (xfsc->fd, h, nfsc);
+}
 
+void 
+xfs_getattr (ref<xfscall> xfsc) 
+{
+  
+}
+
+void 
+xfs_getdata (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_inactivenode (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_open (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_putdata (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_putattr (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_create (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_mkdir (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_link (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_symlink (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_remove (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_rmdir (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_rename (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+xfs_pioctl (ref<xfscall> xfsc) 
+{
+
+  
+}
+
+void 
+cbdispatch(svccb *sbp) 
+{
 #if DEBUG > 0
   warn << "cbdispatch triggered\n";
 #endif
