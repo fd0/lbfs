@@ -999,3 +999,142 @@ lbfs_open (int fd, const xfs_message_open &h, sfs_aid sa, ref<aclnt> c)
 {
   vNew open_obj (fd, h, sa, c);
 }
+
+struct create_obj {
+  int fd;
+  ref<aclnt> c;
+  
+  const struct xfs_message_header h;
+  sfs_aid sa;
+  cache_entry *e;
+  struct xfs_message_create *ha;
+  ptr<ex_diropres3> res;
+  
+  void install (time_t rqt, clnt_stat err) 
+  {
+    if (!err && res->status == NFS3_OK) {
+      struct xfs_message_installdata msg1; //change content of parent dir
+      struct xfs_message_installnode msg2; //New file node
+      struct xfs_message_installdata msg3; //New file content (null)
+      struct xfs_message_header *h0 = NULL;
+      size_t h0_len = 0;
+      struct xfs_message_header *h1 = NULL;
+      size_t h1_len = 0;
+      struct xfs_message_header *h2 = NULL;
+      size_t h2_len = 0;
+
+      assert (res->resok->obj.present && res->resok->obj_attributes.present);
+      cache_entry *e1 = update_cache (*res->resok->obj.handle, 
+				      *res->resok->obj_attributes.attributes);
+      e1->set_exp (rqt);
+      nfsobj2xfsnode (ha->cred, e1, &msg2.node);
+    
+      int new_fd = assign_cachefile (fd, h.sequence_num, e, 
+				     msg3.cache_name, &msg3.cache_handle);
+      if (new_fd < 0)
+	delete this;
+      
+      strcpy (msg1.cache_name, e->cache_name);
+      assert (res->resok->dir_wcc.after.present);
+      e->nfs_attr = *(res->resok->dir_wcc.after.attributes);
+      e->set_exp (rqt);
+      nfsobj2xfsnode (ha->cred, e, &msg1.node);
+      //messages.C: benjie's rant.
+      e->incache = false;
+
+      msg1.flag = XFS_ID_INVALID_DNLC;
+      msg1.header.opcode = XFS_MSG_INSTALLDATA;
+      h0 = (struct xfs_message_header *) &msg1;
+      h0_len = sizeof (msg1);
+      
+      msg2.node.tokens = XFS_ATTR_R
+	| XFS_OPEN_NW | XFS_OPEN_NR
+	| XFS_DATA_R | XFS_DATA_W;      
+      msg2.parent_handle = ha->parent_handle;
+      strlcpy (msg2.name, ha->name, sizeof (msg2.name));
+    
+      msg2.header.opcode = XFS_MSG_INSTALLNODE;
+      h1 = (struct xfs_message_header *) &msg2;
+      h1_len = sizeof (msg2);
+
+      e1->incache = true;
+      e1->writers = 1;
+      msg3.node = msg2.node;
+      msg3.flag = 0;
+      msg3.header.opcode = XFS_MSG_INSTALLDATA;
+      
+      h2 = (struct xfs_message_header *) &msg3;
+      h2_len = sizeof (msg3);
+
+      xfs_send_message_wakeup_multiple (fd, h.sequence_num,
+					0, h0, h0_len, h1, h1_len, h2, h2_len,
+					NULL, 0);
+    } else xfs_reply_err (fd, h.sequence_num, err ? err : res->status);
+  }
+
+  void do_mkdir ()
+  {
+    struct xfs_message_mkdir *h1 = (xfs_message_mkdir *) &h;    
+    mkdir3args ma;
+    ma.where.dir = e->nh;
+    ma.where.name = h1->name;
+    xfsattr2nfsattr (h1->header.opcode, h1->attr, &ma.attributes);
+
+    res = New refcounted <ex_diropres3>;
+    c->call (lbfs_NFSPROC3_MKDIR, &ma, res,
+	     wrap (this, &create_obj::install, timenow));
+  }
+
+  void do_create ()
+  {
+    struct xfs_message_create *h1 = (xfs_message_create *) &h;
+    create3args ca;
+    ca.where.dir = e->nh;
+    ca.where.name = h1->name;
+    ca.how.set_mode (GUARDED);
+    assert (ca.how.mode == UNCHECKED || ca.how.mode == GUARDED);
+    xfsattr2nfsattr (h1->header.opcode, h1->attr, &(*ca.how.obj_attributes));
+
+    res = New refcounted <ex_diropres3>;
+    c->call (lbfs_NFSPROC3_CREATE, &ca, res,
+		wrap (this, &create_obj::install, timenow));
+  }
+
+  create_obj (int fd1, const xfs_message_header &h1, sfs_aid sa1, 
+	      ref<aclnt> c1) :
+    fd(fd1), c(c1), h(h1), sa(sa1)
+  {
+
+    ha = (xfs_message_create *) &h;    
+    warn << ha->header.sequence_num << ":" <<" xfs_handle ("
+	 << (int) ha->parent_handle.a << ","
+	 << (int) ha->parent_handle.b << ","
+	 << (int) ha->parent_handle.c << ","
+	 << (int) ha->parent_handle.d << ")\n";
+    warn << "file name: " << ha->name << "\n";
+    e = xfsindex[ha->parent_handle];
+    if (!e) {
+#if DEBUG > 0
+      warn << "create_obj: Can't find parent_handle\n";
+#endif
+      xfs_reply_err(fd, h.sequence_num, ENOENT);
+      delete this;
+    }
+
+    switch (h.opcode) {
+    case XFS_MSG_CREATE:
+      do_create ();
+      break;
+    case XFS_MSG_MKDIR:
+      do_mkdir ();
+      break;
+    }
+  }
+};
+
+void 
+lbfs_create (int fd, const xfs_message_header &h, sfs_aid sa, 
+	     ref<aclnt> c)
+{
+  vNew create_obj (fd, h, sa, c);
+}

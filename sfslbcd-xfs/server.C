@@ -121,15 +121,35 @@ xfs_putattr (ref<xfscall> xfsc)
 void 
 xfs_create (ref<xfscall> xfsc) 
 {
+  xfs_message_create *h = (xfs_message_create *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_create\n";
+  warn << h->header.sequence_num << ":" <<" xfs_handle ("
+    << (int) h->parent_handle.a << ","
+    << (int) h->parent_handle.b << ","
+    << (int) h->parent_handle.c << ","
+    << (int) h->parent_handle.d << ")\n";
+  warn << "file name: " << h->name << "\n";
+#endif
 
-  
+  lbfs_create (xfsc->fd, *((xfs_message_header *)h), xfsc->getaid(), nfsc);
 }
 
 void 
 xfs_mkdir (ref<xfscall> xfsc) 
 {
+  xfs_message_mkdir *h = (xfs_message_mkdir *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_create\n";
+  warn << h->header.sequence_num << ":" <<" xfs_handle ("
+       << (int) h->parent_handle.a << ","
+       << (int) h->parent_handle.b << ","
+       << (int) h->parent_handle.c << ","
+       << (int) h->parent_handle.d << ")\n";
+  warn << "file name: " << h->name << "\n";
+#endif
 
-  
+  lbfs_create (xfsc->fd, *((xfs_message_header *)h), xfsc->getaid(), nfsc);
 }
 
 void 

@@ -111,6 +111,8 @@ void lbfs_getattr (int, xfs_message_getattr &, sfs_aid, const nfs_fh3 &,
 		   ref<aclnt>, callback<void, const ex_getattr3res *, clnt_stat>);
 void lbfs_open (int fd, const xfs_message_open &h, sfs_aid sa, 
 		ref<aclnt> c);
+void lbfs_create (int fd, const xfs_message_header &h, sfs_aid sa, 
+		  ref<aclnt> c);
 /* helper.C */
 
 #endif /* __XFS_H_V */
