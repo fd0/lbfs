@@ -81,7 +81,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
       chunk *c = chunker.chunk_vector()[i];
       c->location().set_fh(*fhp);
       //c->location().set_path(fspath);
-      _fp_db.add_entry(c->fingerprint(), &(c->location()));
+      _fp_db.add_entry(c->index(), &(c->location()));
     }
     close(fd);
     _fp_db.sync();

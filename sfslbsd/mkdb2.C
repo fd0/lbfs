@@ -183,7 +183,7 @@ chunkify (str path, const nfs_fh3 &fh, int fd)
               c->location ().count (), c->location ().pos ()); */
     if (opt_count_dups) {
       fp_db::iterator *iterp;
-      if (!db.get_iterator (c->fingerprint (), &iterp)) {
+      if (!db.get_iterator (c->index(), &iterp)) {
 	// XXX - need to check for collisions!
 	num_dup_chunks++;
 	num_dup_bytes += c->location ().count ();
@@ -194,7 +194,7 @@ chunkify (str path, const nfs_fh3 &fh, int fd)
       }
     }
 
-    db.add_entry (c->fingerprint (), &(c->location ()));
+    db.add_entry (c->index(), &(c->location ()));
   }
 }
 

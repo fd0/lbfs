@@ -123,16 +123,13 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   const vec<chunk *>& cv = chunker0->chunk_vector();
 
   if (err || count != cwa->count || cv.size() != 1 || 
-      cv[0]->fingerprint() != cwa->fingerprint || !cv[0]->hash_eq(cwa->hash)) {
+      !cv[0]->hash_eq(cwa->hash)) {
     if (lbsd_trace > 1) {
       if (err) 
         warn << "CONDWRITE: error reading file: " << err << "\n";
       else if (count != cwa->count)
         warn << "CONDWRITE: size does not match, old chunk? " 
 	     << "want " << cwa->count << " got " << count << "\n";
-      else 
-      if (cv.size() != 1 || cv[0]->fingerprint() != cwa->fingerprint)
-        warn << "CONDWRITE: fingerprint mismatch\n";
       else 
         warn << "CONDWRITE: sha1 hash mismatch\n";
     }
@@ -143,7 +140,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     if (!iter->next(&c)) {
       nfs_fh3 fh; 
       c.get_fh(fh); 
-      Chunker *chunker = New Chunker(true);
+      Chunker *chunker = New Chunker;
       unsigned char *buf = New unsigned char[c.count()];
       nfs3_read
 	(fsrv->c, fh, 
@@ -228,8 +225,8 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
   ufd_rec *u = ufdtab.tab[cwa->fd]; 
   if (u) {
     if (u->inuse)
-      u->chunks.push_back 
-        (New chunk(cwa->offset, cwa->count, cwa->fingerprint));
+      u->chunks.push_back
+        (New chunk(cwa->offset, cwa->count, cwa->hash));
     else {
       u->sbps.push_back(sbp);
       return;
@@ -241,13 +238,15 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
   }
 
   fp_db::iterator *iter = 0;
-  if (fsrv->fpdb.get_iterator(cwa->fingerprint, &iter) == 0) {
+  u_int64_t index;
+  memmove(&index, cwa->hash.base(), sizeof(index));
+  if (fsrv->fpdb.get_iterator(index, &iter) == 0) {
     if (iter) { 
       chunk_location c; 
       if (!iter->get(&c)) { 
 	nfs_fh3 fh; 
 	c.get_fh(fh);
-        Chunker *chunker = New Chunker(true);
+        Chunker *chunker = New Chunker;
 	unsigned char *buf = New unsigned char[c.count()];
 	nfs3_read
 	  (fsrv->c, fh,
@@ -261,7 +260,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
     }
   }
   if (lbsd_trace)
-    warn << "CONDWRITE: " << cwa->fingerprint << " not in DB\n";
+    warn << "CONDWRITE: " << index << " not in DB\n";
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
 
@@ -416,11 +415,11 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
     for (unsigned i=0; i<u->chunks.size(); i++) {
       chunk *c = u->chunks[i];
       c->location().set_fh(u->fh);
-      fsrv->fpdb.add_entry(c->fingerprint(), &(c->location()));
+      fsrv->fpdb.add_entry(c->index(), &(c->location()));
       c->location().set_fh(fh);
-      fsrv->fpdb.add_entry(c->fingerprint(), &(c->location()));
+      fsrv->fpdb.add_entry(c->index(), &(c->location()));
       if (lbsd_trace > 2) {
-        warn << "COMMITTMP: adding " << c->fingerprint() << " @"
+        warn << "COMMITTMP: adding " << c->index() << " @"
 	     << c->location().pos() << " " 
 	     << c->location().count() << " to database\n";
       }
@@ -467,9 +466,9 @@ client::aborttmp (svccb *sbp, filesrv::reqstate rqs)
       for (unsigned i=0; i<u->chunks.size(); i++) {
         chunk *c = u->chunks[i];
         c->location().set_fh(u->fh);
-        fsrv->fpdb.add_entry(c->fingerprint(), &(c->location()));
+        fsrv->fpdb.add_entry(c->index(), &(c->location()));
         if (lbsd_trace > 2) {
-          warn << "ABORTTMP: adding " << c->fingerprint() << " @"
+          warn << "ABORTTMP: adding " << c->index() << " @"
 	       << c->location().pos() << " " 
 	       << c->location().count() << " to database\n";
         }
@@ -507,12 +506,11 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     res->resok->fprints.setsize(n);
     for (; i<n; i++) {
       struct lbfs_fp3 x;
-      x.fingerprint = cv[i]->fingerprint();
       x.hash = cv[i]->hash();
       x.count = cv[i]->location().count();
       res->resok->fprints[i] = x;
       if (lbsd_trace > 3)
-        warn << "GETFP: " << cv[i]->fingerprint() << " " 
+        warn << "GETFP: " << cv[i]->index() << " " 
 	     << armor32(x.hash.base(), sha1::hashsize) << "\n";
     }
     res->resok->eof=rres->resok->eof;
@@ -553,7 +551,7 @@ client::getfp (svccb *sbp, filesrv::reqstate rqs)
     warn << "GETFP: ask @" << arg->offset << " +" << arg->count << "\n"; 
   if (lbsd_trace > 2)
     gettimeofday(&t0, NULL);
-  Chunker *chunker = New Chunker(true);
+  Chunker *chunker = New Chunker;
   nfs3_read 
     (fsrv->c, arg->file, 
      arg->offset, arg->count,
@@ -665,7 +663,7 @@ client::demux (svccb *sbp, filesrv::reqstate rqs)
   else if (sbp->proc () == lbfs_ABORTTMP)
     aborttmp(sbp, rqs);
   else {
-    if (lbsd_trace > 1 && sbp->proc () == NFSPROC3_LOOKUP)
+    if (lbsd_trace > 2 && sbp->proc () == NFSPROC3_LOOKUP)
       warn ("server: %lu %lu\n", xc->bytes_sent, xc->bytes_recv);
     normal_demux(sbp, rqs);
   }

@@ -25,7 +25,6 @@ struct lbfs_condwrite3args {
   unsigned fd; 
   uint64 offset; 
   uint32 count; 
-  uint64 fingerprint; 
   sfs_hash hash;
 };
 
@@ -57,7 +56,6 @@ struct lbfs_getfp3args {
 
 struct lbfs_fp3 {
   uint32 count;
-  uint64 fingerprint;
   sfs_hash hash;
 };
 

@@ -14,7 +14,6 @@
 // if we use K = 8192, the average chunk size is 8k. we allow multiple K
 // values so we can do multi-level chunking.
 
-
 #include "vec.h"
 #include "sha1.h"
 #include "sfs_prot.h"
@@ -78,44 +77,48 @@ public:
 class chunk {
 private:
   chunk_location _loc;
-  u_int64_t _fp;
   sfs_hash _hash;
-  unsigned _bytes;
-
-public:
-  chunk(off_t p, size_t s, u_int64_t fp) : 
-    _loc(p, s), _fp(fp), _bytes(0)
-  {
-  }
-  
-  chunk(chunk &c) {
-    _loc = c._loc;
-    _fp = c._fp;
-    _hash = c._hash;
-    _bytes = c._bytes;
-  }
-
-  chunk& operator= (const chunk &c) {
-    _loc = c._loc;
-    _fp = c._fp;
-    _hash = c._hash;
-    _bytes = c._bytes;
-    return *this;
-  }
-
-  u_int64_t fingerprint() const { return _fp; }
-  sfs_hash hash() const { return _hash; }
   
   void compute_hash(unsigned char *data, unsigned count) {
     sha1_hash(_hash.base(), data, count); 
   }
 
+public:
+  chunk(off_t p, size_t s, sfs_hash h)
+    : _loc(p, s), _hash(h)
+  {
+  }
+  
+  chunk(off_t p, size_t s, unsigned char *data)
+    : _loc(p, s)
+  {
+    compute_hash(data, s);
+  }
+  
+  chunk(chunk &c) 
+  {
+    _loc = c._loc;
+    _hash = c._hash;
+  }
+
+  chunk& operator= (const chunk &c)
+  {
+    _loc = c._loc;
+    _hash = c._hash;
+    return *this;
+  }
+
+  sfs_hash hash() const { return _hash; }
+
+  u_int64_t index() const {
+    u_int64_t n;
+    memmove(&n, _hash.base(), sizeof(n));
+    return n;
+  }
+  
   bool hash_eq(sfs_hash &h) const { 
     return memcmp(h.base(), _hash.base(), sha1::hashsize) == 0; 
   }
-
-  void got_bytes(unsigned n) { _bytes += n; }
-  unsigned bytes() const { return _bytes; }
 
   chunk_location& location() { return _loc; }
 };
@@ -134,13 +137,12 @@ private:
   unsigned char *_hbuf; 
   unsigned int _hbuf_size;
   unsigned int _hbuf_cursor;
-  bool _hash;
-  
+
   vec<chunk *> _cv;
   void handle_hash(const unsigned char *data, size_t size);
 
 public:
-  Chunker(bool hash=false); 
+  Chunker();
   ~Chunker();
 
   void stop();

@@ -104,7 +104,7 @@ chunk_file(const char *path)
     buckets[(c->location().count())>>7]++;
     fp_db::iterator *iter = 0;
     gettimeofday(&t0,0L);
-    sdb.get_iterator(c->fingerprint(), &iter);
+    sdb.get_iterator(c->index(), &iter);
     gettimeofday(&t1,0L);
     searchtime += timediff();
     if (iter) {
@@ -114,11 +114,11 @@ chunk_file(const char *path)
 	iter->next(&ctmp);
 	cnt++;
       }
-      warn << path << ": " << c->fingerprint() << ": " << cnt << "\n";
+      warn << path << ": " << c->index() << ": " << cnt << "\n";
       delete iter;
     }
     gettimeofday(&t0,0L);
-    cdb.add_entry(c->fingerprint(), &c->location());
+    cdb.add_entry(c->index(), &c->location());
     gettimeofday(&t1,0L);
     inserttime += timediff();
   }

@@ -718,9 +718,9 @@ struct getfp_obj {
 	}
 	for (uint i = 0; i < cvp.size (); i++) {
 	  if (lbcd_trace > 1)
-	    warn << "adding fp = " << cvp[i]->fingerprint() << " to lbfsdb\n";
+	    warn << "adding fp = " << cvp[i]->index() << " to lbfsdb\n";
 	  cvp[i]->location().set_fh (e->nh);
-	  lbfsdb.add_entry (cvp[i]->fingerprint(), &(cvp[i]->location()));
+	  lbfsdb.add_entry (cvp[i]->index(), &(cvp[i]->location()));
 	  delete cvp[i];
 	}
 	delete this;
@@ -786,7 +786,9 @@ struct getfp_obj {
     for (uint i=0; i<fpres->resok->fprints.size(); i++) {
       found = false;
       unsigned char buf[fpres->resok->fprints[i].count];
-      if (!lbfsdb.get_iterator (fpres->resok->fprints[i].fingerprint, &ci)) {
+      u_int64_t index;
+      memmove(&index, fpres->resok->fprints[i].hash.base(), sizeof(index));
+      if (!lbfsdb.get_iterator (index, &ci)) {
 	if (ci && !(ci->get (&c))) {
 	  do {
 	    found = true;
@@ -846,7 +848,7 @@ struct getfp_obj {
 	    if (found) {
 	      if (lbcd_trace > 1)
 		warn << "FOUND!! getfp_obj::compose_file: fp = " 
-		     << fpres->resok->fprints[i].fingerprint 
+		     << index
 		     << " in client DB\n";
 	      copy_block (cur_offst, buf, &c);
 	    }
@@ -857,7 +859,7 @@ struct getfp_obj {
       if (!found) {
 	if (lbcd_trace > 1)
 	  warn << "compose_file: fp = "
-	       << fpres->resok->fprints[i].fingerprint << " not in DB\n";
+	       << index << " not in DB\n";
 #if 1
 	int want = fpres->resok->fprints[i].count;
 	uint64 want_pos = cur_offst;
@@ -2057,36 +2059,9 @@ struct putdata_obj {
     lbfs_condwrite3args cw;
     cw.commit_to = e->nh;
     cw.fd = tmpfd;
-    cw.offset = chunk->location().pos ();
-    cw.count = chunk->location().count ();
-    cw.fingerprint = chunk->fingerprint();
-
-    int rfd = open (e->cache_name, O_RDWR, 0666);
-    if (rfd < 0) {
-      if (lbcd_trace > 1)
-	warn << "sendcondwrite: " << e->cache_name << ".." 
-	     << strerror (errno) << "\n";
-      sendwrite(chunk);
-      return;
-    }
-
-    lseek (rfd, chunk->location().pos (), SEEK_SET);
-    char buf[cw.count];
-    unsigned total_read = 0;
-    while (total_read < cw.count) {
-      int err = read (rfd, &buf[total_read], cw.count);
-      if (err < 0) {
-	if (lbcd_trace > 1)
-	  warn << "lbfs_condwrite: error: " << strerror (errno) 
-	       << "(" << errno << ")\n"; 
-	sendwrite(chunk);
-	return;
-      }
-      total_read += err;
-    }
-    assert(total_read == cw.count);
-    sha1_hash (&cw.hash, buf, total_read);
-    close (rfd);
+    cw.offset = chunk->location().pos();
+    cw.count = chunk->location().count();
+    cw.hash = chunk->hash();
 
     condwrites_sent++;
     ref<ex_write3res> res = New refcounted <ex_write3res>;
@@ -2126,13 +2101,13 @@ struct putdata_obj {
 	  if (lbcd_trace > 1) {
 	    warn << "chindex = " << index << " size = " << v_size << "\n";
 	    warn << "adding fp = " 
-	         << chunker->chunk_vector()[index]->fingerprint()
+	         << chunker->chunk_vector()[index]->index()
 		 << " to lbfsdb \n";
 	  }
 	  outstanding_condwrites++;
 	  sendcondwrite(chunker->chunk_vector()[index]);
 	  chunker->chunk_vector()[index]->location().set_fh (e->nh);
-	  lbfsdb.add_entry (chunker->chunk_vector()[index]->fingerprint(),
+	  lbfsdb.add_entry (chunker->chunk_vector()[index]->index(),
 			    &(chunker->chunk_vector()[index]->location()));
 	}
       if (outstanding_condwrites >= OUTSTANDING_CONDWRITES) 
@@ -2149,12 +2124,12 @@ struct putdata_obj {
 	if (lbcd_trace > 1) {
 	  warn << "chindex = " << index << " size = " <<  total_blocks<< "\n";
 	  warn << "adding fp = "
-	       << chunker->chunk_vector()[index]->fingerprint()
+	       << chunker->chunk_vector()[index]->index()
 	       << " to lbfsdb \n";
 	}
 	sendcondwrite(chunker->chunk_vector()[index]);
 	chunker->chunk_vector()[index]->location().set_fh (e->nh);
-	lbfsdb.add_entry (chunker->chunk_vector()[index]->fingerprint(),
+	lbfsdb.add_entry (chunker->chunk_vector()[index]->index(),
 			  &(chunker->chunk_vector()[index]->location()));
       }
       eof = true;

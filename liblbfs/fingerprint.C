@@ -21,32 +21,24 @@ fingerprint(const unsigned char *data, size_t count)
   return fp;
 }
 
-Chunker::Chunker(bool hash)
-  : _w(FINGERPRINT_PT), _hash(hash)
+Chunker::Chunker()
+  : _w(FINGERPRINT_PT)
 {
   _last_pos = 0;
   _cur_pos = 0;
   _fp = 0;
   _w.reset();
   _hbuf_cursor = 0;
-  if (_hash) {
-    _hbuf = New unsigned char[32768];
-    _hbuf_size = 32768;
-  }
-  else {
-    _hbuf = 0;
-    _hbuf_size = 0;
-  }
+  _hbuf = New unsigned char[32768];
+  _hbuf_size = 32768;
 }
 
 Chunker::~Chunker()
 {
-  if (_hash) {
-    if (_hbuf_size > 0) {
-      delete[] _hbuf;
-      _hbuf_size = 0;
-      _hbuf_cursor = 0;
-    }
+  if (_hbuf_size > 0) {
+    delete[] _hbuf;
+    _hbuf_size = 0;
+    _hbuf_cursor = 0;
   }
   for (unsigned i = 0; i < _cv.size(); i++)
     delete _cv[i];
@@ -72,11 +64,9 @@ void
 Chunker::stop()
 {
   if (_cur_pos != _last_pos) {
-    chunk *c = New chunk(_last_pos, _cur_pos-_last_pos, _fp);
-    if (_hash) { 
-      c->compute_hash(_hbuf, _hbuf_cursor); 
-      _hbuf_cursor = 0; 
-    }
+    chunk *c = New chunk(_last_pos, _cur_pos-_last_pos, _hbuf);
+    assert(_cur_pos-_last_pos == _hbuf_cursor);
+    _hbuf_cursor = 0; 
     _cv.push_back(c);
   }
 }
@@ -95,24 +85,20 @@ Chunker::chunk_data(const unsigned char *data, size_t size)
       max_size_suppress++;
     if (((f_break % chunk_size) == BREAKMARK_VALUE && cs >= MIN_CHUNK_SIZE) 
 	|| cs >= MAX_CHUNK_SIZE) {
-      chunk *c = New chunk(_last_pos, cs, _fp);
       _w.reset();
       _fp = 0;
-      if (_hash) {
-	if (i-start_i > 0) 
-	  handle_hash(data+start_i, i-start_i);
-	c->compute_hash(_hbuf, _hbuf_cursor);
-	_hbuf_cursor = 0;
-      }
+      if (i-start_i > 0) 
+	handle_hash(data+start_i, i-start_i);
+      chunk *c = New chunk(_last_pos, cs, _hbuf);
+      assert(_hbuf_cursor == cs);
+      _hbuf_cursor = 0;
       _cv.push_back(c);
       _last_pos = _cur_pos;
       start_i = i;
     }
     _fp = _w.append8 (_fp, data[i]);
   }
-      
-  if (_hash)
-    handle_hash(data+start_i, size-start_i);
+  handle_hash(data+start_i, size-start_i);
 }
 
 int chunk_file(vec<chunk *>& cvp, const char *path)
