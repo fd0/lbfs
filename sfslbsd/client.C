@@ -141,7 +141,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     delete chunker0;
     iter->del(); 
     chunk_location c;
-    if (!iter->next(&c)) { 
+    if (!iter->next(&c)) {
       nfs_fh3 fh; 
       c.get_fh(fh); 
       Chunker *chunker = New Chunker(true);
@@ -330,7 +330,6 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
                       commit3res *res, str err)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
-  nfs_fh3 tmpfh;
   nfs_fh3 fh = cta->commit_to;
 #if KEEP_TMP_VERSIONS == 0
   u_int32_t authno = sbp->getaui ();
@@ -359,7 +358,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
     for (unsigned i=0; i<u->chunks.size(); i++) {
       chunk *c = u->chunks[i];
 #if KEEP_TMP_VERSIONS
-      c->location().set_fh(tmpfh);
+      c->location().set_fh(u->fh);
       fsrv->fpdb.add_entry(c->fingerprint(), &(c->location()));
 #endif
       c->location().set_fh(fh);
