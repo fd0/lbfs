@@ -12,8 +12,9 @@
 
 #define LBFS_PROC_RES_TRANS(p) \
   (p == lbfs_CONDWRITE ? NFSPROC3_WRITE : \
-     (p == lbfs_MKTMPFILE ? NFSPROC3_CREATE : \
-       (p == lbfs_COMMITTMP ? NFSPROC3_COMMIT : p)))
+    (p == lbfs_FDWRITE ? NFSPROC3_WRITE : \
+      (p == lbfs_MKTMPFILE ? NFSPROC3_CREATE : \
+        (p == lbfs_COMMITTMP ? NFSPROC3_COMMIT : p))))
 
 extern void lbfs_getxattr(xattrvec *, u_int32_t, void *, void *);
 
