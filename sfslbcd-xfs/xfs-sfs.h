@@ -25,8 +25,9 @@
 #include "async.h"
 #include "arpc.h"
 #include "sfsmisc.h"
-#include "sfs_prot.h"
-#include "nfs3exp_prot.h"
+//#include "sfs_prot.h"
+//#include "nfs3exp_prot.h"
+#include "lbfs_prot.h"
 
 #include <sys/types.h>
 

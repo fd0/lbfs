@@ -26,7 +26,8 @@
 #include "async.h"
 
 char *device_file = "/dev/xfs0";
-char *hostpath = "new-york.lcs.mit.edu:85xq6pznt4mgfvj4mb23x6b8adak55ue";
+//char *hostpath = "new-york.lcs.mit.edu:85xq6pznt4mgfvj4mb23x6b8adak55ue";
+char *hostpath = "pastwatch.lcs.mit.edu:ksg8iisdfirs62ncwewt7jb7v7g3hrsd";
 
 int main(int argc, char **argv) {
 

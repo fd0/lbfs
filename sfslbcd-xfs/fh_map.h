@@ -112,6 +112,18 @@ class fh_map {
     return -1;
   }
 
+  void remove(nfs_fh3 n) {
+    int i = find(n);
+    if (i > -1) {
+      entry[i].xh.a = 0;
+      entry[i].xh.b = 0;
+      entry[i].xh.c = 0;
+      entry[i].xh.d = 0;
+      //entry[i].nh = ...
+      entry[i].opened = false;
+    }
+  }
+
   xfs_handle gethandle(nfs_fh3 nfh, ex_fattr3 attr) {
     // if reaching end of max_fh, need to signal invalid node to xfs
     cur_fh = find(nfh);

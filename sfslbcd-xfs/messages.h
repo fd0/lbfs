@@ -34,6 +34,7 @@
 #include "xfs-nfs.h"
 #include "fh_map.h"
 #include "xfs.h"
+#include "fingerprint.h"
 
 #define NFS_MAXDATA 8192
 

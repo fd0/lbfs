@@ -29,6 +29,8 @@ write3args *wa;
 create3args *ca;
 mkdir3args *ma;
 setattr3args *sa;
+lbfs_mktmpfile3args *mt;
+lbfs_condwrite3args *cw;
 
 static char iobuf[NFS_MAXDATA];
 
@@ -490,10 +492,77 @@ int xfs_message_getattr (int fd, struct xfs_message_getattr *h, u_int size)
   return 0;
 }
 
+void lbfs_nfs3_condwrite(nfs_fh3 tmpfh, uint chunk_index, vec<lbfs_chunk *> *cvp, 
+			 lbfs_condwrite3res *res, clnt_stat err) {
 
-int xfs_message_inactivenode (int,struct xfs_message_inactivenode*,u_int) {
+  if (res != NULL && res->status == NFS3_OK) {
+    if (res->resok->count != (*cvp)[chunk_index-1]->loc.count()) {
+      warn << "lbfs_nfs3_condwrite: did not write the whole chunk...\n";
+      return;
+    } 
+  } else return;
+
+  if (chunk_index < cvp->size()) {
+    cw = new lbfs_condwrite3args;
+    cw->file = tmpfh;
+    cw->offset = (*cvp)[chunk_index]->loc.pos();
+    cw->count = (*cvp)[chunk_index]->loc.count();
+    cw->fingerprint = (*cvp)[chunk_index]->fingerprint;
+
+    lbfs_condwrite3res *res = new lbfs_condwrite3res;
+    nfsc->call(lbfs_NFSPROC3_CONDWRITE, cw, res,
+	       wrap(&lbfs_nfs3_condwrite, tmpfh, ++chunk_index, cvp, res));
+  } else {
+    //remove node from cache
+    
+  }
+  
+}
+
+void lbfs_nfs3_mktmpfile(int fd, struct xfs_message_inactivenode* h, 
+			 ex_diropres3 *res, clnt_stat err) {
+
+  assert(res->status == NFS3_OK && res->resok->obj.present);
+  //send data to server
+  if (fht.setcur(h->handle)) {
+    warn << "xfs_getattr: Can't find node handle\n";
+    return;
+  } 
+  
+  char *fname;
+  assign_filename(fname, fht.getcur());
+
+  vec<lbfs_chunk *> cvp; 
+  //cw = new lbfs_condwrite3args;
+  //cw->file = *res->resok->obj.handle;
+
+  if (chunk_file((char const*)fname, CHUNK_SIZES(0), &cvp) < 0) {
+    warn << strerror(errno) << "(" << errno << "): lbfs_nfs3_mktmpfile(chunkfile)\n";
+    return;
+  }
+    
+  lbfs_nfs3_condwrite(*res->resok->obj.handle, 0, &cvp, NULL, clnt_stat(0));
+  
+}
+
+int xfs_message_inactivenode (int fd, struct xfs_message_inactivenode* h, u_int size) {
 
   warn << "inactivenode !!\n";
+  
+  if (fht.setcur(h->handle)) {
+    warn << "xfs_getattr: Can't find node handle\n";
+    return -1;
+  } 
+
+  //get temp file handle so the update will be atomic
+  mt = new lbfs_mktmpfile3args;
+  mt->commit_to = fht.getnh(fht.getcur());
+  fattr2sattr(fht.getattr(fht.getcur()), &mt->obj_attributes);
+
+  ex_diropres3 *res = new ex_diropres3;
+
+  nfsc->call(lbfs_NFSPROC3_MKTMPFILE, mt, res,
+	     wrap(&lbfs_nfs3_mktmpfile, fd, h, res));
 
   return 0;
 

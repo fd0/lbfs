@@ -241,3 +241,34 @@ int xfsattr2nfsattr(xfs_attr xa, sattr3 *na) {
 
   return 0;
 }
+
+int fattr2sattr(ex_fattr3 fa, sattr3 *sa) {
+  
+  sa->mode.set_set(true);
+  *sa->mode.val = fa.mode;
+
+  sa->uid.set_set(true);
+  *sa->uid.val = fa.uid;
+
+  sa->gid.set_set(true);
+  *sa->gid.val = fa.gid;
+
+  sa->size.set_set(true);
+  *sa->size.val = fa.size;
+
+  sa->atime.set_set(SET_TO_SERVER_TIME);
+
+  if (sa->atime.set == SET_TO_CLIENT_TIME) {
+    sa->atime.time->seconds = fa.atime.seconds;
+    sa->atime.time->nseconds = fa.atime.nseconds;
+  }
+
+  sa->mtime.set_set(SET_TO_SERVER_TIME);
+
+  if (sa->mtime.set == SET_TO_CLIENT_TIME) {
+    sa->mtime.time->seconds = fa.mtime.seconds;
+    sa->mtime.time->nseconds = fa.mtime.nseconds;
+  }
+
+  return 0;  
+}
