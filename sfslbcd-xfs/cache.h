@@ -24,7 +24,6 @@
 
 #include <xfs/xfs_message.h>
 #include "nfs3exp_prot.h"
-#include "xfs-nfs.h"
 #include "ihash.h"
 #include "nfstrans.h"
 
@@ -36,6 +35,7 @@ bool xfs_fheq(xfs_handle, xfs_handle);
 bool nfs_fheq(nfs_fh3, nfs_fh3);
 str setcache_name(uint32 index);
 nfstime3 max(nfstime3 mtime, nfstime3 ctime);
+bool greater (nfstime3, nfstime3);
 
 template<>
 struct hashfn<xfs_handle> {
@@ -72,6 +72,7 @@ extern ihash<nfs_fh3, cache_entry, &cache_entry::nh,
   &cache_entry::nlink> nfsindex;
 extern ihash<xfs_handle, cache_entry, &cache_entry::xh,
   &cache_entry::xlink> xfsindex;
+cache_entry *update_cache (nfs_fh3, ex_fattr3);
 
 inline
 cache_entry::cache_entry (nfs_fh3 &n, ex_fattr3 &na)
@@ -100,6 +101,7 @@ cache_entry::set_exp (time_t rqtime, bool update_dir_expire)
   if (nfs_attr.type != NF3DIR || update_dir_expire)
     nfs_attr.expire += rqtime;
 }
+
 #endif /* _CACHE_H_ */
 
 

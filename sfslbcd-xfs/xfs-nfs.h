@@ -47,16 +47,18 @@ struct write_dirent_args {
     void *last;
 };
 
-bool xfs_fheq(xfs_handle, xfs_handle);
-bool nfs_fheq(nfs_fh3, nfs_fh3);
 u_char nfs_rights2xfs_rights(u_int32_t, ftype3, u_int32_t);
-void nfsobj2xfsnode(xfs_cred, nfs_fh3, ex_fattr3, time_t, xfs_msg_node *, 
-                    bool update_dir_expire = false);
+void nfsobj2xfsnode(xfs_cred, cache_entry *, xfs_msg_node *);
 int flushbuf(write_dirent_args *);
 int nfsdir2xfsfile(ex_readdir3res *, write_dirent_args *);
 int nfsdirent2xfsfile(const char *, const char*, uint64);
 int xfsfile_rm_dirent(const char *, const char* fname);
 int xfsattr2nfsattr(uint32 opcode, xfs_attr, sattr3 *);
 int fattr2sattr(ex_fattr3, sattr3 *);
+void xfs_reply_err (int fd, u_int seqnum, int err);
 
 #endif /* _XFS_NFS_H */
+
+
+
+

@@ -20,21 +20,10 @@
  */
 
 #include "xfs-nfs.h"
+#include "xfs.h"
 
-bool xfs_fheq(xfs_handle x1, xfs_handle x2) 
-{
-  if (xfs_handle_eq(&x1, &x2)) 
-    return true;
-  else return false;
-}
-
-bool
-nfs_fheq (nfs_fh3 n1, nfs_fh3 n2)
-{
-  return n1.data == n2.data;
-}
-
-u_char nfs_rights2xfs_rights(u_int32_t access, ftype3 ftype, u_int32_t mode) 
+u_char 
+nfs_rights2xfs_rights (u_int32_t access, ftype3 ftype, u_int32_t mode) 
 {
   u_char ret = 0;
 
@@ -59,9 +48,9 @@ u_char nfs_rights2xfs_rights(u_int32_t access, ftype3 ftype, u_int32_t mode)
   return ret;
 }
 
-void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr, 
-		    time_t rqtime,  xfs_msg_node *node, bool update_dir_expire) 
+void nfsobj2xfsnode (xfs_cred cred, cache_entry *e, xfs_msg_node *node) 
 {
+#if 0
   // change expire to rpc_time + expire
   if (attr.type != NF3DIR || update_dir_expire)
     attr.expire += rqtime;
@@ -71,6 +60,7 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr,
     e = New cache_entry(obj, attr);
   } else
     e->nfs_attr = attr;
+#endif
 
   node->handle = e->xh; 
 #if DEBUG > 0
@@ -86,32 +76,32 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr,
 
   /* node->attr */
   node->attr.valid = XA_V_NONE;
-  if (attr.type == NF3REG) {
+  if (e->nfs_attr.type == NF3REG) {
     XA_SET_MODE(&node->attr, S_IFREG);
     XA_SET_TYPE(&node->attr, XFS_FILE_REG);
-    XA_SET_NLINK(&node->attr, attr.nlink);
+    XA_SET_NLINK(&node->attr, e->nfs_attr.nlink);
   } else 
-    if (attr.type == NF3DIR) {
+    if (e->nfs_attr.type == NF3DIR) {
       XA_SET_MODE(&node->attr, S_IFDIR);
       XA_SET_TYPE(&node->attr, XFS_FILE_DIR);
-      XA_SET_NLINK(&node->attr, attr.nlink);
+      XA_SET_NLINK(&node->attr, e->nfs_attr.nlink);
     } else
-      if (attr.type == NF3LNK) {
+      if (e->nfs_attr.type == NF3LNK) {
 	XA_SET_MODE(&node->attr, S_IFLNK);
 	XA_SET_TYPE(&node->attr, XFS_FILE_LNK);
-	XA_SET_NLINK(&node->attr, attr.nlink);
+	XA_SET_NLINK(&node->attr, e->nfs_attr.nlink);
       } else {
 	warn << "nfsattr2xfs_attr: default\n";
 	abort ();
       }
-  XA_SET_SIZE(&node->attr, attr.size);
-  XA_SET_UID(&node->attr,attr.uid);
-  XA_SET_GID(&node->attr, attr.gid);
-  node->attr.xa_mode  |= attr.mode;
-  XA_SET_ATIME(&node->attr, attr.atime.seconds);
-  XA_SET_MTIME(&node->attr, attr.mtime.seconds);
-  XA_SET_CTIME(&node->attr, attr.ctime.seconds);
-  XA_SET_FILEID(&node->attr, attr.fileid);
+  XA_SET_SIZE(&node->attr, e->nfs_attr.size);
+  XA_SET_UID(&node->attr,e->nfs_attr.uid);
+  XA_SET_GID(&node->attr, e->nfs_attr.gid);
+  node->attr.xa_mode  |= e->nfs_attr.mode;
+  XA_SET_ATIME(&node->attr, e->nfs_attr.atime.seconds);
+  XA_SET_MTIME(&node->attr, e->nfs_attr.mtime.seconds);
+  XA_SET_CTIME(&node->attr, e->nfs_attr.ctime.seconds);
+  XA_SET_FILEID(&node->attr, e->nfs_attr.fileid);
 
   //HARD CODE ACCESS FOR NOW!! use nfs3_access later
   node->anonrights = nfs_rights2xfs_rights(ACCESS3_READ  | 
@@ -120,8 +110,8 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr,
 					   ACCESS3_MODIFY | 
 					   ACCESS3_EXTEND | 
 					   ACCESS3_DELETE,
-					   attr.type, 
-					   attr.mode);
+					   e->nfs_attr.type, 
+					   e->nfs_attr.mode);
 
   for (int i=0; i<MAXRIGHTS; i++) {
     node->id[i] = cred.pag;
@@ -131,8 +121,8 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr,
 					    ACCESS3_MODIFY | 
 					    ACCESS3_EXTEND | 
 					    ACCESS3_DELETE,
-					    attr.type, 
-					    attr.mode);  
+					    e->nfs_attr.type, 
+					    e->nfs_attr.mode);  
   }
 }
 
@@ -343,4 +333,17 @@ int fattr2sattr(ex_fattr3 fa, sattr3 *sa)
   }
 
   return 0;  
+}
+
+void 
+xfs_reply_err (int fd, u_int seqnum, int err)
+{
+  struct xfs_message_header *h0 = NULL;
+  size_t h0_len = 0;
+
+#if DEBUG > 0
+  if (err == EIO)
+    warn << "sending xfs EIO\n";
+#endif
+  xfs_send_message_wakeup_multiple (fd, seqnum, err, h0, h0_len, NULL, 0);
 }

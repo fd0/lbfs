@@ -60,38 +60,39 @@ struct xfscall {
   void *getvoidres (int i) { return resp[i]; }
 };
   
-typedef int (*xfs_message_function) (ref<xfscall>);
+typedef void (*xfs_message_function) (ref<xfscall>);
 extern xfs_message_function rcvfuncs[XFS_MSG_COUNT];
 /* xfs.C */
 
 /* server.C */
 extern ex_fsinfo3resok nfs_fsinfo;
-void nfs_dispatch (ref<xfscall>, time_t, clnt_stat err);
-int xfs_wakeup (ref<xfscall>);
-int xfs_getroot (ref<xfscall>);
-int xfs_getnode (ref<xfscall>);
-int xfs_getdata (ref<xfscall>);
-int xfs_open (ref<xfscall>);
-int xfs_getattr (ref<xfscall>);
-int xfs_inactivenode (ref<xfscall>);
-int xfs_putdata (ref<xfscall>);
-int xfs_putattr (ref<xfscall>);
-int xfs_create (ref<xfscall>);
-int xfs_mkdir (ref<xfscall>);
-int xfs_link (ref<xfscall>);
-int xfs_symlink (ref<xfscall>);
-int xfs_remove (ref<xfscall>);
-int xfs_rmdir (ref<xfscall>);
-int xfs_rename (ref<xfscall>);
-int xfs_pioctl (ref<xfscall>);
+//void nfs_dispatch (ref<xfscall>, time_t, clnt_stat err);
+void xfs_wakeup (ref<xfscall>);
+void xfs_getroot (ref<xfscall>);
+void xfs_getnode (ref<xfscall>);
+void xfs_getdata (ref<xfscall>);
+void xfs_open (ref<xfscall>);
+void xfs_getattr (ref<xfscall>);
+void xfs_inactivenode (ref<xfscall>);
+void xfs_putdata (ref<xfscall>);
+void xfs_putattr (ref<xfscall>);
+void xfs_create (ref<xfscall>);
+void xfs_mkdir (ref<xfscall>);
+void xfs_link (ref<xfscall>);
+void xfs_symlink (ref<xfscall>);
+void xfs_remove (ref<xfscall>);
+void xfs_rmdir (ref<xfscall>);
+void xfs_rename (ref<xfscall>);
+void xfs_pioctl (ref<xfscall>);
 
 void cbdispatch(svccb *sbp);
 /* server.C */
 
 /* helper.C */
 void lbfs_getroot (int, xfs_message_getroot *, ref<aclnt> sc1, ref<aclnt> nc1);
-void lbfs_getattr (int, xfs_message_getattr *, const nfs_fh3 &, 
-		   ref<aclnt>, callback<void, const ex_getattr3res *, str>);
+void lbfs_getnode (int, xfs_message_getnode *, ref<aclnt>);
+void lbfs_getattr (int, xfs_message_getattr *, const nfs_fh3 &, ref<aclnt>, 
+		   callback<void, const ex_getattr3res *, clnt_stat>);
 /* helper.C */
 
 #endif /* __XFS_H_V */
