@@ -49,8 +49,8 @@ fingerprint(const unsigned char *data, size_t count)
   return fp;
 }
 
-Chunker::Chunker(unsigned s, vec<lbfs_chunk *> *cvp)
-  : _w(FINGERPRINT_PT), _chunk_size(s), _cvp(cvp)
+Chunker::Chunker(unsigned s, vec<lbfs_chunk *> *v)
+  : _w(FINGERPRINT_PT), _chunk_size(s), cvp(v)
 {
   _last_pos = 0;
   _cur_pos = 0;
@@ -66,7 +66,7 @@ void
 Chunker::stop()
 {
   lbfs_chunk *c = new lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
-  _cvp->push_back(c);
+  cvp->push_back(c);
 }
 
 void
@@ -77,7 +77,7 @@ Chunker::chunk(const unsigned char *data, size_t size)
     f_break = _w.slide8 (data[i]);
     if ((f_break % _chunk_size) == BREAKMARK_VALUE) {
       lbfs_chunk *c = new lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
-      _cvp->push_back(c);
+      cvp->push_back(c);
       _w.reset();
       _fp = 0;
       _last_pos = _cur_pos;

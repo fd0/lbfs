@@ -118,7 +118,14 @@ client::condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
   if (err || count != cwa->count ||
       fingerprint(data, count) != cwa->fingerprint ||
       compare_sha1_hash(data, count, cwa->hash)) {
-    warn << "CONDWRITE: YYY hash or fingerprint mismatch\n";
+    if (err) 
+      warn << "CONDWRITE: error reading file\n";
+    else if (count != cwa->count)
+      warn << "CONDWRITE: db corrupted, size does not match\n";
+    else if (fingerprint(data,count) != cwa->fingerprint)
+      warn << "CONDWRITE: fingerprint mismatch\n";
+    else 
+      warn << "CONDWRITE: sha1 hash mismatch\n";
     delete data;
     // only remove record if it is not an error, so transient 
     // failures won't cause db to be incorrected deleted.
@@ -136,6 +143,7 @@ client::condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
  
   else {
     // fingerprint matches, do write
+    warn << "CONDWRITE: bingo, found a condwrite candidate\n";
     u_int32_t authno = sbp->getaui ();
     write3args w3arg;
     w3arg.file = cwa->file;
@@ -152,7 +160,7 @@ client::condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
   }
 
   delete iter;
-  warn << "CONDWRITE: ZZZ ran out of files to try\n";
+  warn << "CONDWRITE: ran out of files to try\n";
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
 
@@ -175,7 +183,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
       delete iter; 
     }
   }
-  warn << "CONDWRITE: XXX " << cwa->fingerprint << " not in DB\n";
+  warn << "CONDWRITE: " << cwa->fingerprint << " not in DB\n";
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
 
@@ -208,7 +216,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   str rstr = armor32((void*)&r, sizeof(int));
   char tmpfile[5+fhstr.len()+1+rstr.len()+1];
   sprintf(tmpfile, "sfs.%s.%s", fhstr.cstr(), rstr.cstr());
-  warn << "tmp file is " << tmpfile << "\n";
+  warn << "MKTMPFILE: tmp file is " << tmpfile << "\n";
   
   u_int32_t authno = sbp->getaui ();
   create3args c3arg;
@@ -225,18 +233,40 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
 }
 
 void
-client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, 
-                      commit3res *res, str err)
+client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
+                      const FATTR3 *attr, commit3res *res, str err)
 {
   nfs3reply (sbp, res, rqs, RPC_SUCCESS);
+  lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
+  chunker->stop();
+  vec<lbfs_chunk *> *cv = chunker->cvp;
+  for (unsigned i=0; i<cv->size(); i++) {
+    (*cv)[i]->loc.set_fh(cta->commit_to);
+    (*cv)[i]->loc.set_mtime(attr->mtime);
+    lbfsdb.add_chunk((*cv)[i]->fingerprint, &((*cv)[i]->loc)); 
+    warn << "COMMITTMP: adding " << (*cv)[i]->fingerprint << " to database\n";
+    delete (*cv)[i];
+  }
+  delete cv;
+  delete chunker;
+}
+
+void
+client::committmp_chunk 
+  (Chunker *chunker, const unsigned char *data, size_t count)
+{
+  chunker->chunk(data, count);
 }
 
 void
 client::committmp (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
-  copy3 (fsrv->c, cta->commit_from, cta->commit_to, 
-         wrap(mkref(this), &client::committmp_cb, sbp, rqs));
+  vec<lbfs_chunk *> *v = new vec<lbfs_chunk*>;
+  Chunker *chunker = new Chunker(CHUNK_SIZES(0), v);
+  copy3 (fsrv->c, cta->commit_from, cta->commit_to,
+         wrap(mkref(this), &client::committmp_chunk, chunker),
+         wrap(mkref(this), &client::committmp_cb, sbp, rqs, chunker));
 }
 
 void

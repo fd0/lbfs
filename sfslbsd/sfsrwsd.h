@@ -22,6 +22,9 @@
  *
  */
 
+#ifndef SFSRWSD_H
+#define SFSRWSD_H
+
 #include "qhash.h"
 #include "arpc.h"
 #include "vec.h"
@@ -34,6 +37,7 @@
 #include "sfsserv.h"
 #include "lbfs_prot.h"
 #include "lbfsdb.h"
+#include "fingerprint.h"
 
 #define FATTR3 fattr3exp
 
@@ -207,8 +211,9 @@ class client : public virtual refcount, public sfsserv {
                      void *_cres, clnt_stat err);
   void mktmpfile (svccb *sbp, filesrv::reqstate rqs);
   
-  void committmp_cb (svccb *sbp, filesrv::reqstate rqs, 
-                     commit3res *res, str err);
+  void committmp_chunk (Chunker *, const unsigned char *data, size_t count);
+  void committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *,
+                     const FATTR3 *attr, commit3res *res, str err);
   void committmp (svccb *sbp, filesrv::reqstate rqs);
 
 protected:
@@ -253,4 +258,6 @@ stat2str (T xstat, clnt_stat stat)
   else
     return NULL;
 }
+
+#endif
 

@@ -143,7 +143,9 @@ mkdir3 (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
 
 
 struct copy3obj {
-  typedef callback<void, commit3res *, str>::ref cb_t;
+  typedef callback<void, const FATTR3 *, commit3res *, str>::ref cb_t;
+  typedef callback<void, unsigned const char *, size_t>::ref read_cb_t;
+  read_cb_t read_cb;
   cb_t cb;
   ref<aclnt> c;
 
@@ -161,13 +163,26 @@ struct copy3obj {
   
   static const int READ_BLOCK_SZ = 8192;
 
+  void gotdstattr(clnt_stat stat)
+  {
+    if (stat || cres.status) 
+      (*cb) (NULL, NULL, stat2str (cres.status, stat));
+    else {
+      FATTR3 * attr = ares.attributes.addr();
+      (*cb) (attr, &cres, NULL);
+    }
+    delete this;
+  }
+
   void gotcommit(clnt_stat stat)
   { 
-    if (stat || cres.status) 
-      (*cb) (NULL, stat2str (cres.status, stat));
+    if (stat || cres.status) {
+      (*cb) (NULL, NULL, stat2str (cres.status, stat));
+      delete this;
+    }
     else
-      (*cb) (&cres, NULL);
-    delete this;
+      c->call (NFSPROC3_GETATTR, &dst, &ares,
+	       wrap (this, &copy3obj::gotdstattr), auth_root);
   }
 
   void check_finish()
@@ -190,7 +205,7 @@ struct copy3obj {
                  write3res *wres, clnt_stat stat) 
   {
     if (stat || wres->status) {
-      (*cb) (NULL, stat2str (wres->status, stat));
+      (*cb) (NULL, NULL, stat2str (wres->status, stat));
       delete rres;
       delete wres;
       outstanding_writes--;
@@ -232,7 +247,7 @@ struct copy3obj {
   void gotread (u_int64_t pos, u_int32_t count, read3res *res, clnt_stat stat) 
   {
     if (stat || res->status) {
-      (*cb) (NULL, stat2str (res->status, stat));
+      (*cb) (NULL, NULL, stat2str (res->status, stat));
       delete res;
       outstanding_reads--;
       error++;
@@ -249,6 +264,8 @@ struct copy3obj {
       arg.count = count;
       arg.stable = UNSTABLE;
       arg.data.set(res->resok->data.base(), count, freemode::NOFREE);
+      read_cb(reinterpret_cast<unsigned char *>(res->resok->data.base()), 
+	      count);
       write3res *wres = new write3res;
       c->call (NFSPROC3_WRITE, &arg, wres,
 	       wrap(this, &copy3obj::gotwrite, 
@@ -273,7 +290,7 @@ struct copy3obj {
 
   void gotattr (clnt_stat stat) {
     if (stat || ares.status) {
-      (*cb) (NULL, stat2str(ares.status, stat));
+      (*cb) (NULL, NULL, stat2str(ares.status, stat));
       delete this;
     }
     else {
@@ -295,8 +312,9 @@ struct copy3obj {
 	     wrap (this, &copy3obj::gotattr), auth_root);
   }
 
-  copy3obj (ref<aclnt> c, const nfs_fh3 &s, const nfs_fh3 &d, cb_t cb)
-    : cb (cb), c (c), src(s), dst(d)
+  copy3obj (ref<aclnt> c, const nfs_fh3 &s, const nfs_fh3 &d, 
+            read_cb_t rcb, cb_t cb)
+    : read_cb(rcb), cb(cb), c(c), src(s), dst(d)
   {
     error = outstanding_reads = outstanding_writes = 0;
     do_getattr();
@@ -306,8 +324,8 @@ struct copy3obj {
 // cb may be called more than once
 void
 copy3 (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst,
-       copy3obj::cb_t cb)
+       copy3obj::read_cb_t rcb, copy3obj::cb_t cb)
 {
-  vNew copy3obj (c, src, dst, cb);
+  vNew copy3obj (c, src, dst, rcb, cb);
 }
 

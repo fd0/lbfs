@@ -4,6 +4,7 @@
 
 #include "arpc.h"
 #include "nfs3_prot.h"
+#include "sfsrwsd.h"
 
 
 // translates LBFS proc number to NFS3 proc number for dealing with res
@@ -29,7 +30,8 @@ void mkdir3 (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
              callback<void, const nfs_fh3 *, str>::ref);
 
 void copy3 (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst, 
-            callback<void, commit3res *, str>::ref);
+            callback<void, const unsigned char *, size_t>::ref,
+            callback<void, const FATTR3 *, commit3res *, str>::ref);
 
 #endif _LBFS_H_
 

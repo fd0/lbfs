@@ -22,9 +22,9 @@ private:
   size_t _last_pos;
   size_t _cur_pos;
   u_int64_t _fp;
-  vec<lbfs_chunk *> *_cvp;
 
 public:
+  vec<lbfs_chunk *> *cvp;
 
   Chunker(unsigned s, vec<lbfs_chunk *> *cvp); 
   ~Chunker();
