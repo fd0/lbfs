@@ -3,10 +3,12 @@
 
 $(PROGRAMS): $(LDEPS)
 
-sfslib_PROGRAMS = sfslbcd
+sfslib_PROGRAMS = sfslbcd aiodtest
 
 noinst_HEADERS = \
 sfslbcd.h
+
+aiodtest_SOURCES = aiodtest.C
 
 sfslbcd_SOURCES = \
 attrcache.C server.C sfslbcd.C read.C write.C ranges.C

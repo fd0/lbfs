@@ -966,6 +966,12 @@ server::dispatch (nfscall *nc)
     {
       nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
       file_cache *e = file_cache_lookup(*a);
+      if (!e) {
+        warn << "RPC received without cache entry\n";
+	commit3res res (NFS3ERR_STALE);
+	nc->reply (&res);
+        return;
+      }
       assert(!e->is_flush());
 
       if (e && e->is_dirty()) {

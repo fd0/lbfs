@@ -80,7 +80,7 @@ struct write_obj {
   commit_reply(time_t rqtime, ref<commit3args> arg,
                ref<ex_commit3res> res, clnt_stat err) {
     outstanding_writes--;
-    if (!err) {
+    if (!err && !res->status) {
       srv->getxattr (rqtime, NFSPROC3_COMMIT, 0, arg, res);
       if (res->resok->file_wcc.before.present &&
 	  res->resok->file_wcc.after.present) {
@@ -104,7 +104,10 @@ struct write_obj {
       ok();
       return;
     }
-    warn << "final commit failed\n";
+    if (!err)
+      warn << "final commit failed: " << res->status << "\n";
+    else
+      warn << "final commit failed: " << err << "\n";
     fail();
   }
 
@@ -209,15 +212,16 @@ struct write_obj {
   void lbfs_condwrite (uint64 off, uint32 cnt,
                        ptr<aiobuf> buf, ssize_t sz, int err)
   {
-    if (err || (unsigned)sz != cnt) {
+    if (err) { 
       outstanding_writes--;
-      if (err)
-        warn << "lbfs_write: read failed: " << err << "\n";
-      else
-        warn << "lbfs_write: short read: got "
-             << sz << " wanted " << cnt << "\n";
+      warn << "lbfs_write: read failed: " << err << "\n";
       fail ();
       return;
+    }
+    
+    if ((unsigned)sz != cnt) {
+      warn << "lbfs_write: short read: got "
+	   << sz << " wanted " << cnt << "\n";
     }
 
     if (callback) {
@@ -260,15 +264,16 @@ struct write_obj {
   void lbfs_tmpwrite (uint64 off, uint32 cnt,
                       ptr<aiobuf> buf, ssize_t sz, int err)
   {
-    if (err || (unsigned)sz != cnt) {
+    if (err) {
       outstanding_writes--;
-      if (err)
-        warn << "lbfs_write: read failed: " << err << "\n";
-      else
-        warn << "lbfs_write: short read: got "
-             << sz << " wanted " << cnt << "\n";
+      warn << "lbfs_write: read failed: " << err << "\n";
       fail ();
       return;
+    }
+
+    if ((unsigned)sz != cnt) {
+      warn << "lbfs_write: short read: got "
+	   << sz << " wanted " << cnt << "\n";
     }
 
     if (callback) {
@@ -295,15 +300,16 @@ struct write_obj {
   void nfs3_write (uint64 off, uint32 cnt,
                    ptr<aiobuf> buf, ssize_t sz, int err)
   {
-    if (err || (unsigned)sz != cnt) {
+    if (err) {
       outstanding_writes--;
-      if (err)
-        warn << "lbfs_write: read failed: " << err << "\n";
-      else
-        warn << "lbfs_write: short read: got "
-             << sz << " wanted " << cnt << "\n";
+      warn << "lbfs_write: read failed: " << err << "\n";
       fail ();
       return;
+    }
+
+    if ((unsigned)sz != cnt) {
+      warn << "lbfs_write: short read: got "
+           << sz << " wanted " << cnt << "\n";
     }
 
     if (callback) {
