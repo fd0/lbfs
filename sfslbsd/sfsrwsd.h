@@ -144,8 +144,9 @@ public:
 
   vec<filesys> fstab;
   vec<struct trash_dir> sfs_trash;
-  unsigned get_oscar(unsigned fsno);
-  void update_oscar(unsigned fsno);
+  vec<nfs_fh3> removed_fhs;
+  unsigned get_trashent(unsigned fsno);
+  void update_trashent(unsigned fsno);
 
   ihash<nfs_fh3, filesys, &filesys::fh_root, &filesys::rhl, hashfh3> root3tab;
   ihash<nfs_fh3, filesys, &filesys::fh_mntpt, &filesys::mphl, hashfh3> mp3tab;
@@ -195,8 +196,10 @@ private:
     return fsp - fstab.base ();
   }
 
-  void make_oscar(unsigned fsno, unsigned trash_idx);
-  void make_oscar_cb(wccstat3 *res, clnt_stat err);
+  void make_trashent(unsigned fsno, unsigned trash_idx);
+  void make_trashent_lookup_cb(unsigned, lookup3res *res, clnt_stat err);
+  void make_trashent_remove_cb(wccstat3 *res, clnt_stat err);
+  void db_gc(fp_db &db);
 
 public:
   synctab *const st;
@@ -273,11 +276,11 @@ class client : public virtual refcount, public sfsserv {
 
   void normal_dispatch (svccb *, filesrv::reqstate rqs);
   
-  void oscar_add (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh);
-  void oscar_add_cb (svccb *sbp, filesrv::reqstate rqs,
-                     link3res *lnres, clnt_stat err);
-  void oscar_lookup_cb (svccb *sbp, filesrv::reqstate rqs,
-                        lookup3res *, clnt_stat err);
+  void trashent_link (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh);
+  void trashent_link_cb (svccb *sbp, filesrv::reqstate rqs,
+                         link3res *lnres, clnt_stat err);
+  void trashent_lookup_cb (svccb *sbp, filesrv::reqstate rqs,
+                           lookup3res *, clnt_stat err);
 
   void condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, size_t count,
                            write3res *, str err);
@@ -304,6 +307,9 @@ class client : public virtual refcount, public sfsserv {
   void getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *, 
                  size_t count, read3res *, str err);
   void getfp (svccb *sbp, filesrv::reqstate rqs);
+
+  void db_gc_cb ();
+  bool db_gc_on;
 
 protected:
   explicit client (ref<axprt_crypt> x);

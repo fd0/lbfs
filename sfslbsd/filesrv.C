@@ -281,14 +281,14 @@ filesrv::gottrashdir (ref<erraccum> ea, int i, int j, bool root,
       } else {
         sfs_trash[i].window[0] = 0;
         for (unsigned j = 0; j < SFS_TRASH_WIN_SIZE; j++)
-          make_oscar(i, j);
+          make_trashent(i, j);
       }
     }
   }
 }
 
 unsigned
-filesrv::get_oscar(unsigned fsno)
+filesrv::get_trashent(unsigned fsno)
 {
   unsigned i = sfs_trash[fsno].window[0];
   unsigned r = sfs_trash[fsno].window[i+1];
@@ -296,37 +296,91 @@ filesrv::get_oscar(unsigned fsno)
 }
 
 void
-filesrv::update_oscar(unsigned fsno)
+filesrv::update_trashent(unsigned fsno)
 {
   unsigned i = sfs_trash[fsno].window[0];
   if (sfs_trash[fsno].window[0] == SFS_TRASH_WIN_SIZE-1)
     sfs_trash[fsno].window[0] = 0;
   else
     sfs_trash[fsno].window[0]++;
-  make_oscar(fsno, i);
+  make_trashent(fsno, i);
 }
 
 void
-filesrv::make_oscar(unsigned fsno, unsigned trash_idx)
+filesrv::make_trashent(unsigned fsno, unsigned trash_idx)
 {
   sfs_trash[fsno].window[trash_idx+1] = rnd.getword() % SFS_TRASH_DIR_SIZE;
   unsigned r = sfs_trash[fsno].window[trash_idx+1];
   str rstr = armor32((void*)&r, sizeof(r));
   char tmpfile[7+rstr.len()+1];
   sprintf(tmpfile, "oscar.%s", rstr.cstr());
-   
+
   diropargs3 arg;
-  arg.name = tmpfile;
   arg.dir = sfs_trash[fsno].subdirs[r % SFS_TRASH_DIR_BUCKETS];
-  wccstat3 *res = New wccstat3;
-  c->call (NFSPROC3_REMOVE, &arg, res,
-	   wrap (this, &filesrv::make_oscar_cb, res), auth_default);
+  arg.name = tmpfile;
+  lookup3res *res = New lookup3res;
+  c->call (NFSPROC3_LOOKUP, &arg, res,
+	   wrap(this, &filesrv::make_trashent_lookup_cb, r, res),
+	   auth_default);
 }
 
 void
-filesrv::make_oscar_cb(wccstat3 *res, clnt_stat err)
+filesrv::make_trashent_lookup_cb(unsigned r, lookup3res *res, clnt_stat err)
+{
+  str rstr = armor32((void*)&r, sizeof(r));
+  char tmpfile[7+rstr.len()+1];
+  sprintf(tmpfile, "oscar.%s", rstr.cstr());
+  if (!err && !res->status) {
+    if (res->resok->obj_attributes.present) {
+      /* schedule removal of this fh from database */
+      removed_fhs.push_back(res->resok->object);
+      warn << "GC: schedule old fh for " << tmpfile << " for gc\n";
+    }
+    diropargs3 arg;
+    arg.name = tmpfile;
+    arg.dir = sfs_trash[fsno].subdirs[r % SFS_TRASH_DIR_BUCKETS];
+    wccstat3 *wres = New wccstat3;
+    c->call (NFSPROC3_REMOVE, &arg, wres,
+	     wrap(this, &filesrv::make_trashent_remove_cb, wres), auth_default);
+  }
+  delete res;
+}
+
+void
+filesrv::make_trashent_remove_cb(wccstat3 *res, clnt_stat err)
 {
   delete res;
+}
+
+// expensive... need to reimplement this in a better way
+void
+filesrv::db_gc(fp_db &db)
+{
+  size_t n = removed_fhs.size();
+  int k = 0;
+  warn << "GC: trying to gc " << n << " number of fhs\n";
+  fp_db::iterator *iter = 0;
+  if (db.get_iterator(&iter) == 0 && iter) {
+    chunk_location c;
+    if (!iter->get(&c)) {
+      do {
+	k++;
+	nfs_fh3 fh;
+	c.get_fh(fh);
+        for(size_t i=0; i<removed_fhs.size(); i++) {
+	  if (fh == removed_fhs[i]) {
+	    n--;
+            iter->del();
+	    break;
+	  }
+        }
+      } while(!iter->next(&c)); // XXX check n > 0
+    }
+  }
+  if (iter)
+    delete iter;
+  warn << "GC: iterated over " << k << " number of files\n";
+  removed_fhs.setsize(0);
 }
 
 void

@@ -1,6 +1,6 @@
 /*
  *
- * Copyright (C) 1998 David Mazieres (dm@uun.org)
+ * Copyright (C) 2001 Benjie Chen (benjie@lcs.mit.edu)
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -104,7 +104,6 @@ client::renamecb_1 (svccb *sbp, void *_res, filesrv::reqstate rqs,
 			     sbp, res, rqs, ares), auth);
 }
 
-// returns 0 if sha1 hash of data is equals to the given hash
 static inline int
 compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
 {
@@ -158,7 +157,6 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
  
   else {
 #if DEBUG > 1
-    // fingerprint matches, do write
     warn << "CONDWRITE: bingo, found a condwrite candidate\n";
 #endif
     nfs3_write(fsrv->c, cwa->file, 
@@ -272,7 +270,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_mktmpfile3args *mta = sbp->template getarg<lbfs_mktmpfile3args> ();
 
-  unsigned r = fsrv->get_oscar(rqs.fsno);
+  unsigned r = fsrv->get_trashent(rqs.fsno);
   str rstr = armor32((void*)&r, sizeof(r));
   char *tmpfile = New char[7+rstr.len()+1];
   sprintf(tmpfile, "oscar.%s", rstr.cstr());
@@ -294,7 +292,11 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
 		 wrap (mkref (this), &client::mktmpfile_cb, 
 		       sbp, rqs, c3arg.where.dir, tmpfile, cres),
 		 authtab[authno]);
-  fsrv->update_oscar(rqs.fsno);
+  fsrv->update_trashent(rqs.fsno);
+  if (!db_gc_on) {
+    delaycb(5, wrap(mkref (this), &client::db_gc_cb));
+    db_gc_on = true;
+  }
 }
 
 void
@@ -304,9 +306,8 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
   nfs_fh3 tmpfh = cta->commit_from;
   nfs_fh3 fh = cta->commit_to;
-#if 0
+#if KEEP_TMP_VERSIONS == 0
   u_int32_t authno = sbp->getaui ();
-  unsigned fsno = rqs.fsno;
 #endif 
 
 #if DEBUG > 1
@@ -473,36 +474,35 @@ client::getfp (svccb *sbp, filesrv::reqstate rqs)
 }
 
 void 
-client::oscar_add_cb (svccb *sbp, filesrv::reqstate rqs, 
-                      link3res *lnres, clnt_stat err)
+client::trashent_link_cb (svccb *sbp, filesrv::reqstate rqs, 
+                          link3res *lnres, clnt_stat err)
 {
 #if DEBUG > 0
   if (err) 
-    warn << "oscar_add_cb: failed\n";
+    warn << "trashent_link_cb: failed\n";
 #endif
   normal_dispatch(sbp, rqs);
   delete lnres;
-  fsrv->update_oscar(rqs.fsno);
 }
 
 void
-client::oscar_lookup_cb (svccb *sbp, filesrv::reqstate rqs, 
-                         lookup3res *lres, clnt_stat err)
+client::trashent_lookup_cb (svccb *sbp, filesrv::reqstate rqs, 
+                            lookup3res *lres, clnt_stat err)
 {
   if (!err && !lres->status && lres->resok->obj_attributes.present)
-    oscar_add(sbp, rqs, lres->resok->object);
+    trashent_link(sbp, rqs, lres->resok->object);
   else
     normal_dispatch(sbp, rqs);
   delete lres;
 }
 
 void
-client::oscar_add (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh)
+client::trashent_link (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh)
 {
   u_int32_t authno = sbp->getaui ();
   link3args lnarg;
   lnarg.file = fh;
-  unsigned r = fsrv->get_oscar(rqs.fsno);
+  unsigned r = fsrv->get_trashent(rqs.fsno);
   str rstr = armor32((void*)&r, sizeof(r));
   char tmpfile[7+rstr.len()+1];
   sprintf(tmpfile, "oscar.%s", rstr.cstr());
@@ -510,8 +510,20 @@ client::oscar_add (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh)
   lnarg.link.dir = fsrv->sfs_trash[rqs.fsno].subdirs[r%SFS_TRASH_DIR_BUCKETS];
   link3res *lnres = New link3res;
   fsrv->c->call (NFSPROC3_LINK, &lnarg, lnres,
-	         wrap (mkref (this), &client::oscar_add_cb, sbp, rqs, lnres),
+	         wrap(mkref(this), &client::trashent_link_cb, sbp, rqs, lnres),
 		 authtab[authno]);
+  fsrv->update_trashent(rqs.fsno);
+  if (!db_gc_on) {
+    delaycb(5, wrap(mkref (this), &client::db_gc_cb));
+    db_gc_on = true;
+  }
+}
+
+void
+client::db_gc_cb ()
+{
+  fsrv->db_gc(fpdb);
+  db_gc_on = false;
 }
 
 void
@@ -553,28 +565,28 @@ client::nfs3dispatch (svccb *sbp)
     getfp(sbp, rqs);
   }
 #if KEEP_TMP_VERSIONS == 0
-  // keep removed files, so we can use their chunks
+  //
+  // keep removed files (via REMOVE or RENAME)
+  //
   else if (sbp->proc () == NFSPROC3_REMOVE) {
     diropargs3 *arg = sbp->template getarg<diropargs3> ();
     diropargs3 larg;
     larg.dir = arg->dir;
     larg.name = arg->name;
     lookup3res *res = New lookup3res;
-    fsrv->c->call (NFSPROC3_LOOKUP, &larg, res,
-	           wrap (mkref(this), &client::oscar_lookup_cb, sbp, rqs, res),
-	           authtab[authno]);
+    fsrv->c->call(NFSPROC3_LOOKUP, &larg, res,
+	          wrap(mkref(this), &client::trashent_lookup_cb, sbp, rqs, res),
+	          authtab[authno]);
   }
-  // target files of rename calls are deleted. we move them into the trashdir
-  // so we can use their chunks.
   else if (sbp->proc () == NFSPROC3_RENAME) {
     rename3args *arg = sbp->template getarg<rename3args> ();
     diropargs3 larg;
     larg.dir = arg->to.dir;
     larg.name = arg->to.name;
     lookup3res *res = New lookup3res;
-    fsrv->c->call (NFSPROC3_LOOKUP, &larg, res,
-	           wrap (mkref(this), &client::oscar_lookup_cb, sbp, rqs, res),
-	           authtab[authno]);
+    fsrv->c->call(NFSPROC3_LOOKUP, &larg, res,
+	          wrap(mkref(this), &client::trashent_lookup_cb, sbp, rqs, res),
+	          authtab[authno]);
   }
 #endif
   else {
@@ -622,6 +634,7 @@ client::client (ref<axprt_crypt> xx)
   clienttab.insert (this);
 
   fpdb.open (FP_DB);
+  db_gc_on = false;
 }
 
 client::~client ()

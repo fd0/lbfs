@@ -14,10 +14,13 @@ private:
 public:
   class iterator {
     friend db_base;
+  
   private:
     DBC* _cursor;
-    iterator(DBC *c) {
+    bool _duponly;
+    iterator(DBC *c, bool duponly) {
       _cursor = c;
+      _duponly = duponly;
     }
     void done() {
       if (_cursor) 
@@ -47,7 +50,7 @@ public:
       return ret;
     }
     
-    // increment iterator, get that entry
+    // increment iterator and get next entry
     int next(V *c) {
       if (!_cursor) 
 	return -1;
@@ -55,7 +58,8 @@ public:
       DBT data;
       memset(&key, 0, sizeof(key));
       memset(&data, 0, sizeof(data));
-      int ret = _cursor->c_get(_cursor, &key, &data, DB_NEXT_DUP);
+      unsigned flag = _duponly ? DB_NEXT_DUP : DB_NEXT;
+      int ret = _cursor->c_get(_cursor, &key, &data, flag);
       if (ret == 0) {
         if (c) *c = *(reinterpret_cast<V*>(data.data));
       } else
@@ -73,10 +77,14 @@ public:
   // open and truncate existing db
   int open_and_truncate(const char *name);
 
-  // creates an iterator and copies a ptr to it into the memory
-  // referenced by iterp (callee responsible for freeing iterp). additionally,
-  // iterator is moved under the data for the given key, if any.
+  // creates an iterator and copies a ptr to it into the memory referenced by
+  // iterp (callee responsible for freeing iterp). additionally, iterator is
+  // moved under the data for the given key, if any.
   int get_iterator(K key, iterator **iterp);
+  
+  // creates an iterator and copies a ptr to it into the memory referenced by
+  // iterp (callee responsible for freeing iterp).
+  int get_iterator(iterator **iterp);
 
   // add an entry to the database, returns db3 errnos
   int add_entry(K key, V *val, int size = sizeof(V));
@@ -146,7 +154,23 @@ db_base<K,V>::get_iterator(K k, db_base::iterator **iterp)
     DBT data;
     memset(&data, 0, sizeof(data));
     if (cursor->c_get(cursor, &key, &data, DB_SET) == 0) {
-      *iterp = New iterator(cursor);
+      *iterp = New iterator(cursor, true);
+      return 0;
+    }
+  } 
+  return -1;
+}
+
+template<class K, class V>
+inline int
+db_base<K,V>::get_iterator(db_base::iterator **iterp)
+{
+  DBC *cursor;
+  if (_dbp->cursor(_dbp, NULL, &cursor, 0) == 0) { 
+    DBT key;
+    DBT data;
+    if (cursor->c_get(cursor, &key, &data, DB_FIRST) == 0) {
+      *iterp = New iterator(cursor, false);
       return 0;
     }
   } 
