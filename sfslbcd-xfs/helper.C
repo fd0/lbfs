@@ -615,6 +615,8 @@ struct getfp_obj {
   bool eof;
   int retries;
   ptr<lbfs_getfp3res> fpres;
+  uint64 bytes_recv;
+  uint getfps_sent, reads_sent;
 
   void installdata () 
   {
@@ -637,6 +639,11 @@ struct getfp_obj {
 
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				      h0, h0_len, NULL, 0);
+
+    warn << "File data received  = " << bytes_recv << " bytes\n";
+    warn << "File size           = " << e->nfs_attr.size << " bytes\n";
+    warn << "GETFP RPCs sent     = " << getfps_sent << "\n";
+    warn << "READ  RPCs sent     = " << reads_sent << "\n";
   }
 
   void write_file (uint64 cur_offst, uint32 size, ref<ex_read3res> rres)
@@ -677,6 +684,7 @@ struct getfp_obj {
   {
     if (!err && rres->status == NFS3_OK) {
       assert (rres->resok->file_attributes.present);
+      bytes_recv += rres->resok->count;
       write_file (cur_offst, size, rres);
       if (blocks_written == total_blocks && eof) {
 	installdata ();
@@ -719,6 +727,7 @@ struct getfp_obj {
     warn << "getfp_obj::nfs3_read @" << offset << " +" << ra.count << "\n";
 #endif
 
+    reads_sent++;
     ref<ex_read3res> rres = New refcounted <ex_read3res>;
     c->call (lbfs_NFSPROC3_READ, &ra, rres,
 	     wrap (this, &getfp_obj::gotdata, cur_offst, size, rres),
@@ -869,6 +878,8 @@ struct getfp_obj {
 	gfa.offset = offset;
 	if (fpres->resok->fprints.size () == 0)
 	  gfa.count *= 2;
+
+	getfps_sent++;
 	fpres = New refcounted <lbfs_getfp3res>;
 	c->call (lbfs_GETFP, &gfa, fpres, 
 		 wrap (this, &getfp_obj::gotfp, timenow), lbfs_authof (sa));
@@ -888,7 +899,8 @@ struct getfp_obj {
   getfp_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
 	     ref<aclnt> c1, getfp_obj::cb_t cb1) :
     cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1), offset(0), blocks_written(0), 
-    total_blocks(0), eof(false), retries(0)    
+    total_blocks(0), eof(false), retries(0), 
+    bytes_recv(0), getfps_sent(0), reads_sent(0)    
   {
     h = msgcast<xfs_message_open> (hh);
     str fhstr = armor32(e->nh.data.base(), e->nh.data.size());
@@ -908,7 +920,8 @@ struct getfp_obj {
     gfa.file = e->nh;
     gfa.offset = 0;
     gfa.count = LBFS_MAXDATA;
-
+    
+    getfps_sent++;
     fpres = New refcounted <lbfs_getfp3res>;
     c->call (lbfs_GETFP, &gfa, fpres,
 	     wrap (this, &getfp_obj::gotfp, timenow),
@@ -1828,6 +1841,10 @@ struct putdata_obj {
       e->set_exp (rqtime, attr.type == NF3DIR);
       e->ltime = max(attr.mtime, attr.ctime);
       xfs_send_message_wakeup (fd, h->header.sequence_num, 0);      
+      warn << "File data sent      = " << bytes_sent << " bytes\n";
+      warn << "File size           = " << e->nfs_attr.size << " bytes\n";
+      warn << "CONDWRITE RPCs sent = " << condwrites_sent << "\n";
+      warn << "WRITE RPCs sent     = " << writes_sent << "\n";
     } else
       xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
     delete this;
@@ -1923,6 +1940,8 @@ struct putdata_obj {
       wa.data.setsize (err);
       memcpy (wa.data.base (), iobuf, err);
 
+      bytes_sent += wa.count;
+      writes_sent++;
       ref<ex_write3res> res = New refcounted <ex_write3res>;
       outstanding_condwrites++;
       c->call (lbfs_NFSPROC3_WRITE, &wa, res,
@@ -2010,8 +2029,8 @@ struct putdata_obj {
     sha1_hash (&cw.hash, buf, total_read);
     close (rfd);
 
+    condwrites_sent++;
     ref<ex_write3res> res = New refcounted <ex_write3res>;
-
     c->call (lbfs_CONDWRITE, &cw, res,
 	     wrap (this, &putdata_obj::do_sendcondwrite, chunk, res), lbfs_authof (sa));    
   }
@@ -2157,7 +2176,7 @@ struct write_obj {
 	wa.count = error;
 	wa.data.setsize (wa.count);
 	memcpy (wa.data.base (), iobuf, wa.count);
-      
+
 	ref<ex_write3res> wres = New refcounted <ex_write3res>;
 	c->call (lbfs_NFSPROC3_WRITE, &wa, wres,
 		 wrap (this, &write_obj::send_data, offset+wa.count, wres, timenow), 
