@@ -450,9 +450,6 @@ client::nextgen ()
 client::client (ref<axprt_crypt> x)
   : sfsserv (x), fsrv (NULL), generation (nextgen ())
 {
-#if 0
-  ref<axprt> xx = axprt_compress::alloc(x);
-#endif
   nfssrv = asrv::alloc (x, lbfs_program_3,
 			wrap (mkref (this), &client::nfs3dispatch));
   nfscbc = aclnt::alloc (x, lbfscb_program_3);
@@ -460,7 +457,7 @@ client::client (ref<axprt_crypt> x)
 				(gid_t) -1, 0, NULL);
   clienttab.insert (this);
 
-  lbfsdb.open();
+  lbfsdb.open ();
 }
 
 client::~client ()
@@ -471,8 +468,16 @@ client::~client ()
 void
 client::sfs_getfsinfo (svccb *sbp)
 {
-  if (fsrv)
+  if (fsrv) {
     sbp->replyref (fsrv->fsinfo);
+    ref<axprt> xx = axprt_compress::alloc(x);
+    sfssrv = asrv::alloc (xx, sfs_program_1, 
+	                  wrap (implicit_cast<sfsserv*>(this), 
+			        &sfsserv::dispatch));
+    nfssrv = asrv::alloc (xx, lbfs_program_3, 
+	                  wrap (mkref (this), &client::nfs3dispatch));
+    nfscbc = aclnt::alloc (xx, lbfscb_program_3);
+  }
   else
     sbp->reject (PROC_UNAVAIL);
 }
