@@ -1077,7 +1077,10 @@ struct readfile_obj {
     if (greater (maxtime, e->ltime))       
       if (lbfs > 1)
 	lbfs_getfp (fd, hh, e, sa, c, wrap (this, &readfile_obj::done));
-      else lbfs_read (fd, hh, e, sa, c, cb);
+      else {
+	lbfs_read (fd, hh, e, sa, c, cb);
+	// MEMORY LEAK delete this; return;
+      }
     else {
       lbfs_readexist (fd, hh, e);
       delete this; return;
@@ -1089,8 +1092,8 @@ struct readfile_obj {
     (*cb) ();
   }
 
-  readfile_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
-		ref<aclnt> c1, readfile_obj::cb_t cb1) :
+  readfile_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1,
+                sfs_aid sa1, ref<aclnt> c1, readfile_obj::cb_t cb1) :
     cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1)    
   {
     h = msgcast<xfs_message_open> (hh);
@@ -1104,16 +1107,24 @@ struct readfile_obj {
     if (!e->incache)
       if (lbfs > 1)
 	lbfs_getfp (fd, hh, e, sa, c, wrap (this, &readfile_obj::done));
-      else lbfs_read (fd, hh, e, sa, c, cb);
+      else {
+	lbfs_read (fd, hh, e, sa, c, cb);
+	// MEMORY LEAK delete this; return;
+      }
     else {
       if (owriters > 0) {
 	lbfs_readexist (fd, hh, e);
 	delete this; return;
-      } else 
+      } else {
 	if (e->nfs_attr.expire < (uint32) timenow) {
 	  lbfs_attr (fd, hh, sa, e->nh, c,
 		     wrap (this, &readfile_obj::get_updated_copy));
-	} else get_updated_copy (NULL, 0, clnt_stat (0));
+	}
+	else {
+	  get_updated_copy (NULL, 0, clnt_stat (0));
+	  // MEMORY LEAK delete this; return;
+	}
+      }
     }
   }
 };
@@ -1965,19 +1976,7 @@ struct putdata_obj {
     }
 
     while (count > 0) {
-      write3args wa;
-      lbfs_tmpwrite3args twa;
-      char *iobuf;
-
-      if (lbfs_prot == 1) {
-	wa.data.setsize(NFS_MAXDATA);
-	iobuf = wa.data.base();
-      }
-      else {
-	twa.data.setsize(NFS_MAXDATA);
-	iobuf = twa.data.base();
-      }
-
+      char iobuf[NFS_MAXDATA];
       ost = lseek (rfd, offst, SEEK_SET);
       if (count < NFS_MAXDATA)
 	err = read (rfd, iobuf, count);
@@ -1989,8 +1988,11 @@ struct putdata_obj {
       }
       count -= err;
       offst += err;
+      write3args wa;
+      lbfs_tmpwrite3args twa;
       if (lbfs_prot == 1) {
 	wa.data.setsize(err);
+	memcpy(wa.data.base(), iobuf, err);
 	wa.file = tmpfh;
 	wa.offset = ost;
 	wa.stable = UNSTABLE;
@@ -1998,6 +2000,7 @@ struct putdata_obj {
 	bytes_sent += wa.count;
       } else {
 	twa.data.setsize(err);
+	memcpy(twa.data.base(), iobuf, err);
 	twa.commit_to = e->nh;
 	twa.fd = tmpfd;
 	twa.offset = ost;
@@ -2282,17 +2285,18 @@ struct write_obj {
 	  done();
 	  return;
         }
-        write3args wa;
-        wa.data.setsize(NFS_MAXDATA);
-        int error = read (data_fd, wa.data.base(), NFS_MAXDATA);
+	char iobuf[NFS_MAXDATA];
+        int error = read (data_fd, iobuf, NFS_MAXDATA);
         if (error < 0) {
 	  had_error = true;
 	  xfs_reply_err(fd, h->header.sequence_num, errno);
 	  done();
 	  return;
         }
-	wa.data.setsize(error);
         if (error > 0) {
+          write3args wa;
+	  wa.data.setsize(error);
+	  memmove(wa.data.base(), iobuf, error);
           wa.file = e->nh;
           wa.stable = UNSTABLE;
 	  wa.offset = next_offset;
