@@ -4,7 +4,7 @@
 #include "nfs3_prot.h"
 #include "lbfsdb.h"
 
-tmpfh::tmpfh(const nfs_fh3 &f, const char *s, unsigned l)
+tmpfh_record::tmpfh_record(const nfs_fh3 &f, const char *s, unsigned l)
 {
   fh = f;
   assert (l <= TMPFN_MAX-1);
@@ -13,7 +13,7 @@ tmpfh::tmpfh(const nfs_fh3 &f, const char *s, unsigned l)
   len = l;
 }
 
-tmpfh::~tmpfh()
+tmpfh_record::~tmpfh_record()
 {
 }
 

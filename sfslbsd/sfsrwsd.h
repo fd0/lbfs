@@ -68,19 +68,20 @@ struct hashfh3 {
 //
 // tmp fh to name translation
 //
-struct tmpfh {
+struct tmpfh_record {
 #define TMPFN_MAX 1024
   nfs_fh3 fh;
   char name[TMPFN_MAX];
   int len;
-  ihash_entry<tmpfh> hlink;
+  ihash_entry<tmpfh_record> hlink;
 
-  tmpfh (const nfs_fh3 &f, const char *s, unsigned l);
-  ~tmpfh ();
+  tmpfh_record (const nfs_fh3 &f, const char *s, unsigned l);
+  ~tmpfh_record ();
 };
 
-struct lbfs_tmpfh_tab {
-  ihash<const nfs_fh3, tmpfh, &tmpfh::fh, &tmpfh::hlink> tab;
+struct tmpfh_table {
+  ihash<const nfs_fh3, tmpfh_record, 
+        &tmpfh_record::fh, &tmpfh_record::hlink> tab;
 };
 
 struct filesys {
@@ -208,7 +209,7 @@ class client : public virtual refcount, public sfsserv {
   ptr<asrv> nfssrv;
 
   lbfs_db lbfsdb;
-  lbfs_tmpfh_tab tmpfh_tab;
+  tmpfh_table fhtab;
 
   static u_int64_t nextgen ();
 
@@ -237,6 +238,7 @@ class client : public virtual refcount, public sfsserv {
   
   void chunk_data (Chunker *, const unsigned char *data, 
                    size_t count, off_t pos);
+  void removetmp_cb (wccstat3 *, clnt_stat err);
   void committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *,
                      const FATTR3 *attr, commit3res *res, str err);
   void committmp (svccb *sbp, filesrv::reqstate rqs);

@@ -230,8 +230,8 @@ client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, char *path,
 	mktmpfile(sbp, rqs);
 	break;
       default:
-	tmpfh_tab.tab.insert
-	  (new tmpfh(*(cres->resok->obj.handle),path,strlen(path)));
+	fhtab.tab.insert
+	  (new tmpfh_record(*(cres->resok->obj.handle),path,strlen(path)));
 	delete[] path;
 	nfs3reply (sbp, _cres, rqs, RPC_SUCCESS);
     }
@@ -269,11 +269,18 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
                       const FATTR3 *attr, commit3res *res, str err)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
+  nfs_fh3 &tmpfh = cta->commit_from;
+  nfs_fh3 &fh = cta->commit_to;
+  u_int32_t authno = sbp->getaui ();
+  unsigned fsno = rqs.fsno;
+  
+  nfs3reply (sbp, res, rqs, RPC_SUCCESS);
+
   chunker->stop();
   vec<lbfs_chunk *> *cv = chunker->cvp;
   if (!err) {
     for (unsigned i=0; i<cv->size(); i++) {
-      (*cv)[i]->loc.set_fh(cta->commit_to);
+      (*cv)[i]->loc.set_fh(fh);
       lbfsdb.add_chunk((*cv)[i]->fingerprint, &((*cv)[i]->loc)); 
       warn << "COMMITTMP: adding " << (*cv)[i]->fingerprint << " to database\n";
     }
@@ -283,16 +290,26 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   delete cv;
   delete chunker;
 
-  nfs_fh3& fh = cta->commit_from;
-  tmpfh *tfh = tmpfh_tab.tab[fh];
-  if (tfh) {
-    tfh->name[tfh->len] = '\0';
-    warn ("COMITTMP: remove %s\n", tfh->name);
-    // XXX - actually remove file
-    tmpfh_tab.tab.remove(tfh);
-    delete tfh;
+  tmpfh_record *tfh_rec = fhtab.tab[tmpfh];
+  if (tfh_rec) {
+    tfh_rec->name[tfh_rec->len] = '\0';
+    warn ("COMITTMP: remove %s\n", tfh_rec->name);
+    wccstat3 *rres = New wccstat3;
+    diropargs3 rarg;
+    rarg.dir = fsrv->sfs_trash_fhs[fsno];
+    rarg.name = tfh_rec->name;
+    fsrv->c->call (NFSPROC3_REMOVE, &rarg, rres,
+	           wrap (mkref (this), &client::removetmp_cb, rres),
+		   authtab[authno]);
+    fhtab.tab.remove(tfh_rec);
+    delete tfh_rec;
   }
-  nfs3reply (sbp, res, rqs, RPC_SUCCESS);
+}
+
+void
+client::removetmp_cb (wccstat3 *res, clnt_stat err)
+{
+  delete res;
 }
 
 void
