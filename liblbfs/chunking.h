@@ -10,6 +10,7 @@
  * in the vector, so they will have to be freed by
  * caller.
  */
+int mapfile (const u_char **bufp, size_t *sizep, const char *path);
 int chunk_file(const char *path, unsigned csize, vec<lbfs_chunk *> *cvp);
 int chunk_data(const char *path, unsigned csize, 
                const unsigned char *data, size_t size, 

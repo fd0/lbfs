@@ -6,21 +6,21 @@
 #include "lbfsdb.h"
 #include "rabinpoly.h"
 
-static bool
+int
 mapfile (const u_char **bufp, size_t *sizep, const char *path)
 {
   int fd = open (path, O_RDONLY);
   if (fd < 0)
-    return false;
+    return -1;
   struct stat sb;
   if (fstat (fd, &sb) < 0) {
     close (fd);
-    return false;
+    return -1;
   }
   if (!S_ISREG (sb.st_mode)) {
     close (fd);
     errno = EISDIR;		// XXX /dev/null
-    return false;
+    return -1;
   }
   if (!(*sizep = sb.st_size))
     *bufp = NULL;
@@ -28,12 +28,12 @@ mapfile (const u_char **bufp, size_t *sizep, const char *path)
     void *vbp = mmap (NULL, *sizep, PROT_READ, MAP_FILE|MAP_SHARED, fd, 0);
     if (vbp == reinterpret_cast<void *> (MAP_FAILED)) {
       close (fd);
-      return false;
+      return -1;
     }
     *bufp = static_cast<u_char *> (vbp);
   }
   close (fd);
-  return true;
+  return 0;
 }
 
 int
@@ -71,10 +71,10 @@ chunk_file(const char *path, unsigned csize, vec<lbfs_chunk *> *cvp)
 {
   const u_char *fp;
   size_t fl;
-  if (!mapfile (&fp, &fl, path))
+  if (mapfile (&fp, &fl, path) != 0)
     return -1;
   int ret = chunk_data(path, csize, fp, fl, cvp);
-  munmap((void*)fp, fl);
+  munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
   return ret;
 }
 
