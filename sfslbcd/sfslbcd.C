@@ -70,6 +70,14 @@ void
 sfslbcd_getfd(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
               sfscd_mountarg *ma, sfsserver::fhcb cb, int fd)
 {
+  u_int16_t port;
+  str location;
+  sfs_connectarg carg = ma->carg;
+  sfs_parsepath (carg.ci5->sname, &location, NULL, &port);
+  if (fd < 0) {
+    warnx << location << ": Could not connect to host: " << strerror (errno);
+    return;
+  }
   if (!isunixsocket (fd))
     tcp_nodelay (fd);
   ptr<axprt> x = New refcounted<axprt_zcrypt>(fd, axprt_zcrypt::ps());

@@ -33,6 +33,7 @@
 #include "list.h"
 #include "lrucache.h"
 #include "ranges.h"
+#include "aiod.h"
 
 inline bool
 operator== (const nfs_fh3 &a, const nfs_fh3 &b)
@@ -122,8 +123,11 @@ public:
   int status;
   fattr3 fa;
   uint64 osize;
-  int fd;
+  ptr<aiofh> afh;
   vec<nfscall *> rpcs;
+  int outstanding_ops;
+  uint64 mstart;
+  uint64 mend;
 
 private:
   static const int fcache_open  = 0;
@@ -136,6 +140,7 @@ private:
   vec<uint64> pri;
   ranges *rcv;
   ranges *req;
+
   void cr() {
     if (rcv) {
       delete rcv;
@@ -152,7 +157,8 @@ private:
 
 public:
   file_cache(nfs_fh3 fh)
-    : fh(fh), status(fcache_open), fd(-1), rcv(0), req(0) {}
+    : fh(fh), status(fcache_open), afh(0), outstanding_ops(0),
+      mstart(0), mend(0), rcv(0), req(0) {}
   ~file_cache() { if (rcv) delete rcv; assert(rpcs.size() == 0); }
 
   bool is_idle()    const { return status == fcache_idle; }
@@ -169,6 +175,10 @@ public:
   void dirty()   { cr(); status = fcache_dirty; }
   void error()   { cr(); status = fcache_error; }
 
+  void outstanding_op () { outstanding_ops++; }
+  void outstanding_op_done () { outstanding_ops--; }
+  bool being_modified () const { return outstanding_ops > 0; }
+
   bool received(uint64 off, uint64 size) const {
     if (is_fetch() && (!rcv || !rcv->filled(off, size)))
       return false;
@@ -179,6 +189,7 @@ public:
       pri.push_back(i);
   }
 
+  static aiod* a;
 };
 
 struct dir_lc {
@@ -205,14 +216,33 @@ protected:
   bool dont_run_rpc (nfscall *nc);
 
   void flush_cache (nfscall *nc, file_cache *e);
+
   void read_from_cache (nfscall *nc, file_cache *e);
+  void read_from_cache_open (nfscall *nc, file_cache *e,
+                             ptr<aiofh> afh, int err);
+  void read_from_cache_read (nfscall *sbp, file_cache *e,
+                             ptr<aiobuf> buf, ssize_t sz, int err);
+
   void write_to_cache (nfscall *nc, file_cache *e);
-  int truncate_cache (uint64 size, file_cache *e);
+  void write_to_cache_open (nfscall *sbp, file_cache *e,
+                            ptr<aiofh> afh, int err);
+  void write_to_cache_write (nfscall *sbp, file_cache *e,
+                             ptr<aiobuf> buf, ssize_t sz, int err);
+
+  void truncate_cache (nfscall *sbp, file_cache *e, uint64 size);
+  void truncate_cache_open (nfscall *sbp, file_cache *e, uint64 size,
+                            ptr<aiofh> afh, int err);
+  void truncate_cache_truncate (nfscall *sbp, file_cache *e, uint64 size,
+                                int err);
+
   void check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid);
 
   void access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
   void fetch_done (file_cache *e, bool done, bool ok);
   void flush_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok);
+
+  void run_rpcs (file_cache *e);
+  static void file_closed (int) {}
 
   str fh2fn(nfs_fh3 fh) {
     strbuf n;
@@ -334,7 +364,8 @@ public:
 
 void lbfs_read (str fn, nfs_fh3 fh, uint64 size, ref<server> srv,
                 AUTH *a, callback<void, bool, bool>::ref cb);
-void lbfs_write (str fn, nfs_fh3 fh, uint64 size, fattr3 fa, ref<server> srv,
+void lbfs_write (str fn, file_cache *fe,
+                 nfs_fh3 fh, uint64 size, fattr3 fa, ref<server> srv,
                  AUTH *a, callback<void, fattr3, bool>::ref cb);
 
 #endif

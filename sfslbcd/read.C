@@ -23,6 +23,12 @@
 #include "sfslbcd.h"
 #include "lbfs_prot.h"
 
+struct read_state {
+  time_t rqtime;
+  uint64 off;
+  uint64 cnt;
+};
+
 struct read_obj {
   static const int PARALLEL_READS = 4;
   typedef callback<void,bool,bool>::ref cb_t;
@@ -37,28 +43,49 @@ struct read_obj {
   file_cache *fe;
 
   void
-  read_reply(time_t rqtime, uint64 off, uint64 cnt,
-             ref<read3args> arg, ref<ex_read3res> res, clnt_stat err) 
+  read_reply(ref<read_state> rs, ref<read3args> arg,
+             ref<ex_read3res> res, clnt_stat err) 
   {
-    outstanding_reads--;
-    if (!err)
-      srv->getxattr (rqtime, NFSPROC3_READ, 0, arg, res);
-    if (!errorcb && !err && res->status == NFS3_OK) {
-      if (lseek(fe->fd, off, SEEK_SET) < 0) {
-	fail();
-	return;
-      }
-      if (write(fe->fd, res->resok->data.base (),
-	        res->resok->count) < (int)cnt) {
-	fail();
-	return;
-      }
-      fe->rcv->add (off, cnt);
-      do_read();
-      ok();
+    if (errorcb || err || res->status != NFS3_OK) {
+      outstanding_reads--;
+      fail ();
       return;
     }
-    fail();
+
+    if (res->resok->count > 0) {
+      ptr<aiobuf> buf = file_cache::a->bufalloc (res->resok->count);
+      if (!buf) {
+        file_cache::a->bufwait
+          (wrap (this, &read_obj::read_reply, rs, arg, res, err));
+        return;
+      }
+    
+      if (!err)
+	srv->getxattr (rs->rqtime, NFSPROC3_READ, 0, arg, res);
+
+      memmove(buf->base (), res->resok->data.base (), res->resok->count);
+      fe->afh->write (rs->off, buf, wrap (this, &read_obj::read_reply_write,
+                                          rs->off, rs->cnt));
+    }
+    else
+      read_reply_write (rs->off, rs->cnt, 0, 0, 0);
+  }
+
+  void
+  read_reply_write (uint64 off, uint64 cnt, ptr<aiobuf> buf,
+                    ssize_t sz, int err)
+  {
+    outstanding_reads--;
+
+    if (err) {
+      warn << "fill_cache: write failed: " << err << "\n";
+      fail ();
+      return;
+    }
+
+    fe->rcv->add (off, cnt);
+    do_read ();
+    ok ();
   }
 
   void nfs3_read (uint64 off, uint32 cnt) 
@@ -70,9 +97,12 @@ struct read_obj {
     a->count = cnt;
     outstanding_reads++;
     ref<ex_read3res> res = New refcounted <ex_read3res>;
+    ref<read_state> rs = New refcounted <read_state>;
+    rs->rqtime = timenow;
+    rs->off = off;
+    rs->cnt = cnt;
     srv->nfsc->call (lbfs_NFSPROC3_READ, a, res,
-	             wrap (this, &read_obj::read_reply,
-		           timenow, off, cnt, a, res),
+	             wrap (this, &read_obj::read_reply, rs, a, res),
 		     auth);
   }
 
@@ -101,11 +131,12 @@ struct read_obj {
     return true;
   }
 
-  void fail() {
+  static void file_closed (int) {}
+
+  void fail () {
     if (!errorcb) {
-      ftruncate (fe->fd, 0);
-      close (fe->fd);
-      fe->fd = -1;
+      fe->afh->close (wrap (&read_obj::file_closed));
+      fe->afh = 0;
       errorcb = true;
       cb (true,false);
     }
@@ -116,11 +147,23 @@ struct read_obj {
   void ok() {
     if (!errorcb)
       cb (outstanding_reads == 0,true);
-    if (outstanding_reads == 0) {
-      close (fe->fd);
-      fe->fd = -1;
+    if (outstanding_reads == 0)
       delete this;
+  }
+
+  void file_open (ptr<aiofh> afh, int err) {
+    if (err) {
+      warn << "fill_cache: open failed: " << err << "\n";
+      fail ();
+      return;
     }
+    fe->afh = afh;
+
+    bool eof = false;
+    for (int i=0; i<PARALLEL_READS && !eof; i++)
+      eof = do_read();
+    if (!outstanding_reads) // nothing to do
+      ok();
   }
 
   read_obj (str fn, nfs_fh3 fh, uint64 size, ref<server> srv,
@@ -131,20 +174,15 @@ struct read_obj {
     fe = srv->file_cache_lookup(fh);
     assert(fe);
 
-    if (fe->fd < 0) {
-      fe->fd = open (fn, O_CREAT | O_RDWR, 0666);
-      if (fe->fd < 0) {
-        perror ("update cache file\n");
-        fail();
-        return;
-      }
+    if (fe->afh == 0) {
+      file_cache::a->open (fn, O_CREAT | O_RDWR, 0666,
+                           wrap (this, &read_obj::file_open));
+      return;
     }
-    bool eof = false;
-    for (int i=0; i<PARALLEL_READS && !eof; i++)
-      eof = do_read();
-    if (!outstanding_reads) // nothing to do
-      ok();
+    else
+      file_open (fe->afh, 0);
   }
+
 
   ~read_obj() {}
 };

@@ -31,6 +31,8 @@
 #include "lbfs_prot.h"
 #include "ranges.h"
 
+aiod* file_cache::a = New aiod (2);
+
 void
 server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
 {
@@ -107,103 +109,194 @@ server::fetch_done (file_cache *e, bool done, bool ok)
 void
 server::read_from_cache (nfscall *nc, file_cache *e)
 {
-  read3args *a = nc->template getarg<read3args> ();
-  if (e->fd < 0) {
+  if (e->afh == 0) {
     str fn = fh2fn(e->fh);
-    e->fd = open (fn, O_RDWR);
-    if (e->fd < 0) {
-      perror("open cache file");
-      nc->reject (SYSTEM_ERR);
-      return;
-    }
+    file_cache::a->open (fn, O_RDWR, 0666,
+                         wrap (this, &server::read_from_cache_open, nc, e));
   }
-  if (lseek(e->fd, a->offset, SEEK_SET) < 0) {
-    perror("lseek in cache file");
-    nc->reject (SYSTEM_ERR);
-    return;
-  }
-  char buf[a->count+1];
-  int n = read(e->fd, &buf[0], a->count+1);
-  if (n < 0) {
-    perror("reading cache file");
-    nc->reject (SYSTEM_ERR);
-    return;
-  }
-
-  int x = ((unsigned)n) > a->count ? a->count : n;
-  read3res res(NFS3_OK);
-  res.resok->count = x;
-  res.resok->data.setsize(x);
-  memcpy(res.resok->data.base(), buf, x);
-  res.resok->eof = (((unsigned)n) <= a->count);
-  res.resok->file_attributes.set_present (true);
-  *res.resok->file_attributes.attributes = e->fa;
-  nc->reply(&res);
+  else
+    read_from_cache_open (nc, e, e->afh, 0);
 }
 
 void
-server::write_to_cache (nfscall *nc, file_cache *e)
+server::read_from_cache_open (nfscall *nc, file_cache *e,
+                              ptr<aiofh> afh, int err)
 {
-  write3args *a = nc->template getarg<write3args> ();
-  if (e->fd < 0) {
-    str fn = fh2fn(e->fh);
-    e->fd = open (fn, O_RDWR | O_CREAT);
-    if (e->fd < 0) {
-      perror("open cache file");
-      nc->reject (SYSTEM_ERR);
-      return;
-    }
-  }
-  if (lseek(e->fd, a->offset, SEEK_SET) < 0) {
-    perror("lseek in cache file");
+  if (!afh) {
+    warn << "read_from_cache: open failed: " << err << "\n";
     nc->reject (SYSTEM_ERR);
     return;
   }
+  e->afh = afh;
 
-  int n = write(e->fd, a->data.base(), a->count);
-  if (n < 0) {
-    perror("write cache file");
-    nc->reject(SYSTEM_ERR);
+  read3args *a = nc->template getarg<read3args> ();
+  ptr<aiobuf> buf = file_cache::a->bufalloc (a->count+1);
+  if (!buf) {
+    file_cache::a->bufwait
+      (wrap (this, &server::read_from_cache_open, nc, e, e->afh, 0));
     return;
   }
-  assert(e->is_idle() || e->is_dirty());
-  e->dirty();
 
-  write3res res(NFS3_OK);
-  res.resok->count = n;
-  // we COMMIT everything on close, so we can return FILE_SYNC here
-  res.resok->committed = FILE_SYNC;
-  
-  res.resok->file_wcc.before.set_present (true);
-  (res.resok->file_wcc.before.attributes)->size = e->fa.size;
-  (res.resok->file_wcc.before.attributes)->mtime = e->fa.mtime;
-  (res.resok->file_wcc.before.attributes)->ctime = e->fa.ctime;
-  if (a->offset+n > e->fa.size)
-    e->fa.size = a->offset+n;
-  res.resok->file_wcc.after.set_present (true);
-  *(res.resok->file_wcc.after.attributes) = e->fa;
-  // res.resok->verf = ;
-  nc->reply(&res);
+  e->afh->read (a->offset, buf,
+                wrap (this, &server::read_from_cache_read, nc, e));
 }
 
-int
-server::truncate_cache (uint64 size, file_cache *e)
+void
+server::read_from_cache_read (nfscall *nc, file_cache *e,
+                              ptr<aiobuf> buf, ssize_t sz, int err)
 {
-  assert(e->is_dirty() || e->is_idle() || e->is_open());
-  if (e->fd < 0) {
-    str fn = fh2fn(e->fh);
-    e->fd = open (fn, O_RDWR | O_CREAT);
-    if (e->fd < 0) {
-      perror ("open cache file");
-      return -1;
-    }
+  if (err) {
+    warn << "read_from_cache: read failed: " << err << "\n";
+    nc->reject (SYSTEM_ERR);
   }
-  if (ftruncate(e->fd, size) < 0) {
-    perror ("ftruncate cache file");
-    return -1;
+
+  read3args *a = nc->template getarg<read3args> ();
+  int x = ((unsigned)sz) > a->count ? a->count : sz;
+  read3res res(NFS3_OK);
+  res.resok->count = x;
+  res.resok->data.setsize(x);
+  memcpy(res.resok->data.base(), buf->base(), x);
+  res.resok->eof = (((unsigned)sz) <= a->count);
+  res.resok->file_attributes.set_present (true);
+  *res.resok->file_attributes.attributes = e->fa;
+  nc->reply (&res);
+}
+
+void 
+server::write_to_cache (nfscall *sbp, file_cache *e)
+{   
+  e->outstanding_op ();
+  
+  if (e->afh == 0) {
+    str fn = fh2fn(e->fh);
+    file_cache::a->open (fn, O_RDWR, 0666,
+                         wrap (this, &server::write_to_cache_open, sbp, e));
+  }
+  else
+    write_to_cache_open (sbp, e, e->afh, 0);
+}   
+
+void
+server::write_to_cache_open (nfscall *sbp, file_cache *e,
+                             ptr<aiofh> afh, int err)
+{ 
+  if (!afh) {
+    warn << "write_to_cache: open failed: " << err << "\n";
+    e->error ();
+    sbp->reject (SYSTEM_ERR);
+    run_rpcs (e);
+    return;
+  }
+  
+  write3args *a = sbp->template getarg<write3args> (); 
+    
+  e->afh = afh;
+  assert (e->is_idle() || e->is_dirty());
+  
+  ptr<aiobuf> buf = file_cache::a->bufalloc (a->count);
+  if (!buf) {
+    file_cache::a->bufwait
+      (wrap (this, &server::write_to_cache_open, sbp, e, e->afh, 0));
+    return;
+  }
+  
+  memmove(buf->base (), a->data.base (), a->count);
+  e->afh->write (a->offset, buf,
+                 wrap (this, &server::write_to_cache_write, sbp, e));
+}
+
+void
+server::write_to_cache_write (nfscall *sbp, file_cache *e,
+                              ptr<aiobuf> buf, ssize_t sz, int err)
+{
+  write3args *a = sbp->template getarg<write3args> ();
+  e->outstanding_op_done ();
+
+  if (err || (unsigned)sz != a->count) {
+    warn << "write_to_cache: write failed: " << err << "\n";
+    e->error ();
+    sbp->reject (SYSTEM_ERR);
+  }
+  else {
+    e->dirty ();
+    if (a->offset+sz > e->fa.size)
+      e->fa.size = a->offset+sz;
+
+    // XXX if stable, flush data
+
+    // mark region as modified
+    if (e->mstart == 0 && e->mend == 0) {
+      e->mstart = a->offset;
+      e->mend = a->offset + a->count;
+    }
+    else {
+      if (e->mstart > a->offset)
+        e->mstart = a->offset;
+      if (e->mend < a->offset + a->count)
+        e->mend = a->offset + a->count;
+    }
+
+    write3res res(NFS3_OK);
+    res.resok->count = a->count;
+    res.resok->committed = FILE_SYNC; // XXX
+  
+    res.resok->file_wcc.before.set_present (true);
+    (res.resok->file_wcc.before.attributes)->size = e->fa.size;
+    (res.resok->file_wcc.before.attributes)->mtime = e->fa.mtime;
+    (res.resok->file_wcc.before.attributes)->ctime = e->fa.ctime;
+    res.resok->file_wcc.after.set_present (true);
+    *(res.resok->file_wcc.after.attributes) = e->fa;
+    // XXX res.resok->verf =;
+    sbp->reply (&res);
+  }
+
+  run_rpcs (e);
+}
+
+void
+server::truncate_cache (nfscall *sbp, file_cache *e, uint64 size)
+{
+  if (e->afh == 0) {
+    str fn = fh2fn(e->fh);
+    file_cache::a->open (fn, O_RDWR | O_CREAT, 0666,
+                         wrap (this, &server::truncate_cache_open,
+			       sbp, e, size));
+  }
+  else
+    truncate_cache_open (sbp, e, size, e->afh, 0);
+}
+
+void
+server::truncate_cache_open (nfscall *sbp, file_cache *e, uint64 size,
+                             ptr<aiofh> afh, int err)
+{
+  if (!afh) {
+    warn << "truncate_cache: open failed: " << err << "\n";
+    sbp->reject (SYSTEM_ERR);
+    return;
+  }
+  e->afh = afh;
+  assert (e->is_dirty() || e->is_idle() || e->is_open ());
+
+  e->afh->ftrunc (size,
+                  wrap (this, &server::truncate_cache_truncate, sbp, e, size));
+}
+
+void
+server::truncate_cache_truncate (nfscall *nc, file_cache *e, uint64 size,
+                                 int err)
+{
+  if (err) {
+    warn << "truncate_cache: truncate failed: " << err << "\n";
+    nc->reject (SYSTEM_ERR);
+    return;
   }
   e->fa.size = size;
-  return 0;
+
+  void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
+  nfsc->call (nc->proc (), nc->getvoidarg (), res,
+              wrap (mkref(this), &server::getreply, timenow, nc, res),
+	            authof (nc->getaid ()));
 }
 
 void
@@ -215,13 +308,28 @@ server::flush_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok)
     e->fa = fa;
     // update osize to reflect what the server knows
     e->osize = fa.size;
-    e->idle();
-    nc->error (NFS3_OK);
+    if (nc->proc () == cl_NFSPROC3_CLOSE)
+      e->open ();
+    else
+      e->idle ();
+    if (nc->proc () == NFSPROC3_COMMIT) {
+      commit3res res (NFS3_OK);
+      // XXX res.resok->verf =;
+      nc->reply (&res);
+    }
+    else
+      nc->error (NFS3_OK);
   }
   else {
     e->error();
     nc->reject (SYSTEM_ERR);
   }
+  run_rpcs (e);
+}
+
+void
+server::run_rpcs (file_cache *e)
+{
   vec<nfscall *> rpcs;
   for (unsigned i=0; i<e->rpcs.size(); i++)
     rpcs.push_back(e->rpcs[i]);
@@ -244,7 +352,7 @@ server::flush_cache (nfscall *nc, file_cache *e)
   fattr3 fa = e->fa;
   fa.size = e->osize;
   lbfs_write
-    (fn, e->fh, e->fa.size, fa, mkref(this), authof(aid),
+    (fn, e, e->fh, e->fa.size, fa, mkref(this), authof(aid),
      wrap(mkref(this), &server::flush_done, nc, e->fh));
 }
 
@@ -580,10 +688,18 @@ server::dont_run_rpc (nfscall *nc)
   nfs_fh3 *fh = static_cast<nfs_fh3 *> (nc->getvoidarg ());
   file_cache *e = file_cache_lookup(*fh);
 
-  if (nc->proc () == cl_NFSPROC3_CLOSE && !e->is_dirty() && !e->is_flush())
-    return false;
-
   if (e) {
+    if (nc->proc () == cl_NFSPROC3_CLOSE) {
+      if (!e->is_dirty() && !e->is_flush() && !e->being_modified ())
+        return false;
+      else if (e->being_modified ()) {
+        warn_debug << "RPC " << nc->proc ()
+	           << " blocked due to unfinished writes\n";
+        e->rpcs.push_back(nc);
+        return true;
+      }
+    }
+
     // flush mode: block WRITEs and SETATTRs
     if (e->is_flush() && nc->proc () != NFSPROC3_READ) {
       warn_debug << "RPC " << nc->proc () << " blocked due to flush\n";
@@ -713,22 +829,26 @@ server::dispatch (nfscall *nc)
       warn << "dangling read: " << a->file << "\n";
   }
 
+  // XXX should also flush on commit
   else if (nc->proc() == cl_NFSPROC3_CLOSE) {
     nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
     file_cache *e = file_cache_lookup(*a);
     assert(!e->is_flush());
     
-    if (e && e->fd >= 0) {
-      close (e->fd);
-      e->fd = -1;
-    }
-    if (e && e->is_dirty())
+    if (e && e->is_dirty()) {
       flush_cache (nc, e);
-    else {
-      if (!e)
-	warn << "dangling close: " << *a << "\n";
-      nc->error (NFS3_OK);
+      return;
     }
+
+    if (!e)
+      warn << "dangling close: " << *a << "\n";
+
+    if (e && e->afh != 0 && !e->is_fetch ()) {
+      e->afh->close (wrap (&server::file_closed));
+      e->afh = 0;
+    }
+    
+    nc->error (NFS3_OK);
     return;
   }
 
@@ -753,10 +873,8 @@ server::dispatch (nfscall *nc)
     setattr3args *a = nc->template getarg<setattr3args> ();
     file_cache *e = file_cache_lookup(a->object);
     if (a->new_attributes.size.set && e) {
-      if (truncate_cache (*(a->new_attributes.size.val), e) < 0) {
-        nc->reject (SYSTEM_ERR);
-	return;
-      }
+      truncate_cache (nc, e, *(a->new_attributes.size.val));
+      return;
     }
   }
   

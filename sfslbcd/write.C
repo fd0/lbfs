@@ -30,8 +30,8 @@ struct write_obj {
   ref<server> srv;
   nfs_fh3 fh;
   fattr3 fa;
+  file_cache *fe;
   AUTH *auth;
-  int fd;
   uint64 size;
   uint64 written;
   unsigned int outstanding_writes;
@@ -101,43 +101,51 @@ struct write_obj {
     fail();
   }
 
-  int nfs3_write (uint64 off, uint32 size) 
+  void nfs3_write (uint64 off, uint32 cnt)
   {
-    if (lseek(fd, off, SEEK_SET) < 0) {
-      perror("lseek in cache file");
-      fail();
-      return -1;
+    ptr<aiobuf> buf = file_cache::a->bufalloc (cnt);
+    if (!buf) {
+      file_cache::a->bufwait
+        (wrap (this, &write_obj::nfs3_write, off, cnt));
+      return;
     }
+    outstanding_writes++;
+    fe->afh->read (off, buf,
+                   wrap (this, &write_obj::nfs3_write_read, off, cnt));
+  }
+  
+  void nfs3_write_read (uint64 off, uint32 cnt, ptr<aiobuf> buf,
+                        ssize_t sz, int err)
+  {
+    if (err || (unsigned)sz != cnt) {
+      outstanding_writes--;
+      if (err)
+        warn << "flush_cache: read failed: " << err << "\n";
+      else
+        warn << "flush_cache: short read: got "
+             << sz << " wanted " << cnt << "\n";
+      fail ();
+      return;
+    }
+
     ref<write3args> a = New refcounted<write3args>;
     a->file = fh;
     a->offset = off;
-    a->count = size;
+    a->count = sz;
     a->stable = UNSTABLE;
-    a->data.setsize(size);
-    unsigned t = 0;
-    while (t < size) {
-      int n = read(fd, a->data.base()+t, size-t);
-      if (n <= 0) {
-	perror("reading from cache file");
-	fail();
-	return -1;
-      }
-      t += n;
-    }
-    outstanding_writes++;
+    a->data.setsize(sz);
+    memmove (a->data.base (), buf->base (), sz);
     ref<ex_write3res> res = New refcounted <ex_write3res>;
     srv->nfsc->call (lbfs_NFSPROC3_WRITE, a, res,
 	             wrap (this, &write_obj::write_reply, timenow, a, res),
 		     auth);
-    return t;
   }
 
   bool do_write() {
     if (written < size) {
       unsigned s = size-written;
       s = s > srv->wtpref ? srv->wtpref : s;
-      if (nfs3_write (written, s) < 0)
-	return true;
+      nfs3_write (written, s);
       written += s;
     }
     if (written == size && !commit) {
@@ -158,9 +166,12 @@ struct write_obj {
     return true;
   }
 
+  static void file_closed (int) { }
+
   void fail() {
     if (!callback) {
-      close(fd);
+      fe->afh->close (wrap (&write_obj::file_closed));
+      fe->afh = 0;
       callback = true;
       cb(fa, false);
     }
@@ -171,7 +182,8 @@ struct write_obj {
   void ok() {
     if (outstanding_writes == 0) {
       if (!callback) {
-	close(fd);
+        fe->afh->close (wrap (&write_obj::file_closed));
+        fe->afh = 0;
         callback = true;
 	cb(fa, true);
       }
@@ -179,21 +191,17 @@ struct write_obj {
     }
   }
 
-  write_obj (str fn, nfs_fh3 fh, uint64 size, fattr3 fa, ref<server> srv,
-            AUTH *a, write_obj::cb_t cb)
-    : cb(cb), srv(srv), fh(fh), fa(fa), auth(a), size(size), written(0),
+  write_obj (str fn, file_cache *fe, 
+             nfs_fh3 fh, uint64 size, fattr3 fa, ref<server> srv,
+             AUTH *a, write_obj::cb_t cb)
+    : cb(cb), srv(srv), fh(fh), fa(fa), fe(fe), auth(a), size(size), written(0),
       outstanding_writes(0), callback(false), commit(false)
   {
-    fd = open (fn, O_RDONLY);
-    if (fd < 0) {
-      perror("flush cache file");
-      fail();
-    }
-    else {
-      bool eof = false;
-      for (int i=0; i<PARALLEL_WRITES && !eof; i++)
-        eof = do_write();
-    }
+    assert (fe->afh);
+
+    bool eof = false;
+    for (int i=0; i<PARALLEL_WRITES && !eof; i++)
+      eof = do_write();
     if (!outstanding_writes) // nothing to do
       ok();
   }
@@ -202,9 +210,10 @@ struct write_obj {
 };
 
 void
-lbfs_write (str fn, nfs_fh3 fh, uint64 size, fattr3 fa, ref<server> srv,
+lbfs_write (str fn, file_cache *fe,
+            nfs_fh3 fh, uint64 size, fattr3 fa, ref<server> srv,
             AUTH *a, write_obj::cb_t cb)
 {
-  vNew write_obj (fn, fh, size, fa, srv, a, cb);
+  vNew write_obj (fn, fe, fh, size, fa, srv, a, cb);
 }
 
