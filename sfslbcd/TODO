@@ -1,12 +1,12 @@
 
-support non-sequential read in lbfs_read
+fix permission problem with make-doc
+
+partial file caching - don't need to fetch entire file before
+returning
 
 optimize
  - setattr right after open
  - write right after open
-
-partial file caching - don't need to fetch entire file before
-returning
 
 write test cases for
  - open, open, write, close, write, close
