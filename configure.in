@@ -40,4 +40,4 @@ SFS_CFLAGS
 ETAGS_ARGS='-C /dev/null'
 AC_SUBST(ETAGS_ARGS)
 
-AC_OUTPUT(lbfsdb/Makefile liblbfs/Makefile sfslbcd/Makefile sfslbsd/Makefile Makefile)
+AC_OUTPUT(liblbfs/Makefile sfslbcd/Makefile sfslbsd/Makefile Makefile)
