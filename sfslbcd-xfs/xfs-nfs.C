@@ -285,13 +285,15 @@ int xfsattr2nfsattr(uint32 opcode, xfs_attr xa, sattr3 *na) {
     na->atime.set_set(SET_TO_CLIENT_TIME);
     na->atime.time->seconds = xa.xa_atime;
     na->atime.time->nseconds = 0;
-  } else na->atime.set_set(SET_TO_SERVER_TIME);
+  } else 
+    na->atime.set_set(SET_TO_SERVER_TIME);
 
   if (XA_VALID_MTIME(&xa)) {  
     na->mtime.set_set(SET_TO_CLIENT_TIME);
     na->mtime.time->seconds = xa.xa_mtime;
     na->mtime.time->nseconds = 0;
-  } else na->mtime.set_set(SET_TO_SERVER_TIME);
+  } else 
+    na->mtime.set_set(SET_TO_SERVER_TIME);
 
   return 0;
 }

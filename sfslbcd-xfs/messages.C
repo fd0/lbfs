@@ -894,7 +894,6 @@ xfs_message_getdata (int fd, ref<struct xfs_message_getdata> h, u_int size)
     << (int) h->handle.d << ")\n";
 
   cache_entry *e = xfsindex[h->handle];
-  assert(e->incache);
   if (!e) {
     warn << "xfs_message_getdata: Can't find node handle\n";
     reply_err(fd, h->header.sequence_num, ENOENT);
@@ -903,6 +902,7 @@ xfs_message_getdata (int fd, ref<struct xfs_message_getdata> h, u_int size)
   assert(e->nfs_attr.type != NF3DIR);
   
 #if 0
+  assert(e->incache);
   nfs3_read_exist (fd, h, e);
 #else
   ref<struct xfs_message_open> ho = New refcounted <struct xfs_message_open>;
@@ -977,10 +977,10 @@ xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
       nfs3_read_exist (fd, hga, e);
     }
 
-    if (e->nfs_attr.type == NF3DIR) 
+    else if (e->nfs_attr.type == NF3DIR) 
       warn << "directory in cache, exp " << e->nfs_attr.expire << " " 
 	   << (uint32) timenow << " ltime " << e->ltime.seconds << "\n";
-    if (e->nfs_attr.expire < (uint32) timenow) {
+    else if (e->nfs_attr.expire < (uint32) timenow) {
       if (e->nfs_attr.type == NF3DIR) 
 	warn << "GETATTR called\n";
       nfs_fh3 fh = e->nh;
@@ -1518,9 +1518,12 @@ xfs_message_putattr (int fd, ref<struct xfs_message_putattr> h, u_int size)
   if (sa->guard.check)
     sa.guard.ctime->seconds = h->attr.xa_ctime;
 #endif
-  if (sa.new_attributes.size.set)
+  if (sa.new_attributes.size.set) {
     warn << "setting size to " 
          << (uint32) *(sa.new_attributes.size.val) << "\n";
+    // can't depend on client set time to expire cache data
+    e->ltime.seconds = 0;
+  }
   ref<ex_wccstat3 > res = New refcounted < ex_wccstat3 >;
   nfsc->call (lbfs_NFSPROC3_SETATTR, &sa, res,
 	      wrap (&nfs3_setattr, fd, h, res, timenow));
