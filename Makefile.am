@@ -1,7 +1,7 @@
 ## Process this file with automake to produce Makefile.in
 # $Id$
 
-SUBDIRS = liblbfs sfslbsd sfslbcd sfslbcd2
+SUBDIRS = liblbfs sfslbsd sfszrwsd sfslbcd
 
 dist-hook:
 	cd $(distdir) && chmod -x setup
