@@ -1,5 +1,3 @@
-/* $Id$ */
-
 /*
  *
  * Copyright (C) 1998 David Mazieres (dm@uun.org)
@@ -33,8 +31,9 @@
 #include "fingerprint.h"
 #include "lbfs.h"
 
-#define DEBUG 3
+#define DEBUG 2
 
+struct timeval tv0, tv1;
 
 ihash<const u_int64_t, client, &client::generation, &client::glink> clienttab;
 
@@ -403,6 +402,16 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     else
       nfs3reply (sbp, res, rqs, RPC_FAILED);
   }
+    
+  gettimeofday(&tv1, NULL);
+  unsigned a;
+  if (tv1.tv_usec >= tv0.tv_usec)
+    a = 1000000*(tv1.tv_sec-tv0.tv_sec) + tv1.tv_usec - tv0.tv_usec;
+  else
+    a = 1000000*(tv1.tv_sec-1-tv0.tv_sec) + tv1.tv_usec + 1000000 - tv0.tv_usec;
+  warn << "GETFP in " << a << " usecs\n";
+  fflush(stdout);
+  fflush(stderr);
   delete chunker;
 }
 
@@ -454,9 +463,8 @@ client::nfs3dispatch (svccb *sbp)
   else if (sbp->proc () == lbfs_CONDWRITE)
     condwrite(sbp, rqs);
   else if (sbp->proc () == lbfs_GETFP) {
+    gettimeofday(&tv0, NULL);
     getfp(sbp, rqs);
-    fflush(stdout);
-    fflush(stderr);
   }
   else {
     if (sbp->proc () == NFSPROC3_LOOKUP) 
