@@ -15,6 +15,11 @@ int lbcd_trace (getenv("LBCD_TRACE") ? atoi (getenv ("LBCD_TRACE")) : 0);
 unsigned FILE_DES = 0;
 int lbfs_prot = 2;
 
+uint64 total_bytes_sent = 0;
+uint64 total_write_filesize = 0;
+uint64 total_bytes_recv = 0;
+uint64 total_read_filesize = 0;
+
 struct attr_obj {
   attr_cb_t cb;
   int fd;
@@ -648,11 +653,15 @@ struct getfp_obj {
 				      h0, h0_len, NULL, 0);
     if (lbcd_trace) {
       warn << "***********************************\n";
-      warn << "File name           = " << e->name << "\n";
-      warn << "File data received  = " << bytes_recv << " bytes\n";
-      warn << "File size           = " << e->nfs_attr.size << " bytes\n";
-      warn << "GETFP RPCs sent     = " << getfps_sent << "\n";
-      warn << "READ  RPCs sent     = " << reads_sent << "\n";
+      warn << "File name            = " << e->name << "\n";
+      warn << "File data received   = " << bytes_recv << " bytes\n";
+      warn << "File size            = " << e->nfs_attr.size << " bytes\n";
+      warn << "GETFP RPCs sent      = " << getfps_sent << "\n";
+      warn << "READ  RPCs sent      = " << reads_sent << "\n";
+      total_bytes_recv += bytes_recv;
+      total_read_filesize += e->nfs_attr.size;
+      warn << "Total bytes received = " << total_bytes_recv << " bytes\n";
+      warn << "Total read file size = " << total_read_filesize << " bytes\n";
     }
   }
 
@@ -1861,11 +1870,15 @@ struct putdata_obj {
       xfs_send_message_wakeup (fd, h->header.sequence_num, 0);    
       if (lbcd_trace) {
 	warn << "***********************************\n";
-	warn << "File name           = " << e->name << "\n";
-	warn << "File data sent      = " << bytes_sent << " bytes\n";
-	warn << "File size           = " << e->nfs_attr.size << " bytes\n";
-	warn << "CONDWRITE RPCs sent = " << condwrites_sent << "\n";
-	warn << "WRITE RPCs sent     = " << writes_sent << "\n";
+	warn << "File name             = " << e->name << "\n";
+	warn << "File data sent        = " << bytes_sent << " bytes\n";
+	warn << "File size             = " << e->nfs_attr.size << " bytes\n";
+	warn << "CONDWRITE RPCs sent   = " << condwrites_sent << "\n";
+	warn << "WRITE RPCs sent       = " << writes_sent << "\n";
+	total_bytes_sent += bytes_sent;
+	total_write_filesize += e->nfs_attr.size;
+	warn << "Total bytes sent      = " << total_bytes_sent << " bytes\n";
+	warn << "Total write file size = " << total_write_filesize << " bytes\n";
       }
      } else
       xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
