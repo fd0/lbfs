@@ -125,25 +125,26 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
   memcpy ((void*)hh, h, size);
 
   ptr<xfscall> xfsc;
+  ptr<lbfscall> lbfsc;
 
   switch (opcode) {
-  case XFS_MSG_GETATTR:
-    //lookup in attr cache
-    //also come here in other cases where there are attributes to update
+  case XFS_MSG_SYMLINK:
+    lbfsc = New refcounted<lbfscall> (fd, lbfs_NFSPROC3_SYMLINK, hh);
+    xfs_symlink (lbfsc);
     break;
+#if 0 /* Other cases */
   case XFS_MSG_INACTIVENODE:
   case XFS_MSG_PIOCTL:
     xfsc = New refcounted<xfscall> (opcode, fd, hh);
     break;
-#if 0 /* Other cases */
   case XFS_MSG_UPDATEFID:
   case XFS_MSG_ADVLOCK:
   case XFS_MSG_GC_NODES:
 #endif /* Other cases */
   default:
     xfsc = New refcounted<xfscall> (opcode, fd, hh);
+    (*rcvfuncs[opcode]) (xfsc);
   }  
-  (*rcvfuncs[opcode])(xfsc);
 }
 
 int

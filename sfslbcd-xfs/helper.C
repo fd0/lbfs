@@ -1552,11 +1552,12 @@ struct symlink_obj {
     delete this;
   }
 
-  symlink_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, 
-	       ref<aclnt> c1) : 
-    fd(fd1), c(c1), hh(h1), sa(sa1)
+  symlink_obj (//int fd1, ref<xfs_message_header> h1, sfs_aid sa1, 
+	       ref<lbfscall> lbfsc, ref<aclnt> c1) : 
+    fd(lbfsc->kernel_fd), c(c1), hh(lbfsc->get_xfsarg ())
   {
     h = msgcast<xfs_message_symlink> (hh);
+    sa = lbfsc->getaid (h->cred);
     e = xfsindex[h->parent_handle];
     if (!e) {
       if (lbcd_trace > 1)
@@ -1578,18 +1579,19 @@ struct symlink_obj {
 #else
     void *res = lbfs_program_3.tbl[lbfs_NFSPROC3_SYMLINK].alloc_res ();
     c->call (lbfs_NFSPROC3_SYMLINK, &sla, res, 
-	     wrap (&process_reply, res, 
-		   wrap (this, &symlink_obj::do_symlink, (ex_diropres3 *) res, timenow)),
+	     wrap (&process_reply, timenow, lbfsc, 
+		   wrap (this, &symlink_obj::do_symlink, 
+			 (ex_diropres3 *) res, timenow)),
 	     lbfs_authof (sa));
 #endif
   }
 };
 
 void 
-lbfs_symlink (int fd, ref<xfs_message_header> h, sfs_aid sa, 
-	      ref<aclnt> c)
+lbfs_symlink (/*int fd, ref<xfs_message_header> h, sfs_aid sa, */
+	      ref<lbfscall> lbfsc, ref<aclnt> c)
 {
-  vNew symlink_obj (fd, h, sa, c);
+  vNew symlink_obj (lbfsc, c);
 }
 
 struct remove_obj {

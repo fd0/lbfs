@@ -46,6 +46,7 @@ fp_db lbfsdb;
 bool lbfsdb_is_dirty = false;
 #define LBCD_GC_PERIOD 120
 
+//This will be obsolete.
 sfs_aid 
 xfscred2aid (const xfs_cred *xc) 
 {
@@ -55,6 +56,7 @@ xfscred2aid (const xfs_cred *xc)
     return xc->uid;
 }
 
+//This MAY be obsolete.
 AUTH *
 lbfs_authof (sfs_aid sa) 
 {
@@ -62,6 +64,19 @@ lbfs_authof (sfs_aid sa)
      Move it into the lbfscall structure. */
   //return authunix_create ("localhost", (uid_t) sa, (gid_t) 100, 0, NULL);
   return auth_default;
+}
+
+sfs_aid
+lbfscall::getaid (xfs_cred xc)
+{
+  return 9999;
+}
+
+void *
+lbfscall::getvoidres () 
+{
+  void *tmp = 0;
+  return tmp;
 }
 
 bool

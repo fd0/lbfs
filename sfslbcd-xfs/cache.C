@@ -140,3 +140,33 @@ assign_cachefile (int fd, int seqnum, cache_entry *e,
   memmove (ch, &cfh, sizeof (cfh));
   return cfd;
 }
+
+void 
+cache_entry::attr_enter (const nfs_fh3 &fh, const ex_fattr3 *a, const wcc_attr *w)
+{
+#if 0
+  cache_entry *e = nfsindex[fh];
+  if (!a) {
+    if (e)
+      e->attr.expire = 0;
+  } else 
+    if (!e)
+      e = New cache_entry (fh, a);
+    else {
+      e->set (a, w);
+      e->touch ();
+    }
+#endif
+}
+  
+void 
+cache_entry::flush_access (const nfs_fh3 &fh, sfs_aid aid)
+{
+
+}
+
+void 
+cache_entry::access_enter (const nfs_fh3 &fh, sfs_aid aid, uint32 mask, uint32 perm)
+{
+
+}

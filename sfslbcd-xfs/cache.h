@@ -26,6 +26,7 @@
 #include "nfs3exp_prot.h"
 #include "ihash.h"
 #include "nfstrans.h"
+#include "sfsmisc.h"
 
 #define MAX_FH 65535 //4000
 //#define MAX_FH MAXHANDLE //xfs constant for max file handles opened at any time
@@ -67,6 +68,9 @@ typedef struct cache_entry{
   cache_entry (nfs_fh3 &n, ex_fattr3 &na, char *nm = NULL);
   ~cache_entry ();
   void set_exp (time_t rqtime, bool update_dir_expire = false);
+  void attr_enter (const nfs_fh3 &fh, const ex_fattr3 *a, const wcc_attr *w);
+  void flush_access (const nfs_fh3 &fh, sfs_aid aid);
+  void access_enter (const nfs_fh3 &fh, sfs_aid aid, uint32 mask, uint32 perm);
 } cache_entry;
 
 extern ihash<nfs_fh3, cache_entry, &cache_entry::nh,

@@ -51,13 +51,13 @@ display (str msg_type, uint32 seqnum, str hdl_type, xfs_handle *hdl,
 }
 
 void 
-process_reply (/*time_t rqtime, uint32 proc, void *argp, */
-	       void *resp, aclnt_cb cb, clnt_stat err) 
+process_reply (time_t rqtime,
+	       ref<lbfscall> lbfsc, aclnt_cb cb, clnt_stat err) 
 {
-#if 0
   //update attr cache
+#if 0
   xattrvec xv;
-  lbfs_getxattr (&xv, proc, argp, resp);
+  lbfs_getxattr (&xv, lbfsc->nfs_proc (), lbfsc->getvoidarg (), lbfsc->getvoidres ());
   for (xattr *x = xv.base (); x < xv.lim (); x++) {
     if (x->fattr)
       x->fattr->expire += rqtime;
@@ -222,7 +222,19 @@ xfs_link (ref<xfscall> xfsc)
   lbfs_link (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
 
+#if 1
 void 
+xfs_symlink (ref<lbfscall> lbfsc) 
+{
+  xfs_message_symlink *h = msgcast<xfs_message_symlink> (lbfsc->get_xfsarg ());
+  display ("xfs_symlink", h->header.sequence_num, 
+	   "xfs_parent_handle", &h->parent_handle, NULL, h->name);  
+ 
+  lbfs_symlink (/*lbfsc->kernel_fd, lbfsc->get_xfsarg (), 
+		  lbfsc->getaid (h->cred),*/
+		lbfsc, nfsc);
+}
+#else
 xfs_symlink (ref<xfscall> xfsc) 
 {
   xfs_message_symlink *h = msgcast<xfs_message_symlink> (xfsc->argp);
@@ -231,6 +243,7 @@ xfs_symlink (ref<xfscall> xfsc)
  
   lbfs_symlink (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
+#endif
 
 void 
 xfs_remove (ref<xfscall> xfsc) 

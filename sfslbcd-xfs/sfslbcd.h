@@ -68,7 +68,8 @@ extern xfs_message_function rcvfuncs[XFS_MSG_COUNT];
 /* server.C */
 extern ex_fsinfo3resok nfs_fsinfo;
 //void nfs_dispatch (ref<xfscall>, time_t, clnt_stat err);
-void process_reply (void *res, aclnt_cb cb, clnt_stat err);
+void process_reply (time_t, ref<lbfscall>, 
+		    aclnt_cb cb, clnt_stat err);
 void xfs_wakeup (ref<xfscall>);
 void xfs_getroot (ref<xfscall>);
 void xfs_getnode (ref<xfscall>);
@@ -81,7 +82,8 @@ void xfs_putattr (ref<xfscall>);
 void xfs_create (ref<xfscall>);
 void xfs_mkdir (ref<xfscall>);
 void xfs_link (ref<xfscall>);
-void xfs_symlink (ref<xfscall>);
+//void xfs_symlink (ref<xfscall>);
+void xfs_symlink (ref<lbfscall>);
 void xfs_remove (ref<xfscall>);
 void xfs_rmdir (ref<xfscall>);
 void xfs_rename (ref<xfscall>);
@@ -115,8 +117,7 @@ void lbfs_create (int fd, ref<xfs_message_header> h, sfs_aid sa,
 		  ref<aclnt> c);
 void lbfs_link (int fd, ref<xfs_message_header> h, sfs_aid sa, 
 		ref<aclnt> c);
-void lbfs_symlink (int fd, ref<xfs_message_header> h, sfs_aid sa, 
-		   ref<aclnt> c); 
+void lbfs_symlink (ref<lbfscall>x, ref<aclnt> c); 
 void lbfs_setattr (int fd, ref<xfs_message_header> h, sfs_aid sa, 
 		   ref<aclnt> c);
 void lbfs_remove (int fd, ref<xfs_message_header> h, sfs_aid sa, 

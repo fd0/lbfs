@@ -59,16 +59,38 @@ typedef void (*xfs_message_function) (ref<xfscall>);
 
 struct lbfscall {
   /* NFS rpc */
-  const authunix_parms *const aup;
-  const u_int32_t procno;
-  void *const argp;
-  void *resp;
+  const authunix_parms *const nfs_aup; //might not need
+  const uint32 nfs_procno;
+  void *const nfs_argp;
+  void *nfs_resp;
 
   /* XFS msg */
-  xfs_cred *cred;
-  u_int32_t opcode;
-  ref<xfs_message_header> xfs_msg;
+  int kernel_fd;
+  //xfs_cred *xfs_credp;
+  uint32 xfs_oc;
+  ref<xfs_message_header> xfs_msg; 
+
+  lbfscall (int kfd, const uint32 procno, ref<xfs_message_header> xm) :
+    nfs_procno (procno), kernel_fd (kfd), xfs_msg (xm) 
+  { 
+    xfs_oc = xm->opcode;
+    //nfs_argp = 
+  }
+
+  ~lbfscall () {}
+  sfs_aid getaid (xfs_cred);
+  uint32 nfs_proc () const { return nfs_procno; }
+  void *getvoidarg () { return nfs_argp; }
+  nfs_fh3 *getfh3arg () { return static_cast<nfs_fh3 *> (nfs_argp); }
+  template<class T> T *getarg () {
+    //do we need to CHECKBOUNDS like in sfsmisc/nfsserv.h?
+    return static_cast<T *> (getvoidarg ());
+  }
+  void *getvoidres ();
+  template<class T> T *getres () { return static_cast<T *> (getvoidres ()); }
   
+  uint32 xfs_opcode () const { return xfs_oc; }
+  ref<xfs_message_header> get_xfsarg () { return xfs_msg; }
 };
 
 #endif
