@@ -359,7 +359,7 @@ struct write_obj {
     
   void done_write (write3res *res, clnt_stat stat) {
     if (stat || res->status || errors > 0) {
-      if (errors > 0) 
+      if (errors == 0)
 	(*cb) (res, stat2str (res->status, stat));
       delete res;
       outstanding_writes--;
@@ -373,8 +373,9 @@ struct write_obj {
       }
       else {
         outstanding_writes--;
-	(*cb) (res, NULL);
-	delete res;
+	if (outstanding_writes == 0)
+	  (*cb) (res, NULL);
+        delete res;
         check_finish();
       }
     }

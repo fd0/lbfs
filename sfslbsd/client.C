@@ -153,7 +153,8 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     // fingerprint matches, do write
     warn << "CONDWRITE: bingo, found a condwrite candidate\n";
     nfs3_write(fsrv->c, cwa->file, 
-	       wrap(mkref(this), &client::condwrite_write_cb, sbp, rqs),
+	       wrap(mkref(this), &client::condwrite_write_cb, 
+		    sbp, rqs, cwa->count),
 	       data, cwa->offset, cwa->count, UNSTABLE);
     delete iter;
     return;
@@ -165,11 +166,17 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
 }
   
 void 
-client::condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, 
+client::condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, size_t count,
                             write3res *res, str err)
 {
-  write3res wres = *res;
-  nfs3reply(sbp, &wres, rqs, RPC_SUCCESS);
+  if (err) {
+    write3res wres = *res;
+    nfs3reply(sbp, &wres, rqs, RPC_SUCCESS);
+  } else {
+    write3res wres = *res;
+    wres.resok->count = count;
+    nfs3reply(sbp, &wres, rqs, RPC_SUCCESS);
+  }
 }
 
 void
