@@ -159,7 +159,7 @@ static u_int64_t num_chunks;
 static u_int64_t num_bytes;
 static u_int64_t num_dup_chunks;
 static u_int64_t num_dup_bytes;
-static u_int64_t num_collisions;
+// static u_int64_t num_collisions;
 
 static void
 chunkify (str path, const nfs_fh3 &fh, int fd)
