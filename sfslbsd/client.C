@@ -186,8 +186,8 @@ client::condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, size_t count,
                             write3res *res, str err)
 {
   write3res *wres = New write3res;
-  *wres = *res;
   if (!err || res->status) {
+    *wres = *res;
     if (!res->status)
       wres->resok->count = count;
     nfs3reply(sbp, wres, rqs, RPC_SUCCESS);
