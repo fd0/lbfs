@@ -44,7 +44,6 @@ protected:
   void fail () { if (cb) (*cb) (NULL, -1, NULL); }
 
 public:
-  // Implement this -- compress and call x->sendv
   void sendv (const iovec *, int, const sockaddr *);
   void setwcb (cbv cb) { x->setwcb (cb); }
   void setrcb (recvcb_t c) {
@@ -56,6 +55,7 @@ public:
   }
   bool ateof () { return x->ateof (); }
   void compress () { docompress = true; }
+  static size_t ps (u_int s = defps) { return s + s/1000 + 13; } // see zlib.h
   
   static ref<axprt_compress> alloc (ref<axprt> xx)
     { return New refcounted<axprt_compress> (xx); }

@@ -33,8 +33,7 @@ axprt_compress::axprt_compress (ref<axprt> xx)
   if (int zerr = deflateInit (&zout, Z_DEFAULT_COMPRESSION))
     panic ("deflateInit: %d\n", zerr);
 
-  bufsize = defps;		// XXX - should use x's packet size
-  // bufsize += bufsize/1000 + 13;	// Maximum zlib output size
+  bufsize = ps ();		// XXX - should use x's packet size
   buf = (char *) xmalloc (bufsize);
 }
 

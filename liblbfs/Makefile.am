@@ -23,6 +23,11 @@ dist-hook:
 lbfs_prot.o: lbfs_prot.h
 lbfs_prot.lo: lbfs_prot.h
 
+check_PROGRAMS = test_compress
+test_compress_SOURCES = test_compress.C
+test_compress_LDADD = $(LDADD) $(ZLIB_LIB)
+$(check_PROGRAMS): $(LDEPS) liblbfs.la
+
 .PHONY: rpcclean
 rpcclean:
 	rm -f lbfs_prot.h lbfs_prot.C
