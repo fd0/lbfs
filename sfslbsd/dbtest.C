@@ -84,7 +84,7 @@ getnfsc(ptr<aclnt> nc, clnt_stat stat)
  
   for (unsigned i=0; i<new_chunks.size(); i++) {
     if (reusable_chunks[i]) {
-      printf("%s: reuse %ld %d\n",
+      printf("%s: reuse %" OTF "d %d\n",
 	     _file, reusable_chunks[i]->pos(), reusable_chunks[i]->count());
       nfs_fh3 fh;
       reusable_chunks[i]->get_fh(fh);
