@@ -562,7 +562,8 @@ client::nfs3dispatch (svccb *sbp)
 	           wrap (mkref(this), &client::oscar_lookup_cb, sbp, rqs, res),
 	           authtab[authno]);
   }
-  // why do we do this again?
+  // target files of rename calls are deleted. we move them into the trashdir
+  // so we can use their chunks.
   else if (sbp->proc () == NFSPROC3_RENAME) {
     rename3args *arg = sbp->template getarg<rename3args> ();
     diropargs3 larg;
