@@ -441,11 +441,11 @@ struct readdir_obj {
       xfs_reply_err(fd, h.header.sequence_num, ENOENT);
       return;
     }
-
+#if 0
     if (args.last)
       flushbuf (&args);
     free (args.buf);
-
+#endif
     if (!rdres->resok->reply.eof) {
       readdir3args rda;
       rda.dir = e->nh; 
@@ -1383,16 +1383,18 @@ struct remove_obj {
       struct xfs_message_header *h1 = NULL;
       size_t h1_len = 0;
       
-      int parent_fd = assign_cachefile (fd, h.header.sequence_num, e1, 
+      int pfd1 = assign_cachefile (fd, h.header.sequence_num, e1, 
 					msg1.cache_name, &msg1.cache_handle,
-					O_CREAT | O_RDWR);
-      if (xfsfile_rm_dirent (parent_fd, msg1.cache_name)) {
+					O_CREAT | O_RDONLY);
+      int pfd2 = open (msg1.cache_name, O_WRONLY, 0666);
+      if (xfsfile_rm_dirent (pfd1, pfd2, h.name)) {
 #if DEBUG > 0
 	warn << "Error: can't write to parent dir file\n";
 #endif
 	e1->incache = false; 
       }
-      close (parent_fd);
+      close (pfd1);
+      close (pfd2);
 
       nfsobj2xfsnode (h.cred, e1, &msg1.node);
       e1->nfs_attr = *(wres->wcc->after.attributes);

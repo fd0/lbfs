@@ -133,7 +133,7 @@ int flushbuf(write_dirent_args *args)
 
 int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) 
 {
-
+#if 0
   args->off = 0;
   args->buf = (char *)malloc (blocksize);
   if (args->buf == NULL) {
@@ -142,20 +142,20 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
   }
   args->ptr = args->buf;
   args->last = NULL;
-  
+#endif  
   assert(res->status == NFS3_OK);
   entry3 *nfs_dirent = res->resok->reply.entries;
   xfs_dirent *xde = NULL;
   int reclen = sizeof(*xde);
 
   while (nfs_dirent != NULL) {
-#if 1
+#if 0
     if (args->ptr + reclen > args->buf + blocksize) {
       if (flushbuf (args) < 0) 
 	return -1;
     }
 #endif
-    xde = (xfs_dirent *)args->ptr;
+    xde = (xfs_dirent *) malloc (sizeof (*xde)); //args->ptr;
     bzero(xde, sizeof(*xde));
     xde->d_namlen = nfs_dirent->name.len();
 #if DEBUG
@@ -172,7 +172,7 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
     warn << "xde->d_name = " << xde->d_name 
 	 << " nfs_dirent_name = " << nfs_dirent->name.cstr() << "\n";
 #endif
-#if 1
+#if 0
     args->ptr += xde->d_reclen;
     args->off += xde->d_reclen;
     args->last = xde;
@@ -216,14 +216,14 @@ int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid)
   return 0;
 }
 
-int xfsfile_rm_dirent(int fd, const char* fname) 
+int xfsfile_rm_dirent(int fd1, int fd2, const char* fname) 
 {
   xfs_dirent *xde = (xfs_dirent *)malloc(sizeof(*xde));
   int err, offset = 0, reclen = sizeof(*xde);
-  //  bool found;
+  warn << "Looking for " << fname << "\n";
   
   do {
-    if ((err = read(fd, xde, sizeof(*xde))) < 0) {
+    if ((err = read(fd1, xde, sizeof(*xde))) < 0) {
 #if DEBUG
       warn << "xfsfile_rm_dirent: " << strerror(errno) << "\n";
 #endif
@@ -244,12 +244,21 @@ int xfsfile_rm_dirent(int fd, const char* fname)
 #endif
   } while (strncmp(xde->d_name, fname, strlen(fname)));
 
-  lseek(fd, offset-reclen, SEEK_SET);
-#if 0
-  do {
+  offset -= reclen;
+  lseek(fd2, offset, SEEK_SET);
 
-  } while (err == sizeof (*xde));
-#endif  
+  while (read(fd1, xde, sizeof(*xde)) == sizeof (*xde)) {
+    offset += reclen;
+    err = write (fd2, xde, sizeof (*xde));
+    if (err != sizeof(*xde)) {
+#if DEBUG
+      warn << "err = " << err << " ..short write..wierd\n";
+#endif
+      return -1;
+    }
+  }
+
+  ftruncate (fd2, offset);
   return 0;
 }
 
