@@ -38,7 +38,7 @@
 #include "sha1.h"
 
 #define NFS_MAXDATA 8192
-#define LBFS_MAXDATA 262144
+#define LBFS_MAXDATA 65536
 
 class condwrite3args {
 public:
@@ -49,6 +49,7 @@ public:
     fname = New char[MAXPATHLEN];
     retries = 0;
     commited = false;
+    cur_pos = 0;
   }
   ~condwrite3args() { 
     delete[] fname;
@@ -65,6 +66,7 @@ public:
   bool eof;
   int retries;
   bool commited;
+  off_t cur_pos;
 };
 
 class getfp_args {

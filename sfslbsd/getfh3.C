@@ -24,9 +24,11 @@
 #include "sfsrwsd.h"
 
 #define NFS3_BLOCK_SIZE 8192
+#define CONCURRENT_READS 4
 
 AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
-AUTH *auth_default = authunix_create_default ();
+AUTH *auth_default = 
+  authunix_create ("localhost", (uid_t) 32767, (gid_t) 9999, 0, NULL);
 
 const strbuf &
 strbuf_cat (const strbuf &sb, mountstat3 stat)
@@ -302,7 +304,7 @@ struct read_obj {
     arg.count = (want <= NFS3_BLOCK_SIZE ? want : NFS3_BLOCK_SIZE);
     read3res *res = New read3res;
     c->call (NFSPROC3_READ, &arg, res,
-	     wrap (this, &read_obj::gotdata, res), auth_root);
+	     wrap (this, &read_obj::gotdata, res), auth_default);
   }
   
   read_obj (ref<aclnt> c, const nfs_fh3 &f, off_t p, uint32 cnt, 
@@ -367,7 +369,7 @@ struct copy_obj {
 	arg.offset = 0;
 	arg.count = size;
         c->call (NFSPROC3_COMMIT, &arg, &cres,
-	         wrap(this, &copy_obj::gotcommit), auth_root);
+	         wrap(this, &copy_obj::gotcommit), auth_default);
       }
       else 
 	delete this;
@@ -402,7 +404,7 @@ struct copy_obj {
         write3res *wres2 = New write3res;
         c->call (NFSPROC3_WRITE, &arg, wres2,
 	         wrap(this, &copy_obj::gotwrite, 
-		      arg.offset, arg.count, rres, wres2), auth_root);
+		      arg.offset, arg.count, rres, wres2), auth_default);
         outstanding_writes++;
       }
       else 
@@ -446,7 +448,7 @@ struct copy_obj {
       write3res *wres = New write3res;
       c->call (NFSPROC3_WRITE, &arg, wres,
 	       wrap(this, &copy_obj::gotwrite, 
-		    arg.offset, arg.count, res, wres), auth_root);
+		    arg.offset, arg.count, res, wres), auth_default);
       outstanding_writes++;
       outstanding_reads--;
       read_cb(reinterpret_cast<unsigned char *>(res->resok->data.base()), 
@@ -463,7 +465,7 @@ struct copy_obj {
     arg.count = count;
     c->call (NFSPROC3_READ, &arg, rres,
 	     wrap (this, &copy_obj::gotread, arg.offset, arg.count, rres), 
-	     auth_root);
+	     auth_default);
     outstanding_reads++;
   }
 
@@ -488,7 +490,7 @@ struct copy_obj {
   void do_getattr()
   {
     c->call (NFSPROC3_GETATTR, &src, &ares,
-	     wrap (this, &copy_obj::gotattr), auth_root);
+	     wrap (this, &copy_obj::gotattr), auth_default);
   }
 
   copy_obj (ref<aclnt> c, const nfs_fh3 &s, const nfs_fh3 &d, 
@@ -499,7 +501,7 @@ struct copy_obj {
     if (in_order)
       concurrent_reads = 1;
     else 
-      concurrent_reads = 10;
+      concurrent_reads = CONCURRENT_READS;
     do_getattr();
   }
 };
@@ -564,7 +566,7 @@ struct write_obj {
   }
   
   void do_write() {
-    for(int i=0; i<10 && count<total; i++) {
+    for(int i=0; i<CONCURRENT_READS && count<total; i++) {
       int cnt = total - count;
       if (cnt > NFS3_BLOCK_SIZE) cnt = NFS3_BLOCK_SIZE;
       write3args arg;
@@ -575,7 +577,7 @@ struct write_obj {
       arg.data.set(reinterpret_cast<char*>(data+count), cnt, freemode::NOFREE);
       write3res *res = New write3res;
       c->call (NFSPROC3_WRITE, &arg, res,
-	       wrap (this, &write_obj::done_write, res), auth_root);
+	       wrap (this, &write_obj::done_write, res), auth_default);
       pos += cnt;
       count += cnt;
       outstanding_writes++;
