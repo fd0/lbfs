@@ -1,0 +1,38 @@
+dnl $Id$
+dnl
+dnl Process this file with autoconf to produce a configure script.
+dnl
+
+AC_INIT(config.h.in)
+AM_INIT_AUTOMAKE(ufs, 0.0)
+AM_CONFIG_HEADER(config.h)
+
+AC_CANONICAL_HOST
+
+dnl Checks for programs.
+AC_PROG_CC
+AC_PROG_CPP
+AC_PROG_CXX
+SFS_WFLAGS
+AC_PROG_INSTALL
+AC_PROG_LN_S
+dnl AC_PROG_RANLIB
+
+AM_DISABLE_SHARED
+AM_PROG_LIBTOOL
+
+SFS_SFS
+
+SFS_CFLAGS
+
+ETAGS_ARGS='-C /dev/null'
+AC_SUBST(ETAGS_ARGS)
+
+AC_SUBST(LIBLBFS)
+LIBLBFS='$(top_builddir)/liblbfs/liblbfs.la'
+
+CPPFLAGS="$CPPFLAGS"' -I$(top_srcdir)/liblbfs -I$(top_builddir)/liblbfs'
+LDEPS='$(LIBLBFS) $(DBDEPS) '"$LDDEPS"
+LDADD='$(LIBLBFS) $(DBLIB) '"$LDADD"
+
+AC_OUTPUT(liblbfs/Makefile sfslbcd/Makefile sfslbsd/Makefile Makefile)
