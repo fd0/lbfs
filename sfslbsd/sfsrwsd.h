@@ -281,7 +281,8 @@ class client : public virtual refcount, public sfsserv {
   void renamecb_2 (svccb *sbp, rename3res *rres, filesrv::reqstate rqs,
 		   lookup3res *ares, clnt_stat err);
 
-  void normal_dispatch (svccb *, filesrv::reqstate rqs);
+  void demux (svccb *, filesrv::reqstate rqs);
+  void normal_demux (svccb *, filesrv::reqstate rqs);
   
   void trashent_link (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh);
   void trashent_link_cb (svccb *sbp, filesrv::reqstate rqs,

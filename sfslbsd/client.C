@@ -331,7 +331,7 @@ client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs,
 	  assert(u);
 	  u->use(*(cres->resok->obj.handle),dir,path,strlen(path));
 	  for (size_t i=0; i<u->sbps.size(); i++)
-	    nfs3dispatch(u->sbps[i]);
+	    demux(u->sbps[i],rqs);
 	  u->sbps.setsize(0);
 	}
 	delete[] path;
@@ -554,7 +554,7 @@ client::trashent_link_cb (svccb *sbp, filesrv::reqstate rqs,
 {
   if (lbsd_trace > 1 && err)
     warn << "trashent_link_cb: failed\n";
-  normal_dispatch(sbp, rqs);
+  normal_demux(sbp, rqs);
   delete lnres;
 }
 
@@ -565,7 +565,7 @@ client::trashent_lookup_cb (svccb *sbp, filesrv::reqstate rqs,
   if (!err && !lres->status && lres->resok->obj_attributes.present)
     trashent_link(sbp, rqs, lres->resok->object);
   else
-    normal_dispatch(sbp, rqs);
+    normal_demux(sbp, rqs);
   delete lres;
 }
 
@@ -628,6 +628,12 @@ client::nfs3dispatch (svccb *sbp)
   if (!fsrv->fixarg (sbp, &rqs))
     return;
 
+  demux(sbp, rqs);
+}
+
+void
+client::demux (svccb *sbp, filesrv::reqstate rqs)
+{
   if (sbp->proc () == lbfs_MKTMPFILE)
     mktmpfile(sbp, rqs);
   else if (sbp->proc () == lbfs_COMMITTMP)
@@ -643,12 +649,12 @@ client::nfs3dispatch (svccb *sbp)
   else {
     if (lbsd_trace > 1 && sbp->proc () == NFSPROC3_LOOKUP)
       warn ("server: %lu %lu\n", xc->bytes_sent, xc->bytes_recv);
-    normal_dispatch(sbp, rqs);
+    normal_demux(sbp, rqs);
   }
 }
     
 void 
-client::normal_dispatch (svccb *sbp, filesrv::reqstate rqs)
+client::normal_demux (svccb *sbp, filesrv::reqstate rqs)
 {
   u_int32_t authno = sbp->getaui ();
   void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
