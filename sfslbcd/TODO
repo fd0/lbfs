@@ -1,4 +1,10 @@
 
+return from ACCESS w/o finish fetching the entire file, block any
+subsequent RPC on file until file is fetched
+
+partial file caching - don't need to fetch entire file before
+returning
+
 write test cases for
  - open, open, write, close, write, close
 
