@@ -1,5 +1,5 @@
 
-// usage: mkdb host nfs_mount_point
+// usage: mkdb dbname host nfs_mount_point
 //
 // creates a LBFS database for files under "nfs_mount_point". chunk files
 // using posix fd interface, but connect to nfs server on "host" to retrieve
@@ -7,8 +7,7 @@
 //
 // for example
 //
-// ./mkdb localhost /disk/pw0/benjie/play
-//
+// ./mkdb fp.db localhost /disk/pw0/benjie/play
 
 #include <sys/types.h>
 #include <stdio.h>
@@ -22,6 +21,7 @@
 ptr<aclnt> _mountc;
 ptr<aclnt> _c;
 
+static const char *_dbfn;
 static const char *_host;
 static const char *_mntp;
 
@@ -32,15 +32,22 @@ static int _totalfns = 0;
 static int _requests = 0;
 
 static int read_directory(const char *dpath, DIR *dirp = 0L);
+#define NBUCKETS (MAX_CHUNK_SIZE>>7)
+unsigned buckets[NBUCKETS];
 
 void done()
 {
   if (_requests == 0) {
     extern unsigned min_size_chunks;
     extern unsigned max_size_chunks;
-    printf("%d files\n", _totalfns);
-    printf("%u min size chunks\n", min_size_chunks);
-    printf("%u max size chunks\n", max_size_chunks);
+    printf("# %d files\n", _totalfns);
+    printf("# %u min size chunks\n", min_size_chunks);
+    printf("# %u max size chunks\n", max_size_chunks);
+#if 0
+    for (int i=0; i<NBUCKETS; i++) {
+      printf("%d %d\n", i<<7, buckets[i]);
+    }
+#endif
     exit(0);
   }
 }
@@ -53,34 +60,28 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
     char fspath[PATH_MAX];
     sprintf(fspath, "%s/%s/%s", _mntp, dpath, fname);
 
-    const u_char *fp;
-    size_t fl; 
-    if (mapfile (&fp, &fl, fspath) == 0) {
+    int fd = open(fspath, O_RDONLY);
+    unsigned char buf[4096];
+    unsigned count;
+    Chunker chunker(8192);
+    while ((count = read(fd, buf, 4096))>0)
+      chunker.chunk(buf, count);
+    chunker.stop();
+    for (unsigned i=0; i<chunker.chunk_vector().size(); i++) {
+      lbfs_chunk *c = chunker.chunk_vector()[i];
+      c->loc.set_fh(*fhp);
+      _fp_db.add_entry(c->fingerprint, &(c->loc));
 #if 0
-      for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
-#else
-      for (unsigned j = 0; j < 1; j++) {
+      warn << fname << " " <<  c->fingerprint 
+	   << " @" << c->loc.pos() << " +" << c->loc.count() << "\n";
 #endif
-        vec<lbfs_chunk *> cv;
-        chunk_data(CHUNK_SIZES(j), cv, fp, fl);
-	for(unsigned i=0; i<cv.size(); i++) { 
-	  cv[i]->loc.set_fh(*fhp);
-	  _fp_db.add_entry(cv[i]->fingerprint, &(cv[i]->loc));
-#if 0
-	  warn << fname << " " <<  cv[i]->fingerprint 
-	       << " @" << cv[i]->loc.pos()
-	       << " +" << cv[i]->loc.count() << "\n";
-#endif
-	  delete cv[i];
-	}
-        if (cv.size()==1) break;
-      }
-      munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
-      _fp_db.sync();
+      buckets[c->loc.count()>>7]++;
     }
+    close(fd);
+    _fp_db.sync();
+    warn << fspath << " " << chunker.chunk_vector().size() << " chunks\n";
   }
-  else 
-    warn << "nfs: " << dpath << "/" << fname << ": " << err << "\n";
+  // else warn << "nfs: " << dpath << "/" << fname << ": " << err << "\n";
   if (_requests > 0) 
     _requests--;
 
@@ -123,7 +124,6 @@ read_directory(const char *dpath, DIR *dirp = 0L)
       strncpy(dpath2, dpath, PATH_MAX);
       char *fname = New char[PATH_MAX];
       strncpy(fname, de->d_name, PATH_MAX);
-
       lookupfh3(_c, _rootfh, newpath, wrap(gotattr, dpath2, fname, dirp));
       _requests--;
       return 0;
@@ -140,7 +140,7 @@ gotrootfh(const nfs_fh3 *fhp, str err)
 {
   if (!err) {
     _rootfh = *fhp;
-    _fp_db.open(FP_DB); 
+    _fp_db.open(_dbfn);
     read_directory("");
   }
   else
@@ -175,13 +175,17 @@ getnfsc(ptr<aclnt> nc, clnt_stat stat)
 int 
 main(int argc, char *argv[]) 
 {
-  if (argc != 3) {
-    printf("usage: %s host mount_point\n", argv[0]);
+  if (argc != 4) {
+    printf("usage: %s dbname host mount_point\n", argv[0]);
     return -1;
   }
 
-  _host = argv[1];
-  _mntp = argv[2];
+  _dbfn = argv[1];
+  _host = argv[2];
+  _mntp = argv[3];
+
+  for (int i=0; i<NBUCKETS; i++)
+    buckets[i] = 0;
 
   aclntudp_create (_host, 0, nfs_program_3, wrap(getnfsc));
   amain();

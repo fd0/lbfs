@@ -29,7 +29,7 @@
      (i == 3 ? 524288 : 0))))
 
 #define MIN_CHUNK_SIZE 2048
-#define MAX_CHUNK_SIZE 65536
+#define MAX_CHUNK_SIZE 65535
 
 
 // map file into memory, pointed to by bufp

@@ -68,10 +68,10 @@ public:
   ~db_base();
 
   // open db, returns db3 errnos
-  int open(char *name, u_int32_t db3_flags = DB_CREATE); 
+  int open(const char *name, u_int32_t db3_flags = DB_CREATE); 
 
   // open and truncate existing db
-  int open_and_truncate(char *name);
+  int open_and_truncate(const char *name);
 
   // creates an iterator and copies a ptr to it into the memory
   // referenced by iterp (callee responsible for freeing iterp). additionally,
@@ -109,7 +109,7 @@ db_base<K,V>::~db_base()
 
 template<class K, class V>
 inline int 
-db_base<K,V>::open(char *name, u_int32_t db3_flags)
+db_base<K,V>::open(const char *name, u_int32_t db3_flags)
 {
   int ret;
   if ((ret = db_create(&_dbp, NULL, 0)) != 0) { 
@@ -128,7 +128,7 @@ db_base<K,V>::open(char *name, u_int32_t db3_flags)
 
 template<class K, class V>
 inline int
-db_base<K,V>::open_and_truncate(char *name)
+db_base<K,V>::open_and_truncate(const char *name)
 {
   return open(name, DB_CREATE | DB_TRUNCATE);
 }
