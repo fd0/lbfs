@@ -31,17 +31,19 @@ ihash<nfs_fh3, cache_entry, &cache_entry::nh,
 ihash<xfs_handle, cache_entry, &cache_entry::xh,
   &cache_entry::xlink> xfsindex;
 
-void sfs_getfsinfo (xfscall *);
-void nfs3_fsinfo (xfscall *);
-void nfs3_getattr (xfscall *);
+void sfs_getfsinfo (ref<xfscall>);
+void nfs3_fsinfo (ref<xfscall>);
+void nfs3_getattr (ref<xfscall>);
 
-void nfs_dispatch (xfscall *xfsc, clnt_stat err) {
+void 
+nfs_dispatch (ref<xfscall> xfsc, time_t rqtime, clnt_stat err) {
 
   assert(!err);
 
+  xfsc->rqtime = rqtime;
   switch (xfsc->opcode) {
   case XFS_MSG_GETROOT: 
-    switch (xfsc->instance) {
+    switch (xfsc->inst) {
     case 0:
       sfs_getfsinfo (xfsc);
       break;
@@ -52,8 +54,8 @@ void nfs_dispatch (xfscall *xfsc, clnt_stat err) {
       nfs3_getattr (xfsc);
       break;
     }
+  case XFS_MSG_GETNODE:
     break;
-
   default:
 #if DEBUG < 0
     warn << "Uncovered case .. opcode = " << xfsc->opcode << "\n";
@@ -64,7 +66,7 @@ void nfs_dispatch (xfscall *xfsc, clnt_stat err) {
 }
 
 int
-xfs_wakeup (xfscall *xfsc) {
+xfs_wakeup (ref<xfscall> xfsc) {
 
 #if DEBUG > 0
   warn << "Received wakeup from XFS\n";
@@ -73,97 +75,147 @@ xfs_wakeup (xfscall *xfsc) {
 }
 
 int 
-xfs_getroot (xfscall *xfsc) {
+xfs_getroot (ref<xfscall> xfsc) {
 
 #if DEBUG > 0
   warn << "Received getroot from XFS\n";
 #endif
+  
+  getroot (sfsc, nfsc);
 
-  ((xfs_getroot_args*) xfsc->getvoidres ())->fsi = New sfs_fsinfo;
-  sfsc->call (SFSPROC_GETFSINFO, NULL, 
-	      ((xfs_getroot_args*) xfsc->getvoidres ())->fsi,
-	      wrap (nfs_dispatch, xfsc));
-  return 0;
-
-}
-
-int 
-xfs_getnode (xfscall *xfsc) {
+#if 0
+  sfs_fsinfo *fsi = New sfs_fsinfo;
+  xfsc->resp[++xfsc->inst] = fsi;
+  sfsc->call (SFSPROC_GETFSINFO, NULL, fsi,
+	      wrap (nfs_dispatch, xfsc, timenow));
+#endif 
 
   return 0;
 }
 
 int 
-xfs_getattr (xfscall *xfsc) {
+xfs_getnode (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_getdata (xfscall *xfsc) {
+int 
+xfs_getattr (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_inactivenode (xfscall *xfsc) {
+int 
+xfs_getdata (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_open (xfscall *xfsc) {
+int 
+xfs_inactivenode (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_putdata (xfscall *xfsc) {
+int 
+xfs_open (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_putattr (xfscall *xfsc) {
+int 
+xfs_putdata (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_create (xfscall *xfsc) {
+int 
+xfs_putattr (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_mkdir (xfscall *xfsc) {
+int 
+xfs_create (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_link (xfscall *xfsc) {
+int 
+xfs_mkdir (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_symlink (xfscall *xfsc) {
+int 
+xfs_link (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_remove (xfscall *xfsc) {
+int 
+xfs_symlink (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_rmdir (xfscall *xfsc) {
+int 
+xfs_remove (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_rename (xfscall *xfsc) {
+int 
+xfs_rmdir (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-int xfs_pioctl (xfscall *xfsc) {
+int 
+xfs_rename (ref<xfscall> xfsc) {
 
   return 0;
 }
 
-void cbdispatch(svccb *sbp) {
+int 
+xfs_pioctl (ref<xfscall> xfsc) {
 
+  return 0;
+}
+
+void 
+cbdispatch(svccb *sbp) {
+
+#if DEBUG > 0
+  warn << "cbdispatch triggered\n";
+#endif
+  if (!sbp)
+    return;
+
+  switch (sbp->proc ()) {
+  case ex_NFSCBPROC3_NULL:
+    sbp->reply (NULL);
+    break;
+  case ex_NFSCBPROC3_INVALIDATE:
+    {
+      ex_invalidate3args *xa = sbp->template getarg < ex_invalidate3args > ();
+      ex_fattr3 *a = NULL;
+      if (xa->attributes.present && xa->attributes.attributes->expire) {
+	a = xa->attributes.attributes.addr ();
+	a->expire += timenow;
+	cache_entry *e = nfsindex[xa->handle];
+	if (!e) {
+	  warn << "cbdispatch: Can't find handle\n";
+	  return;
+	}
+	e->nfs_attr = *a;
+      }
+      //delete a; should we delete this?
+      sbp->reply (NULL);
+      break;
+    }
+  default:
+    sbp->reject (PROC_UNAVAIL);
+    break;
+  }
 }

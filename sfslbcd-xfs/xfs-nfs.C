@@ -57,8 +57,8 @@ u_char nfs_rights2xfs_rights(u_int32_t access, ftype3 ftype, u_int32_t mode) {
   return ret;
 }
 
-void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr, time_t rqtime,
-		    xfs_msg_node *node, bool update_dir_expire) {
+void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr, 
+		    time_t rqtime,  xfs_msg_node *node, bool update_dir_expire) {
 
   // change expire to rpc_time + expire
   if (attr.type != NF3DIR || update_dir_expire)

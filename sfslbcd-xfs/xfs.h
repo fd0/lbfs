@@ -21,6 +21,7 @@
 
 #ifndef __XFS_H_V
 #define __XFS_H_V 1
+#define DEBUG 3
 
 #include <stdarg.h>
 #include <xfs/xfs_message.h>
@@ -38,79 +39,57 @@ int  xfs_send_message_wakeup_vmultiple (int fd,	u_int seqnum, int error,
 struct xfscall {
 
   u_int32_t opcode;
-  int instance;
+  int inst;
   int fd;
+  time_t rqtime;
   void *const argp;
-  void *resp;
+  void *resp[5];
 
-  xfscall (u_int32_t oc, int file_des, void *const ap, void *rp) : 
-    opcode(oc), instance(0), fd(file_des), argp(ap), resp(rp) { }
+  xfscall (u_int32_t oc, int file_des, void *const ap) : 
+    opcode(oc), inst(-1), fd(file_des), argp(ap) { }
   ~xfscall () {
+#if 0
+    if (argp) 
+      delete argp;
+    for (int i=0; i<5; i++)
+      if (resp[i])
+	delete resp[i];
+#endif
   }
   void *getvoidarg () { return argp; }
-  void *getvoidres () { return resp; }
+  void *getvoidres (int i) { return resp[i]; }
 };
   
-typedef int (*xfs_message_function) (xfscall *);
+typedef int (*xfs_message_function) (ref<xfscall>);
 extern xfs_message_function rcvfuncs[XFS_MSG_COUNT];
 /* xfs.C */
 
 /* server.C */
 extern ex_fsinfo3resok nfs_fsinfo;
-void nfs_dispatch (xfscall *xfsc, clnt_stat err);
-int xfs_wakeup (xfscall *xfsc);
-int xfs_getroot (xfscall *xfsc);
-int xfs_getnode (xfscall *xfsc);
-int xfs_getdata (xfscall *xfsc);
-int xfs_open (xfscall *xfsc);
-int xfs_getattr (xfscall *xfsc);
-int xfs_inactivenode (xfscall *xfsc);
-int xfs_putdata (xfscall *xfsc);
-int xfs_putattr (xfscall *xfsc);
-int xfs_create (xfscall *xfsc);
-int xfs_mkdir (xfscall *xfsc);
-int xfs_link (xfscall *xfsc);
-int xfs_symlink (xfscall *xfsc);
-int xfs_remove (xfscall *xfsc);
-int xfs_rmdir (xfscall *xfsc);
-int xfs_rename (xfscall *xfsc);
-int xfs_pioctl (xfscall *xfsc);
+void nfs_dispatch (ref<xfscall>, time_t, clnt_stat err);
+int xfs_wakeup (ref<xfscall>);
+int xfs_getroot (ref<xfscall>);
+int xfs_getnode (ref<xfscall>);
+int xfs_getdata (ref<xfscall>);
+int xfs_open (ref<xfscall>);
+int xfs_getattr (ref<xfscall>);
+int xfs_inactivenode (ref<xfscall>);
+int xfs_putdata (ref<xfscall>);
+int xfs_putattr (ref<xfscall>);
+int xfs_create (ref<xfscall>);
+int xfs_mkdir (ref<xfscall>);
+int xfs_link (ref<xfscall>);
+int xfs_symlink (ref<xfscall>);
+int xfs_remove (ref<xfscall>);
+int xfs_rmdir (ref<xfscall>);
+int xfs_rename (ref<xfscall>);
+int xfs_pioctl (ref<xfscall>);
 
 void cbdispatch(svccb *sbp);
 /* server.C */
 
-class xfs_wakeup_args {
- public:
-  int fd;
-  struct xfs_message_wakeup *h;
-
-  xfs_wakeup_args (int file_des, struct xfs_message_wakeup *header) :
-    fd(file_des), h(header) { }
-  ~xfs_wakeup_args () {
-    delete h;
-  }
-
-};
-
-struct xfs_getroot_args {
-  sfs_fsinfo *fsi;
-  ex_fsinfo3res *nfs_fsi;
-  ex_getattr3res *attr_res;
-
-  xfs_getroot_args () {
-    fsi = New sfs_fsinfo;
-    nfs_fsi = New ex_fsinfo3res;
-    attr_res = New ex_getattr3res;
-  }
-
-  ~xfs_getroot_args () {
-    if (fsi) 
-      delete fsi;
-    if (nfs_fsi)
-      delete nfs_fsi;
-    if (attr_res) 
-      delete attr_res;
-  }
-};
+/* helper.C */
+void getroot (ref<aclnt> sc1, ref<aclnt> nc1);
+/* helper.C */
 
 #endif /* __XFS_H_V */

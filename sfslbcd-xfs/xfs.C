@@ -21,7 +21,6 @@
 
 #include "xfs.h"
 #include "kernel.h"
-#include "messages.h"
 #include "xfs-sfs.h"
 
 u_int *seqnums;
@@ -126,19 +125,17 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 
   ++recv_stat[opcode];
   str msgstr = str((const char *)h, size);
-  xfscall *xfsc;
 
   switch (opcode) {
   case XFS_MSG_GETROOT: {
     struct xfs_message_getroot *hh = 
       (struct xfs_message_getroot *)msgstr.cstr();
-    ref<struct xfs_message_getroot> msg = 
-      New refcounted<struct xfs_message_getroot>;
+    struct xfs_message_getroot *msg = New (struct xfs_message_getroot);
     msg->header = hh->header;
     msg->cred = hh->cred;
-    ref<struct xfs_getroot_args> gra = 
-      New refcounted<struct xfs_getroot_args> ();
-    xfsc = New xfscall (opcode, fd, msg, gra);
+
+    ref<xfscall> xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    return (*rcvfuncs[opcode])(xfsc);
     break;
   }
   case XFS_MSG_GETNODE: {
@@ -325,7 +322,8 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     return 0;
   }
 
-  return (*rcvfuncs[opcode])(xfsc);
+  return 0;
+  //  return (*rcvfuncs[opcode])(xfsc);
 }
 
 int
