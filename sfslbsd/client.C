@@ -321,7 +321,8 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       res->resok->eof=false;
     else
       res->resok->eof=true;
-    res->resok->file_attributes = rres->resok->file_attributes;
+    res->resok->file_attributes = 
+      *(reinterpret_cast<ex_post_op_attr*>(&(rres->resok->file_attributes)));
   }
   else {
     res->set_status(rres->status);

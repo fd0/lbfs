@@ -50,7 +50,7 @@ struct lbfs_fp3 {
 };
 
 struct lbfs_getfp3resok {
-  post_op_attr file_attributes;
+  ex_post_op_attr file_attributes;
   lbfs_fp3 fprints<>;
   bool eof;
 };
