@@ -10,6 +10,9 @@ AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
 AUTH *auth_default = 
   authunix_create ("localhost", (uid_t) 14228, (gid_t) 100, 0, NULL);
 
+int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 0);
+int lbcd_trace (getenv("LBCD_TRACE") ? atoi (getenv ("LBCD_TRACE")) : 0);
+
 struct attr_obj {
   attr_cb_t cb;
   int fd;
@@ -64,7 +67,7 @@ struct attr_obj {
       ce->set_exp (rqt, update_dir_expire);
       if (h->header.opcode == XFS_MSG_PUTATTR)
 	if (saa.new_attributes.size.set) {
-	  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	  if (lbcd_trace)
 	    warn << "setting size to " 
 		 << (uint32) *(saa.new_attributes.size.val) << "\n";
 	  // can't depend on client set time to expire cache data
@@ -197,7 +200,7 @@ struct getroot_obj {
   {
     assert (!err && sfs_fsi->prog == ex_NFS_PROGRAM && 
 	    sfs_fsi->nfs->vers == ex_NFS_V3);
-    if (getenv ("LBFS") && (strcmp(getenv ("LBFS"), "0") > 0))
+    if (lbfs > 0)
       x->compress();
 
     x->compress();
@@ -260,7 +263,7 @@ struct lookup_obj {
     diropargs3 doa;
     doa.dir = parent_fh;
     doa.name = name;
-    if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+    if (lbcd_trace)
       warn << h->header.sequence_num 
 	   << ":" << "requesting file name " << doa.name << "\n";
     res = New refcounted<ex_lookup3res>;
@@ -305,7 +308,7 @@ struct getnode_obj {
       else if (lres->resok->dir_attributes.present)
 	a = *lres->resok->dir_attributes.attributes;
       else {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << h->header.sequence_num << ":getnode: error no attr present\n";
 	xfs_reply_err(fd, h->header.sequence_num, ENOSYS); //Why ENOSYS??
 	delete this;
@@ -339,7 +342,7 @@ struct getnode_obj {
     h = msgcast<xfs_message_getnode> (hh);
     cache_entry *e = xfsindex[h->parent_handle];
     if (!e) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << h->header.sequence_num << ":" 
 	     << "xfs_getnode: Can't find parent_handle\n";
       xfs_reply_err(fd, h->header.sequence_num, ENOENT);
@@ -572,7 +575,7 @@ struct readdir_obj {
 	lbfs_readexist (fd, hh, e);
 	delete this; return;
       } else {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << "directory in cache, exp " << e->nfs_attr.expire << " " 
 	       << (uint32) timenow << " ltime " << e->ltime.seconds << "\n";
 	if (e->nfs_attr.expire < (uint32) timenow) {
@@ -634,33 +637,34 @@ struct getfp_obj {
 
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				      h0, h0_len, NULL, 0);
-
-    warn << "File data received  = " << bytes_recv << " bytes\n";
-    warn << "File size           = " << e->nfs_attr.size << " bytes\n";
-    warn << "GETFP RPCs sent     = " << getfps_sent << "\n";
-    warn << "READ  RPCs sent     = " << reads_sent << "\n";
+    if (lbcd_trace) {
+      warn << "File data received  = " << bytes_recv << " bytes\n";
+      warn << "File size           = " << e->nfs_attr.size << " bytes\n";
+      warn << "GETFP RPCs sent     = " << getfps_sent << "\n";
+      warn << "READ  RPCs sent     = " << reads_sent << "\n";
+    }
   }
 
   void write_file (uint64 cur_offst, uint32 size, ref<ex_read3res> rres)
   {
-    if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+    if (lbcd_trace)
       warn << "filename = " << out_fname << " offset = " << cur_offst << "\n";
 
     int err;
     if ((err = lseek (out_fd, cur_offst, SEEK_SET)) < 0) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "getfp_obj::write_file1: " << out_fname << " " << strerror (errno) << "\n";
       delete this; return;
     } 
 
     if ((err = write (out_fd, rres->resok->data.base (), 
 		      rres->resok->count)) < 0) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "getfp_obj::write_file2: " << out_fname << " " << strerror (errno) << "\n";
       delete this; return;
     } else
       if (err != (int) rres->resok->count) {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << "write error or short write!!\n";
 	delete this; return;
       }
@@ -682,12 +686,12 @@ struct getfp_obj {
 	// add chunk to the database --Why add every chunk in the file??
 	vec <chunk *> cvp;
 	if (chunk_file(cvp, (char const *) out_fname) < 0) {
-	  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	  if (lbcd_trace)
 	    warn << "getfp::gotdata: " << strerror (errno) << "(" << errno << ")\n";
 	  delete this; return;
 	}
 	for (uint i = 0; i < cvp.size (); i++) {
-	  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	  if (lbcd_trace)
 	    warn << "adding fp = " << cvp[i]->fingerprint() << " to lbfsdb\n";
 	  cvp[i]->location().set_fh (e->nh);
 	  lbfsdb.add_entry (cvp[i]->fingerprint(), &(cvp[i]->location()));
@@ -712,7 +716,7 @@ struct getfp_obj {
     ra.file = e->nh;
     ra.offset = cur_offst;
     ra.count = size < NFS_MAXDATA ? size : NFS_MAXDATA;
-if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+if (lbcd_trace)
     warn << "getfp_obj::nfs3_read @" << offset << " +" << ra.count << "\n";
 
 
@@ -726,7 +730,7 @@ if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
   void copy_block (uint64 cur_offst, unsigned char *buf, chunk_location *c) 
   {
     if (lseek (out_fd, cur_offst, SEEK_SET) < 0) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "compose_file: error: " << strerror (errno) 
 	     << "(" << errno << ")\n";
       xfs_reply_err (fd, h->header.sequence_num, EIO);
@@ -735,7 +739,7 @@ if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
     int err;
     if ((err = write (out_fd, buf, c->count ())) < 0
 	|| ((uint32) err != c->count ())) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "getfp_obj::copy_block: error: " << err << " != " 
 	     << c->count () << " or " << strerror (errno) << "\n";
       xfs_reply_err (fd, h->header.sequence_num, EIO);
@@ -764,29 +768,29 @@ if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
 	    found = true;
 	    c.get_fh (fh);
 	    if (c.count () != fpres->resok->fprints[i].count) {
-	      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	      if (lbcd_trace)
 		warn << "chunk size != size from server..\n";
 	      continue;
 	    }
 	    e1 = nfsindex[fh];
 	    if (!e1) {
-	      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	      if (lbcd_trace)
 		warn << "compose_file: null fh or Can't find node handle\n";
 	      found = false;
 	      continue;
 	    }    
-	    if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	    if (lbcd_trace)
 	      warn << "reading chunks from " << e1->cache_name << "\n";
 	    chfd = open (e1->cache_name, O_RDWR, 0666);
 	    if (chfd < 0) {
-	      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	      if (lbcd_trace)
 		warn << "compose_file: error: " << strerror (errno) 
 		     << "(" << errno << ")\n";
 	      found = false;
 	      continue;
 	    }
 	    if (lseek (chfd, c.pos (), SEEK_SET) < 0) {
-	      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	      if (lbcd_trace)
 		warn << "compose_file: error: " << strerror (errno) 
 		     << "(" << errno << ")\n";
 	      found = false;
@@ -794,7 +798,7 @@ if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
 	    }
 	    if ((err = read (chfd, buf, c.count ())) > -1) {
 	      if ((uint32) err != c.count ()) {
-		if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+		if (lbcd_trace)
 		  warn << "compose_file: error: " << err << " != " 
 		       << c.count () << "\n";
 	        found = false;
@@ -802,13 +806,13 @@ if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
 	      }
 	      if (compare_sha1_hash (buf, c.count (),
 				     fpres->resok->fprints[i].hash)) {
-		if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+		if (lbcd_trace)
 		  warn << "compose_file: sha1 hash mismatch\n";		
 		found = false;
 	        continue;
 	      }
 	    } else {
-	      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	      if (lbcd_trace)
 		warn << "compose_file: error: " << strerror (errno) 
 		     << "(" << errno << ")\n";
 	      found = false;
@@ -816,7 +820,7 @@ if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
 	    }
 	    close (chfd);
 	    if (found) {
-	      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	      if (lbcd_trace)
 		warn << "FOUND!! getfp_obj::compose_file: fp = " 
 		     << fpres->resok->fprints[i].fingerprint << " in client DB\n";
 	      copy_block (cur_offst, buf, &c);
@@ -826,7 +830,7 @@ if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
 	delete ci;
       }
       if (!found) {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << "compose_file: fp = " << fpres->resok->fprints[i].fingerprint 
 	       << " not in DB\n";
 	nfs3_read (cur_offst, fpres->resok->fprints[i].count);
@@ -888,7 +892,7 @@ if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
 
     out_fd = open (out_fname, O_CREAT | O_WRONLY, 0666);
     if (out_fd < 0) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "getfp_obj::getfp_obj: " << strerror (errno) << "\n";
       xfs_reply_err (fd, h->header.sequence_num, EIO);
       delete this; return;
@@ -1037,8 +1041,8 @@ struct readfile_obj {
       }
     } 
     nfstime3 maxtime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
-    if (greater (maxtime, e->ltime)) 
-      if (getenv ("LBFS") && (strcmp(getenv ("LBFS"), "1") > 0))
+    if (greater (maxtime, e->ltime))       
+      if (lbfs > 1)
 	lbfs_getfp (fd, hh, e, sa, c, wrap (this, &readfile_obj::done));
       else lbfs_read (fd, hh, e, sa, c, cb);
     else {
@@ -1055,12 +1059,12 @@ struct readfile_obj {
     uint32 owriters = e->writers;
     if ((h->tokens & XFS_OPEN_MASK) & (XFS_OPEN_NW|XFS_OPEN_EW)) {
       e->writers = 1;
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "open for write: " << e->writers << " writers\n";
     }
     
     if (!e->incache)
-      if (getenv ("LBFS") && (strcmp(getenv ("LBFS"), "1") > 0))
+      if (lbfs > 1)
 	lbfs_getfp (fd, hh, e, sa, c, wrap (this, &readfile_obj::done));
       else lbfs_read (fd, hh, e, sa, c, cb);
     else {
@@ -1104,7 +1108,7 @@ struct open_obj {
     h = msgcast<xfs_message_open> (hh);
     e = xfsindex[h->handle];
     if (!e) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << h->header.sequence_num << ":"  
 	     << "open_obj: Can't find node handle\n";
       xfs_reply_err(fd, h->header.sequence_num, ENOENT);
@@ -1121,7 +1125,7 @@ struct open_obj {
 	lbfs_readfile (fd, h1, e, sa, c, wrap (this, &open_obj::done)); 
 	break;
       default:
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << h->header.sequence_num << ":"  
 	       << "open_obj: File type " << e->nfs_attr.type << " not handled\n";
 	break;
@@ -1177,9 +1181,9 @@ struct create_obj {
       int parent_fd = assign_cachefile (fd, h->header.sequence_num, e, 
 					msg1.cache_name, &msg1.cache_handle,
 					O_CREAT | O_WRONLY | O_APPEND);
-#if 0
+#if 1
       if (nfsdirent2xfsfile (parent_fd, h->name, e1->nfs_attr.fileid)) {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << "Error: can't write to parent dir file\n";
 	//messages.C: benjie's rant.
 	e->incache = false;	
@@ -1194,7 +1198,7 @@ struct create_obj {
       e->ltime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
       nfsobj2xfsnode (cred, e, &msg1.node);
 
-      msg1.flag = XFS_ID_INVALID_DNLC;
+      msg1.flag = 0; //XFS_ID_INVALID_DNLC;
       msg1.header.opcode = XFS_MSG_INSTALLDATA;
       h0 = (struct xfs_message_header *) &msg1;
       h0_len = sizeof (msg1);
@@ -1261,7 +1265,7 @@ struct create_obj {
     h = msgcast<xfs_message_create> (hh);
     e = xfsindex[h->parent_handle];
     if (!e) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "create_obj: Can't find parent_handle\n";
       xfs_reply_err (fd, h->header.sequence_num, ENOENT);
       delete this; return;
@@ -1305,27 +1309,35 @@ struct link_obj {
       struct xfs_message_header *h1 = NULL;
       size_t h1_len = 0;
 
-      //change attributes of parent dir
-      //in the future implement local content change too..
-      int cfd = assign_cachefile (fd, h->header.sequence_num, e2, 
-				  msg1.cache_name, &msg1.cache_handle);
-      close (cfd);
-
       assert (res->res->linkdir_wcc.after.present);
       e2->nfs_attr = *(res->res->linkdir_wcc.after.attributes);
       e2->set_exp (rqt, true);
       nfsobj2xfsnode (h->cred, e2, &msg1.node);
       msg1.flag = 0;
 
-      e1->incache = false; // sad mtime update problem with openbsd nfsd
-      msg1.header.opcode = XFS_MSG_INSTALLDATA;
-      h0 = (struct xfs_message_header *) &msg1;
-      h0_len = sizeof (msg1);
-
       assert (res->res->file_attributes.present);
       e1->nfs_attr = *(res->res->file_attributes.attributes);
       e1->set_exp (rqt, e1->nfs_attr.type == NF3DIR ? true : false);
       nfsobj2xfsnode (h->cred, e1, &msg2.node);
+
+      int parent_fd = assign_cachefile (fd, h->header.sequence_num, e2, 
+					msg1.cache_name, &msg1.cache_handle,
+					O_CREAT | O_WRONLY | O_APPEND);
+#if 0
+      if (nfsdirent2xfsfile (parent_fd, h->name, e1->nfs_attr.fileid)) {
+	if (lbcd_trace)
+	  warn << "Error: can't write to parent dir file\n";
+	//messages.C: benjie's rant.
+	e2->incache = false;	
+      }
+#else
+      e2->incache = false;
+#endif
+      close(parent_fd);
+      //e1->incache = false; // sad mtime update problem with openbsd nfsd
+      msg1.header.opcode = XFS_MSG_INSTALLDATA;
+      h0 = (struct xfs_message_header *) &msg1;
+      h0_len = sizeof (msg1);
 
       msg2.node.tokens = XFS_ATTR_R;
       msg2.parent_handle = h->parent_handle;
@@ -1347,7 +1359,7 @@ struct link_obj {
     h = msgcast<xfs_message_link> (hh);
     e1 = xfsindex[h->from_handle];
     if (!e1) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "link_obj: Can't find from_handle\n";
       xfs_reply_err (fd, h->header.sequence_num, ENOENT);
       delete this; return;
@@ -1357,7 +1369,7 @@ struct link_obj {
 
     e2 = xfsindex[h->parent_handle];
     if (!e2) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "xfs_message_link: Can't find parent_handle\n";
       xfs_reply_err(fd, h->header.sequence_num, ENOENT);
       delete this; return;
@@ -1399,23 +1411,34 @@ struct symlink_obj {
       struct xfs_message_header *h1 = NULL;
       size_t h1_len = 0;
 
-      int cfd = assign_cachefile (fd, h->header.sequence_num, e, 
-				  msg1.cache_name, &msg1.cache_handle);
-      close (cfd);
-
       assert (res->resok->dir_wcc.after.present);
       e->nfs_attr = *(res->resok->dir_wcc.after.attributes);
       nfsobj2xfsnode (h->cred, e, &msg1.node);
 
+      assert (res->resok->obj.present && res->resok->obj_attributes.present);
+      cache_entry *e2 = update_cache (*(res->resok->obj.handle), 
+				      *res->resok->obj_attributes.attributes);
+
+      int parent_fd = assign_cachefile (fd, h->header.sequence_num, e, 
+					msg1.cache_name, &msg1.cache_handle,
+					O_CREAT | O_WRONLY | O_APPEND);
+#if 0
+      if (nfsdirent2xfsfile (parent_fd, h->name, e2->nfs_attr.fileid)) {
+	if (lbcd_trace)
+	  warn << "Error: can't write to parent dir file\n";
+	//messages.C: benjie's rant.
+	e->incache = false;	
+      }
+#else
+      e->incache = false;
+#endif
+      close (parent_fd);
+      //e->incache = false; // sad mtime update problem with openbsd nfsd
       msg1.flag = 0;
-      e->incache = false; // sad mtime update problem with openbsd nfsd
       msg1.header.opcode = XFS_MSG_INSTALLDATA;
       h0 = (struct xfs_message_header *) &msg1;
       h0_len = sizeof (msg1);
       
-      assert (res->resok->obj.present && res->resok->obj_attributes.present);
-      cache_entry *e2 = update_cache (*(res->resok->obj.handle), 
-				      *res->resok->obj_attributes.attributes);
       e2->set_exp (rqt);
       nfsobj2xfsnode (h->cred, e2, &msg2.node);
       msg2.node.tokens = XFS_ATTR_R;
@@ -1440,7 +1463,7 @@ struct symlink_obj {
     h = msgcast<xfs_message_symlink> (hh);
     e = xfsindex[h->parent_handle];
     if (!e) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "symlink_obj: Can't find parent handle\n";
       xfs_reply_err(fd, h->header.sequence_num, ENOENT);
       delete this; return;
@@ -1496,7 +1519,7 @@ struct remove_obj {
       int pfd2 = open (msg1.cache_name, O_WRONLY, 0666);
 #if 0
       if (dir_remove_name (pfd1, h->name)) {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << "Error: " << strerror (errno) << "\n";
 	e1->incache = false; 
       }
@@ -1524,7 +1547,7 @@ struct remove_obj {
 	  (a.attributes->type == NF3REG && a.attributes->nlink > 1)) {
 	e2 = nfsindex[lres->resok->object];
 	if (!e2) {
-	  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	  if (lbcd_trace)
 	    warn << "remove_obj::install: Can't find handle\n";
 	  delete this; return;
 	}
@@ -1575,7 +1598,7 @@ struct remove_obj {
     h = msgcast<xfs_message_remove> (hh);
     e1 = xfsindex[h->parent_handle];
     if (!e1) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "xfs_message_remove: Can't find parent_handle\n";
       xfs_reply_err(fd, h->header.sequence_num, ENOENT);
       delete this; return;
@@ -1648,7 +1671,7 @@ struct rename_obj {
       
       e3 = nfsindex[lres->resok->object];
       if (!e3) {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << "rename_obj::do_install: Can't find file handle\n";
 	xfs_reply_err(fd, h->header.sequence_num, ENOENT);
 	delete this; return;
@@ -1723,7 +1746,7 @@ struct rename_obj {
       rqt1 = rqt;
       e2 = xfsindex[h->new_parent_handle];
       if (!e2) {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << "rename_obj::do_lookup: Can't find new_parent_handle\n";
 	xfs_reply_err(fd, h->header.sequence_num, ENOENT);
 	delete this; return;
@@ -1750,7 +1773,7 @@ struct rename_obj {
     h = msgcast<xfs_message_rename> (hh);
     e1 =  xfsindex[h->old_parent_handle];
     if (!e1) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "rename_obj: Can't find old_parent_handle\n";
       xfs_reply_err(fd, h->header.sequence_num, ENOENT);
       delete this;
@@ -1802,12 +1825,14 @@ struct putdata_obj {
       e->nfs_attr = attr;
       e->set_exp (rqtime, attr.type == NF3DIR);
       e->ltime = max(attr.mtime, attr.ctime);
-      xfs_send_message_wakeup (fd, h->header.sequence_num, 0);      
-      warn << "File data sent      = " << bytes_sent << " bytes\n";
-      warn << "File size           = " << e->nfs_attr.size << " bytes\n";
-      warn << "CONDWRITE RPCs sent = " << condwrites_sent << "\n";
-      warn << "WRITE RPCs sent     = " << writes_sent << "\n";
-    } else
+      xfs_send_message_wakeup (fd, h->header.sequence_num, 0);    
+      if (lbcd_trace) {
+	warn << "File data sent      = " << bytes_sent << " bytes\n";
+	warn << "File size           = " << e->nfs_attr.size << " bytes\n";
+	warn << "CONDWRITE RPCs sent = " << condwrites_sent << "\n";
+	warn << "WRITE RPCs sent     = " << writes_sent << "\n";
+      }
+     } else
       xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
     delete this;
   }
@@ -1819,7 +1844,7 @@ struct putdata_obj {
     ct.commit_to = e->nh;
 
     committed = true;
-    if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+    if (lbcd_trace)
       warn << h->header.sequence_num << " COMMITTMP: "
 	   << blocks_written << " blocks written " 
 	   << total_blocks << " needed, eof? "
@@ -1834,7 +1859,7 @@ struct putdata_obj {
   {
     if (outstanding_condwrites > 0) outstanding_condwrites--;
     if (!err && res->status == NFS3_OK) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << h->header.sequence_num << " do_sendwrite: @"
 	     << chunk->location().pos() << ", "
 	     << res->resok->count << " total needed "
@@ -1844,7 +1869,7 @@ struct putdata_obj {
       assert(chunk->bytes() <= chunk->location().count());
       if (chunk->bytes() == chunk->location().count()) 
 	blocks_written++;
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << h->header.sequence_num << " nfs3_write: @"
 	     << chunk->location().pos() << " +"
 	     << chunk->location().count() << " "
@@ -1917,14 +1942,14 @@ struct putdata_obj {
     if (outstanding_condwrites > 0) outstanding_condwrites--;
     if (!err && res->status == NFS3_OK) {
       if (res->resok->count != chunk->location().count ()) {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << "do_sendcondwrite: did not write the whole chunk...\n";
 	sendwrite (chunk);
 	return;
       }
       chunk->got_bytes(chunk->location().count());
       blocks_written++;
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << h->header.sequence_num << " condwrite: @"
 	     << chunk->location().pos() << " +"
 	     << chunk->location().count() << " "
@@ -1935,7 +1960,7 @@ struct putdata_obj {
 	sendcommittmp ();
     } else {
       if (err || res->status == NFS3ERR_FPRINTNOTFOUND) {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+	if (lbcd_trace) {
 	  warn << "do_sendcondwrite: " << err << "\n";
 	  warn << "-> " << h->header.sequence_num << " condwrite: "
 	       << blocks_written << " blocks written " 
@@ -1963,7 +1988,7 @@ struct putdata_obj {
 
     int rfd = open (e->cache_name, O_RDWR, 0666);
     if (rfd < 0) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "sendcondwrite: " << e->cache_name << ".." << strerror (errno) << "\n";
       sendwrite(chunk);
       return;
@@ -1975,7 +2000,7 @@ struct putdata_obj {
     while (total_read < cw.count) {
       int err = read (rfd, &buf[total_read], cw.count);
       if (err < 0) {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << "lbfs_condwrite: error: " << strerror (errno) 
 	       << "(" << errno << ")\n"; 
 	sendwrite(chunk);
@@ -1997,7 +2022,7 @@ struct putdata_obj {
   {
     int data_fd = open (e->cache_name, O_RDWR, 0666);
     if (data_fd < 0) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "putdata_obj::condwrite_chunk: " << strerror (errno) << "\n";
       xfs_reply_err (fd, h->header.sequence_num, EIO);
       delete this; return;
@@ -2006,7 +2031,7 @@ struct putdata_obj {
     uint index, v_size;
     index = v_size = chunker->chunk_vector().size();
     if (lseek (data_fd, cur_pos, SEEK_SET) < 0) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "putdata_obj::condwrite_chunk: " << strerror (errno) << "\n";
       xfs_reply_err (fd, h->header.sequence_num, EIO);
       delete this; return;
@@ -2021,7 +2046,7 @@ struct putdata_obj {
 	v_size = chunker->chunk_vector().size();
 	total_blocks = v_size;
 	for (; index < v_size; index++) {
-	  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	  if (lbcd_trace)
 	    warn << "chindex = " << index << " size = " << v_size << "\n";
 	  outstanding_condwrites++;
 	  sendcondwrite(chunker->chunk_vector()[index]);
@@ -2039,13 +2064,13 @@ struct putdata_obj {
       v_size = chunker->chunk_vector().size();
       total_blocks = chunker->chunk_vector().size();
       for (; index < v_size; index++) {
-	if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+	if (lbcd_trace)
 	  warn << "chindex = " << index << " size = " <<  total_blocks<< "\n";
 	sendcondwrite(chunker->chunk_vector()[index]);
       }
       eof = true;
     }
-    if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+    if (lbcd_trace)
       warn << "total_blocks = "  << total_blocks << " " 
 	   << count << " eof " << eof << "\n";
     if (eof && total_blocks == 0)
@@ -2079,7 +2104,7 @@ struct putdata_obj {
     chunker = New Chunker;
     e = xfsindex[h->handle];
     if (!e) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "xfs_putdata: Can't find node handle\n";
       xfs_reply_err (fd, h->header.sequence_num, ENOENT);
       delete this; return;
@@ -2160,7 +2185,7 @@ struct write_obj {
     h = msgcast<xfs_message_putdata> (hh);
     e = xfsindex[h->handle];
     if (!e) {
-      if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+      if (lbcd_trace)
 	warn << "write_obj: Can't find node handle\n";
       xfs_reply_err (fd, h->header.sequence_num, ENOENT);
       delete this; return;
@@ -2183,7 +2208,7 @@ struct write_obj {
 void
 lbfs_putdata (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
 {
-  if (getenv ("LBFS") && (strcmp(getenv ("LBFS"), "1") > 0))
+  if (lbfs > 1)
     vNew putdata_obj (fd, h, sa, c);
   else vNew write_obj (fd, h, sa, c);
 }

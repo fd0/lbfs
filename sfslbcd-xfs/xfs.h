@@ -67,6 +67,8 @@ typedef void (*xfs_message_function) (ref<xfscall>);
 extern xfs_message_function rcvfuncs[XFS_MSG_COUNT];
 /* xfs.C */
 
+extern int lbcd_trace;
+
 /* server.C */
 extern ex_fsinfo3resok nfs_fsinfo;
 //void nfs_dispatch (ref<xfscall>, time_t, clnt_stat err);

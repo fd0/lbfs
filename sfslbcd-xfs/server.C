@@ -25,6 +25,8 @@
 #include "cache.h"
 #include "crypt.h"
 
+//int lbcd_trace (getenv("LBCD_TRACE") ? atoi (getenv ("LBCD_TRACE")) : 0);
+
 ex_fsinfo3resok nfs_fsinfo;
 u_int64_t cache_entry::nextxh;
 ihash<nfs_fh3, cache_entry, &cache_entry::nh,
@@ -35,14 +37,14 @@ ihash<xfs_handle, cache_entry, &cache_entry::xh,
 void
 xfs_wakeup (ref<xfscall> xfsc) 
 {
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+  if (lbcd_trace)
     warn << "Received wakeup from XFS\n";
 }
 
 void 
 xfs_getroot (ref<xfscall> xfsc) 
 {
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+  if (lbcd_trace)
     warn << "Received xfs_getroot\n";
 
   xfs_message_getroot *h = msgcast<xfs_message_getroot> (xfsc->argp);
@@ -54,7 +56,7 @@ void
 xfs_getnode (ref<xfscall> xfsc) 
 {
   xfs_message_getnode *h = msgcast<xfs_message_getnode> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_getnode\n";
     warn << h->header.sequence_num << ":" <<" xfs_parent_handle ("
 	 << (int) h->parent_handle.a << ","
@@ -70,7 +72,7 @@ void
 xfs_getattr (ref<xfscall> xfsc) 
 {
   xfs_message_getattr *h = msgcast<xfs_message_getattr> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_getattr\n";
     warn << h->header.sequence_num << ":" <<" xfs_handle ("
 	 << (int) h->handle.a << ","
@@ -89,7 +91,7 @@ void
 xfs_getdata (ref<xfscall> xfsc) 
 {
   xfs_message_getdata *h = msgcast<xfs_message_getdata> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_getdata\n";
     warn << h->header.sequence_num << ":" <<" xfs_handle ("
 	 << (int) h->handle.a << ","
@@ -113,7 +115,7 @@ void
 xfs_inactivenode (ref<xfscall> xfsc) 
 {
   xfs_message_inactivenode *h = msgcast<xfs_message_inactivenode> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_inactivenode\n";
     warn << h->header.sequence_num << ":" <<" xfs_handle ("
 	 << (int) h->handle.a << ","
@@ -132,7 +134,7 @@ void
 xfs_open (ref<xfscall> xfsc) 
 {
   xfs_message_open *h = msgcast<xfs_message_open> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_open\n";
     warn << h->header.sequence_num << ":" <<" xfs_handle ("
 	 << (int) h->handle.a << ","
@@ -148,7 +150,7 @@ void
 xfs_putdata (ref<xfscall> xfsc) 
 {
   xfs_message_putdata *h = msgcast<xfs_message_putdata> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_putdata\n";
     warn << h->header.sequence_num << ":" <<" xfs_handle ("
 	 << (int) h->handle.a << ","
@@ -165,7 +167,7 @@ void
 xfs_putattr (ref<xfscall> xfsc) 
 {
   xfs_message_putattr *h = msgcast<xfs_message_putattr> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_putattr\n";
     warn << h->header.sequence_num << ":" <<" xfs_handle ("
 	 << (int) h->handle.a << ","
@@ -184,7 +186,7 @@ void
 xfs_create (ref<xfscall> xfsc) 
 {
   xfs_message_create *h = msgcast<xfs_message_create> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_create\n";
     warn << h->header.sequence_num << ":" <<" parent_handle ("
 	 << (int) h->parent_handle.a << ","
@@ -201,7 +203,7 @@ void
 xfs_mkdir (ref<xfscall> xfsc) 
 {
   xfs_message_create *h = msgcast<xfs_message_create> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_mkdir\n";
     warn << h->header.sequence_num << ":" <<" xfs_handle ("
 	 << (int) h->parent_handle.a << ","
@@ -218,7 +220,7 @@ void
 xfs_link (ref<xfscall> xfsc) 
 {
   xfs_message_link *h = msgcast<xfs_message_link> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_link (hard)\n";
     warn << h->header.sequence_num << ":" <<" parent_handle ("
 	 << (int) h->parent_handle.a << ","
@@ -240,7 +242,7 @@ void
 xfs_symlink (ref<xfscall> xfsc) 
 {
   xfs_message_symlink *h = msgcast<xfs_message_symlink> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_symlink \n";
     warn << h->header.sequence_num << ":" <<" parent_handle ("
 	 << (int) h->parent_handle.a << ","
@@ -257,7 +259,7 @@ void
 xfs_remove (ref<xfscall> xfsc) 
 {
   xfs_message_remove *h = msgcast<xfs_message_remove> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_remove\n";
     warn << h->header.sequence_num << ":" <<" xfs_parenthandle ("
 	 << (int) h->parent_handle.a << ","
@@ -274,7 +276,7 @@ void
 xfs_rmdir (ref<xfscall> xfsc) 
 {
   xfs_message_remove *h = msgcast<xfs_message_remove> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_rmdir\n";
     warn << h->header.sequence_num << ":" <<" xfs_parenthandle ("
 	 << (int) h->parent_handle.a << ","
@@ -291,7 +293,7 @@ void
 xfs_rename (ref<xfscall> xfsc) 
 {
   xfs_message_rename *h = msgcast<xfs_message_rename> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_rename\n";
     warn << h->header.sequence_num << ":" <<" xfs_old_parenthandle ("
 	 << (int) h->old_parent_handle.a << ","
@@ -314,7 +316,7 @@ void
 xfs_pioctl (ref<xfscall> xfsc) 
 {
   xfs_message_pioctl *h = msgcast<xfs_message_pioctl> (xfsc->argp);
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0)) {
+  if (lbcd_trace) {
     warn << "Received xfs_pioctl!! Return EINVAL no matter what!!!\n";
     warn << "pioctl: opcode = " << h->opcode << "\n";
   }
@@ -325,7 +327,7 @@ xfs_pioctl (ref<xfscall> xfsc)
 void 
 cbdispatch(svccb *sbp) 
 {
-  if (getenv("LBCD_TRACE") && (strcmp(getenv ("LBCD_TRACE"), "0") > 0))
+  if (lbcd_trace)
     warn << "cbdispatch triggered\n";
 
   if (!sbp)

@@ -167,7 +167,7 @@ sfsConnect (str hostname, sfs_hash hid, str path, int fd)
   nfsc = aclnt::alloc (x, lbfs_program_3);
   nfscbs = asrv::alloc (x, ex_nfscb_program_3, wrap (&cbdispatch));
   sfs_connectarg arg;
-#if 0
+#if 1
   arg.set_civers (5);
   arg.ci5->release = sfs_release;
   arg.ci5->service = SFS_SFS;
