@@ -33,6 +33,7 @@
 #include "nfstrans.h"
 #include "sfsserv.h"
 #include "lbfs_prot.h"
+#include "lbfsdb.h"
 
 #define FATTR3 fattr3exp
 
@@ -181,6 +182,8 @@ class client : public virtual refcount, public sfsserv {
 
   ptr<asrv> nfssrv;
 
+  lbfs_db lbfsdb;
+
   static u_int64_t nextgen ();
 
   void fail ();
@@ -192,8 +195,10 @@ class client : public virtual refcount, public sfsserv {
   void renamecb_2 (svccb *sbp, rename3res *rres, filesrv::reqstate rqs,
 		   lookup3res *ares, clnt_stat err);
 
-  void condwritecb (svccb *sbp, void *res, filesrv::reqstate rqs,
-		    getattr3res *ares, clnt_stat err);
+  void condwrite_read_cb (svccb *sbp, void *res, filesrv::reqstate rqs,
+		          lbfs_db::chunk_iterator * iter, 
+			  unsigned char *data, size_t count, str err);
+  void condwrite (svccb *sbp, void *res, filesrv::reqstate rqs);
 
 protected:
   client (ref<axprt_crypt> x);

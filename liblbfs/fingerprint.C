@@ -77,3 +77,15 @@ chunk_file(const char *path, unsigned chunk_size, vec<lbfs_chunk *> *cvp)
   return ret;
 }
 
+u_int64_t 
+fingerprint(const unsigned char *data, size_t count)
+{
+  u_int64_t poly = FINGERPRINT_PT;
+  window w (poly);
+  w.reset();
+  u_int64_t fp = 0;
+  for (size_t i = 0; i < count; i++)
+    fp = w.append8 (fp, data[i]);
+  return fp;
+}
+

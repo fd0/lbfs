@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "chunking.h"
+#include "fingerprint.h"
 #include "lbfsdb.h"
 #include "sfsrwsd.h"
 #include "lbfs.h"
@@ -47,9 +47,9 @@ lbfs_search_reusable_chunks(vec<lbfs_chunk *> &new_chunks,
 
 
 void 
-gotdata(u_int64_t fp, unsigned char *data, int count, str err)
+gotdata(u_int64_t fp, unsigned char *data, size_t count, str err)
 {
-  if (!err) {
+  if (!err && count > 0) {
     vec<lbfs_chunk *> chunks;
     chunk_data(CHUNK_SIZES(0), data, count, &chunks);
     for (unsigned i=0; i<chunks.size(); i++) {
@@ -97,6 +97,8 @@ getnfsc(ptr<aclnt> nc, clnt_stat stat)
     delete new_chunks[i];
     delete reusable_chunks[i];
   }
+  if (_requests == 0) 
+    exit(0);
 }
 
 int 

@@ -5,7 +5,7 @@
 #include <dirent.h>
 #include <unistd.h>
 
-#include "chunking.h"
+#include "fingerprint.h"
 #include "lbfsdb.h"
 #include "sfsrwsd.h"
 

@@ -22,6 +22,9 @@
  */
 
 #include "sfsrwsd.h"
+#include "lbfsdb.h"
+#include "fingerprint.h"
+#include "lbfs.h"
 #include <grp.h>
 
 ihash<const u_int64_t, client, &client::generation, &client::glink> clienttab;
@@ -90,17 +93,63 @@ client::renamecb_1 (svccb *sbp, void *_res, filesrv::reqstate rqs,
 }
 
 void
-client::condwritecb (svccb *sbp, void *_res, filesrv::reqstate rqs,
-		     getattr3res *ares, clnt_stat err)
+client::condwrite_read_cb (svccb *sbp, void *_res, filesrv::reqstate rqs,
+                           lbfs_db::chunk_iterator *iter, 
+			   unsigned char *data, size_t count, str err)
 {
-  if (!err && !ares->status) {
-    // XXX - we may need to invalidate some entries as well, but when?
-    // lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
-    nfs3reply (sbp, _res, rqs, RPC_SUCCESS);
+  lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
+  lbfs_chunk_loc c;
+  iter->get(&c);
+
+  if (err || count != cwa->count ||
+      fingerprint(data, count) != cwa->fingerprint) {
+    delete data;
+    // only remove record if it is not an error, so transient 
+    // failures won't cause db to be incorrected deleted.
+    if (!err)
+      iter->del(); 
+    if (!iter->next(&c)) { 
+      nfs_fh3 fh; 
+      c.get_fh(fh); 
+      readfh3(fsrv->c, fh,
+	      wrap(mkref(this), &client::condwrite_read_cb, 
+		   sbp, _res, rqs, iter), c.pos(), c.count());
+      return; 
+    }
   }
-  else
-    nfs3reply (sbp, _res, rqs, RPC_FAILED);
-  delete ares;
+ 
+  else {
+    // match fingerprint, do write, honor stable, etc.
+    // XXX
+    delete data;
+    nfs3reply (sbp, _res, rqs, RPC_SUCCESS);
+    delete iter;
+  }
+
+  nfs3reply (sbp, _res, rqs, RPC_FAILED);
+  delete iter;
+}
+
+void
+client::condwrite (svccb *sbp, void *_res, filesrv::reqstate rqs)
+{
+  lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
+  lbfs_db::chunk_iterator *iter = 0;
+  if (lbfsdb.get_chunk_iterator(cwa->fingerprint, &iter) == 0) {
+    if (iter) { 
+      lbfs_chunk_loc c; 
+      if (!iter->get(&c)) { 
+	nfs_fh3 fh; 
+	c.get_fh(fh); 
+	readfh3(fsrv->c, fh,
+	        wrap(mkref(this), &client::condwrite_read_cb, 
+		     sbp, _res, rqs, iter), c.pos(), c.count());
+	return;
+      } 
+      delete iter; 
+    }
+  }
+  nfs3reply (sbp, _res, rqs, RPC_FAILED);
 }
 
 void
@@ -134,13 +183,10 @@ client::nfs3dispatch (svccb *sbp)
     fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
 		   wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
 		   authtab[authno]);
-  else if (sbp->proc () == lbfs_NFSPROC3_CONDWRITE) {
-    getattr3res *ares = New getattr3res;
-    fsrv->c->call (NFSPROC3_GETATTR,
-	           &sbp->template getarg<lbfs_condwrite3args> ()->file, ares,
-		   wrap (mkref (this), &client::condwritecb, sbp, res,
-		         rqs, ares), authtab[authno]);
-  }
+
+  else if (sbp->proc () == lbfs_NFSPROC3_CONDWRITE)
+    condwrite(sbp, res, rqs);
+
   else
     fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
 		   wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
@@ -165,6 +211,8 @@ client::client (ref<axprt_crypt> x)
   authtab[0] = authunix_create ("localhost", (uid_t) -1,
 				(gid_t) -1, 0, NULL);
   clienttab.insert (this);
+
+  lbfsdb.open();
 }
 
 client::~client ()

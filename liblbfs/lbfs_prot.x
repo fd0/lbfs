@@ -25,7 +25,7 @@ struct lbfs_condwrite3args {
   uint64 offset; 
   uint32 count; 
   stable_how stable; 
-  uint64 fprint; 
+  uint64 fingerprint; 
 };
 
 union lbfs_condwrite3res switch (nfsstat3 status) {

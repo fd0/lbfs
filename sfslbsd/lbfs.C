@@ -3,7 +3,7 @@
 #include "lbfsdb.h"
 
 struct read3obj {
-  typedef callback<void, unsigned char *, int, str>::ref cb_t;
+  typedef callback<void, unsigned char *, size_t, str>::ref cb_t;
   cb_t cb;
   ref<aclnt> c;
 
@@ -49,7 +49,7 @@ struct read3obj {
 	     wrap (this, &read3obj::gotdata3), auth_root);
   }
   
-  read3obj (ref<aclnt> c, nfs_fh3 &f, off_t p, uint32 cnt, cb_t cb) 
+  read3obj (ref<aclnt> c, nfs_fh3 &f, off_t p, uint32 cnt, cb_t cb)
     : cb (cb), c (c), fh(f)
   {
     count = 0;
@@ -65,5 +65,4 @@ readfh3 (ref<aclnt> c, nfs_fh3 &fh, read3obj::cb_t cb, off_t pos, uint32 count)
 {
   vNew read3obj (c, fh, pos, count, cb);
 }
-
 

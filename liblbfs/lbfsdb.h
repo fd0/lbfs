@@ -108,6 +108,8 @@ public:
     ~chunk_iterator();
     operator bool() const { return _cursor != 0; }
 
+    int del();
+
     // get current entry
     int get(lbfs_chunk_loc *c);
     // increment iterator, return entry
@@ -144,6 +146,12 @@ lbfs_db::chunk_iterator::~chunk_iterator()
 }
 
 inline int
+lbfs_db::chunk_iterator::del()
+{
+  return _cursor->del(0);
+}
+
+inline int
 lbfs_db::chunk_iterator::get(lbfs_chunk_loc *c)
 {
   assert(_cursor);
@@ -164,8 +172,11 @@ lbfs_db::chunk_iterator::next(lbfs_chunk_loc *c)
   Dbt key;
   Dbt data;
   int ret = _cursor->get(&key, &data, DB_NEXT_DUP);
-  if (ret == 0 && data.get_data())
-    *c = *(reinterpret_cast<lbfs_chunk_loc*>(data.get_data()));
+  if (ret == 0) {
+    if (data.get_data()) 
+      *c = *(reinterpret_cast<lbfs_chunk_loc*>(data.get_data()));
+    else assert(0);
+  }
   return ret;
 }
 

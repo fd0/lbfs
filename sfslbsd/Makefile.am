@@ -7,7 +7,8 @@ sfslib_PROGRAMS = sfslbsd mkdb dbtest
 
 noinst_HEADERS = sfsrwsd.h lbfs.h
 
-sfslbsd_SOURCES = client.C fhtrans.C filesrv.C getfh3.C lease.C sfsrwsd.C
+sfslbsd_SOURCES = \
+  client.C fhtrans.C filesrv.C getfh3.C lease.C sfsrwsd.C lbfs.C
 sfslbsd_LDADD = $(LDADD) $(DB3_LIB)
 
 mkdb_SOURCES = mkdb.C getfh3.C
