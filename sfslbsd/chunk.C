@@ -22,10 +22,11 @@ void done()
   extern unsigned max_size_chunks;
   printf("# %u min size chunks\n", min_size_chunks);
   printf("# %u max size chunks\n", max_size_chunks);
+#if 0
   for (int i=0; i<NBUCKETS; i++) {
     printf("%d %d\n", i<<7, buckets[i]);
   }
-  exit(0);
+#endif
 }
 
 void
@@ -40,10 +41,7 @@ chunk_file(const char *path)
   chunker.stop();
   for (unsigned i=0; i<chunker.chunk_vector().size(); i++) {
     lbfs_chunk *c = chunker.chunk_vector()[i];
-#if 0
-    warn << fname << " " <<  c->fingerprint 
-         << " @" << c->loc.pos() << " +" << c->loc.count() << "\n";
-#endif
+    // warn << path << " " <<  c->fingerprint << " @" << c->loc.pos() << "\n";
     buckets[c->loc.count()>>7]++;
   }
   close(fd);
@@ -61,10 +59,10 @@ read_directory(const char *dpath)
     if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
       continue;
     char path[PATH_MAX];
-    sprintf("%s/%s", dpath,de->d_name);
+    sprintf(path, "%s/%s", dpath, de->d_name);
     if (S_ISDIR(sb.st_mode))
       read_directory(path);
-    else if (S_ISREG(sb.st_mode))
+    else
       chunk_file(path);
   }
   closedir(dirp);
