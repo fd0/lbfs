@@ -107,7 +107,7 @@ program LBFS_PROGRAM {
 		lbfs_NFSPROC3_CONDWRITE (lbfs_condwrite3args) = 22;
 		
 	} = 3;
-} = 344444;
+} = 344448;
 
 program LBFSCB_PROGRAM {
 	version LBFSCB_V3 {
@@ -117,4 +117,4 @@ program LBFSCB_PROGRAM {
 		void
 		lbfs_NFSCBPROC3_INVALIDATE (ex_invalidate3args) = 1;
 	} = 3;
-}= 344445;
+}= 744448;
