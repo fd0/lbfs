@@ -32,7 +32,7 @@ static int _totalfns = 0;
 static int _requests = 0;
 
 static int read_directory(const char *dpath, DIR *dirp = 0L);
-#define NBUCKETS (MAX_CHUNK_SIZE>>7)
+#define NBUCKETS ((MAX_CHUNK_SIZE+1)>>7)
 unsigned buckets[NBUCKETS];
 unsigned total_chunks = 0;
 

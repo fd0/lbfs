@@ -156,7 +156,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
  
   else {
     delete chunker0;
-#if DEBUG > 0
+#if DEBUG > 1
     // fingerprint matches, do write
     warn << "CONDWRITE: bingo, found a condwrite candidate\n";
 #endif
@@ -266,7 +266,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   str rstr = armor32((void*)&r, sizeof(int));
   char *tmpfile = New char[5+fhstr.len()+1+rstr.len()+1];
   sprintf(tmpfile, "sfs.%s.%s", fhstr.cstr(), rstr.cstr());
-#if DEBUG > 0
+#if DEBUG > 1
   warn << "MKTMPFILE: " << tmpfile << "\n";
 #endif
   
@@ -314,7 +314,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     for (unsigned i=0; i<cv.size(); i++) {
       cv[i]->loc.set_fh(fh);
       fpdb.add_entry(cv[i]->fingerprint, &(cv[i]->loc)); 
-#if DEBUG > 0
+#if DEBUG > 1
       warn << "COMMITTMP: adding " << cv[i]->fingerprint << " @"
 	   << cv[i]->loc.pos() << " " 
 	   << cv[i]->loc.count() << " to database\n";
@@ -327,7 +327,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   tmpfh_record *tfh_rec = fhtab.tab[tmpfh];
   if (tfh_rec) {
     tfh_rec->name[tfh_rec->len] = '\0';
-#if DEBUG > 0
+#if DEBUG > 1
     warn ("COMMITTMP: remove %s\n", tfh_rec->name);
 #endif
     wccstat3 *rres = New wccstat3;
@@ -401,7 +401,7 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     nfs3reply (sbp, res, rqs, RPC_SUCCESS);
   }
   else {
-#if DEBUG > 0
+#if DEBUG > 1
     warn << "GETFP: failed " << err << "\n";
 #endif
     if (rres->status) {
