@@ -1,15 +1,14 @@
 
-XXX read from cached file
 XXX call getreply on all NFS replies, even those in helper functions
-XXX write to cached file, remember STABLE flag
-XXX on CLOSE, send stuff to server, reflect STABLE flag
+XXX write to cached file, remember STABLE flag, update attribute (size+mtime)
+XXX on CLOSE, send stuff to server, reflect STABLE flag, but don't
+    reset attribute because someone else might have written to the
+    server as well
 XXX remember COMMIT
 
 consistency
- 0) don't update cache if the file is open; ideally, we don't update
-    the cache if file is open for writing, so we don't clobber
-    someone's write. but we can't tell if a file is open for reading
-    or writing.
+ 0) don't update cache if the file is open; once someone opens a file,
+    subsequent open requests do not update cache
  1) if lease has not expired, and cache time matches mtime, use cache
  2) if lease has expired, fetch attribute; if cache time matches
     mtime, use cache
