@@ -447,10 +447,10 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
   else {
     if (err)
       warn << "nfs3_read: " << err << "\n";
-    else {
+    else
       warn << "nfs3_read: " << strerror (res->status) << "\n";
-      reply_err (ga->fd, ga->h->header.sequence_num, res->status);
-    }
+    // faithfully retry
+    normal_read (ga, offset, count);
   }
 }
 
@@ -1119,8 +1119,10 @@ lbfs_sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk,
       sendcommittmp (cwa);
   }
   else {
-    if (err) 
+    if (err) {
       warn << "lbfs_sendcondwrite: " << err << "\n";
+      sendwrite (cwa, chunk);
+    }
     else {
       if (res->status == NFS3ERR_FPRINTNOTFOUND)
 	sendwrite (cwa, chunk);
@@ -1260,7 +1262,7 @@ xfs_message_putdata (int fd, ref<struct xfs_message_putdata> h, u_int size)
 	      wrap (&lbfs_mktmpfile, fd, h, res));
 
   assert(e->writers>0);
-  if (!(h->flag&XFS_FSYNC)) {
+  if (!(h->flag&XFS_FSYNC) && e->writers>0) {
     e->writers--;
     warn << "close for write: " << e->writers << " writers\n";
   }
