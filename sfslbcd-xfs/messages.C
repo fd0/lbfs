@@ -558,7 +558,7 @@ void
 compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
 {
 
-  int err, chfd, out_fd, j;
+  int err, chfd, out_fd;
   uint64 offset = ga->offset;	// chunk position
   fp_db::iterator * ci = NULL;
   bool found = false;
@@ -1758,8 +1758,7 @@ xfs_message_putattr (int fd, ref<struct xfs_message_putattr> h, u_int size)
          << (uint32) *(sa.new_attributes.size.val) << "\n";
 #endif
     // can't depend on client set time to expire cache data
-    if (*(sa.new_attributes.size.val) == 0) 
-      e->ltime.seconds = 0;
+    truncate(e->cache_name, *(sa.new_attributes.size.val));
   }
   ref<ex_wccstat3 > res = New refcounted < ex_wccstat3 >;
   nfsc->call (lbfs_NFSPROC3_SETATTR, &sa, res,

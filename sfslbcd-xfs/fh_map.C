@@ -21,20 +21,30 @@ setcache_name (uint32 index)
   if (fd < 0) {
     if (errno == ENOENT) {
       str dname = dirname (index);
+#if DEBUG > 0
       warn << "Creating dir: " << dname << "\n";
+#endif
       if (mkdir (dname, 0777) < 0) {
+#if DEBUG > 0
 	warn << strerror (errno) << "(" << errno << ") mkdir " << dname << "\n";
+#endif
 	return NULL;
       }
       fd = open (fname, O_CREAT | O_RDWR | O_TRUNC, 0666);
       if (fd < 0) {
-	warn << strerror (errno) << "(" << errno << ") on file =" << fname << "\n";
+#if DEBUG > 0
+	warn << strerror (errno) << "(" << errno << ") on file =" 
+	     << fname << "\n";
+#endif
 	return NULL;
       }
       close (fd);
     }
     else {
-      warn << strerror (errno) << "(" << errno << ") on file =" << fname << "\n";
+#if DEBUG > 0
+      warn << strerror (errno) << "(" << errno << ") on file =" 
+	   << fname << "\n";
+#endif
       return NULL;
     }
   }

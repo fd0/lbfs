@@ -119,9 +119,11 @@ compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
 {
   char h[sha1::hashsize];
   sha1_hash(h, data, count);
+#if DEBUG > 0
   warn << "f(h) = " << fingerprint(data, count) << "\n";
   warn << "h = " << armor32(h, sha1::hashsize) << "\n";
   warn << "hash = " << armor32(hash.base(), sha1::hashsize) << "\n";
+#endif
   return strncmp(h, hash.base(), sha1::hashsize);
 }
 

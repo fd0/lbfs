@@ -373,7 +373,9 @@ void
 client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
                   size_t count, read3res *rres, str err)
 {
+#if DEBUG > 1
   lbfs_getfp3args *arg = sbp->template getarg<lbfs_getfp3args> ();
+#endif
   if (!err && !rres->status && rres->resok->eof) 
     chunker->stop();
   const vec<lbfs_chunk *>& cv = chunker->chunk_vector();
