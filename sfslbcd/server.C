@@ -449,6 +449,7 @@ server::fixlc (nfscall *nc, void *res)
       nlc_remove(a->to.dir, a->to.name);
       nlc_insert(a->from.dir, a->from.name);
       lc_remove(a->from.dir, a->from.name);
+      lc_remove(a->to.dir, a->to.name);
     }
   }
 
@@ -742,27 +743,23 @@ server::dispatch (nfscall *nc)
         nc->reply (&res);
         return;
       }
-      else {
+      else if (f) {
 	nfs_fh3 fh;
         bool hit = lc_lookup(a->dir, a->name, fh);
 	if (hit) {
-          lookup3res res(NFS3_OK);
-	  res.resok->object = fh;
-	  res.resok->dir_attributes.set_present (false);
-	  if (f) {
+	  const ex_fattr3 *objf = ac.attr_lookup (fh);
+	  if (objf) {
+            lookup3res res(NFS3_OK);
+	    res.resok->object = fh;
             res.resok->dir_attributes.set_present (true);
             *res.resok->dir_attributes.attributes
 	      = *reinterpret_cast<const fattr3 *> (f);
-	  }
-	  f = ac.attr_lookup (fh);
-	  res.resok->obj_attributes.set_present (false);
-	  if (f) {
             res.resok->obj_attributes.set_present (true);
             *res.resok->obj_attributes.attributes
-	      = *reinterpret_cast<const fattr3 *> (f);
+	      = *reinterpret_cast<const fattr3 *> (objf);
+            nc->reply (&res);
+            return;
 	  }
-          nc->reply (&res);
-          return;
 	}
       }
     }
