@@ -48,7 +48,7 @@ public:
 
 class window : public rabinpoly {
 public:
-  enum {size = 20};
+  enum {size = 48};
 
 private:
   u_int64_t fingerprint;

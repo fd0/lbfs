@@ -16,11 +16,13 @@
 
 #define NBUCKETS (MAX_CHUNK_SIZE>>7)
 unsigned buckets[NBUCKETS];
+unsigned total_chunks = 0;
 
 void done()
 {
   extern unsigned min_size_chunks;
   extern unsigned max_size_chunks;
+  printf("# %u total chunks\n", total_chunks);
   printf("# %u min size chunks\n", min_size_chunks);
   printf("# %u max size chunks\n", max_size_chunks);
   for (int i=0; i<NBUCKETS; i++) {
@@ -44,6 +46,7 @@ chunk_file(const char *path)
     buckets[c->loc.count()>>7]++;
   }
   close(fd);
+  total_chunks += chunker.chunk_vector().size();
   warn << path << " " << chunker.chunk_vector().size() << " chunks\n";
 }
 

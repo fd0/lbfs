@@ -34,6 +34,7 @@ static int _requests = 0;
 static int read_directory(const char *dpath, DIR *dirp = 0L);
 #define NBUCKETS (MAX_CHUNK_SIZE>>7)
 unsigned buckets[NBUCKETS];
+unsigned total_chunks = 0;
 
 void done()
 {
@@ -41,6 +42,7 @@ void done()
     extern unsigned min_size_chunks;
     extern unsigned max_size_chunks;
     printf("# %d files\n", _totalfns);
+    printf("# %u total chunks\n", total_chunks);
     printf("# %u min size chunks\n", min_size_chunks);
     printf("# %u max size chunks\n", max_size_chunks);
     for (int i=0; i<NBUCKETS; i++) {
@@ -71,6 +73,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
       _fp_db.add_entry(c->fingerprint, &(c->loc));
       buckets[c->loc.count()>>7]++;
     }
+    total_chunks += chunker.chunk_vector().size();
     close(fd);
     _fp_db.sync();
     warn << fspath << " " << chunker.chunk_vector().size() << " chunks\n";
