@@ -59,8 +59,10 @@ void done()
     printf("# rabin time: %qu usec/Kbyte\n", rabintime/(totalsize/1024));
     printf("# %u min size supprssed\n", Chunker::min_size_suppress);
     printf("# %u max size supprssed\n", Chunker::max_size_suppress);
+#if 0
     for (int i=0; i<NBUCKETS; i++)
       printf("%d %d\n", i<<7, buckets[i]);
+#endif
   }
 }
 
@@ -105,8 +107,16 @@ chunk_file(const char *path)
     sdb.get_iterator(c->fingerprint(), &iter);
     gettimeofday(&t1,0L);
     searchtime += timediff();
-    if (iter) 
+    if (iter) {
+      int cnt = 0;
+      chunk_location ctmp;
+      while(!iter->get(&ctmp)) {
+	iter->next(&ctmp);
+	cnt++;
+      }
+      warn << path << ": " << c->fingerprint() << ": " << cnt << "\n";
       delete iter;
+    }
     gettimeofday(&t0,0L);
     cdb.add_entry(c->fingerprint(), &c->location());
     gettimeofday(&t1,0L);
