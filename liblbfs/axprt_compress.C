@@ -21,115 +21,80 @@
 
 #include "axprt_compress.h"
 
-// Implement this -- compress and call x->sendv
+axprt_compress::axprt_compress (ref<axprt> xx)
+  : axprt (true, true, xx->socksize), docompress (false), x (xx)
+{
+  assert (x->reliable && x->connected);
+  x->setrcb (NULL);
+  bzero (&zin, sizeof (zin));
+  if (int zerr = inflateInit (&zin))
+    panic ("inflateInit: %d\n", zerr);
+  bzero (&zout, sizeof (zout));
+  if (int zerr = deflateInit (&zout, Z_DEFAULT_COMPRESSION))
+    panic ("deflateInit: %d\n", zerr);
+
+  bufsize = defps;		// XXX - should use x's packet size
+  // bufsize += bufsize/1000 + 13;	// Maximum zlib output size
+  buf = (char *) xmalloc (bufsize);
+}
+
+axprt_compress::~axprt_compress ()
+{
+  inflateEnd (&zin);
+  deflateEnd (&zout);
+  free (buf);
+}
+
 void
-axprt_compress::sendv(const iovec *iov, int iovcnt, const sockaddr *sa)
+axprt_compress::sendv (const iovec *iov, int iovcnt, const sockaddr *sa)
 {
   if (!docompress) {
     x->sendv (iov, iovcnt, sa);
     return;
   }
 
-  int ret;
-  iovec out_iov[iovcnt];
-  z_streamp zp = New z_stream;
+  zout.next_out = (Bytef *) buf;
+  zout.avail_out = bufsize;
 
-  zp->zalloc = Z_NULL;
-  zp->zfree  = Z_NULL;
-  zp->opaque = Z_NULL;
-  
-  for (int i=0; i<iovcnt; i++) {
+  for (int i=0; i < iovcnt; i++) {
+    zout.next_in  = (Bytef *) iov[i].iov_base;
+    zout.avail_in = iov[i].iov_len;
 
-    if ((ret = deflateInit(zp, Z_BEST_COMPRESSION)) != Z_OK) { //commented out in zlib.h
-      warn << "err: " << ret << "\n";
-      return;
+#if 0
+    if (!zout.avail_out) {
+      buf = (char *) xrealloc (buf, 2 * bufsize);
+      zout.next_out = (Bytef *) (buf + bufsize);
+      zout.avail_out = bufsize;
+      bufsize = 2 * bufsize;
     }
+#endif
 
-    zp->next_in  = (Bytef *) iov[i].iov_base;
-    zp->avail_in = iov[i].iov_len;
-    out_iov[i].iov_len  = iov[i].iov_len;
-    out_iov[i].iov_base = New char[out_iov[i].iov_len];
-    zp->next_out  = (Bytef *) out_iov[i].iov_base;
-    zp->avail_out = out_iov[i].iov_len;
-    
-    do {
-      ret = deflate(zp, Z_FINISH);
-      if (ret == Z_OK && zp->avail_out == 0) {
-	zp->avail_out = out_iov[i].iov_len;
-	out_iov[i].iov_base = (char *)realloc((void *)out_iov[i].iov_base,
-					       (out_iov[i].iov_len *= 2));
-	zp->next_out = (Bytef *) ((char *)out_iov[i].iov_base + zp->avail_out);
-      } else 
-	if (ret < 0) {
-	  warn << zp->msg << "\n";
-	  return;
-	}
-    } while (ret != Z_STREAM_END);
-
-    out_iov[i].iov_len = zp->total_out;
-
-    if ((ret = deflateEnd(zp)) != Z_OK) {
-      warn << zp->msg << "\n";
-      return;
+    if (int zerr = deflate (&zout, i == iovcnt - 1 ? Z_SYNC_FLUSH : 0)) {
+      warn ("deflate: %d\n", zerr);
+      fail ();
     }
   }
-  
-  x->sendv(out_iov, iovcnt, sa);
+
+  x->send (buf, (char *) zout.next_out - buf, NULL);
 }
 
-// Implement this -- uncompress and call (*cb)
 void
 axprt_compress::rcb(const char *buf, ssize_t len, const sockaddr *sa)
 {
-  if (!docompress) {
+  if (!docompress || len <= 0) {
     (*cb) (buf, len, sa);
     return;
   }
 
+  zin.next_out = (Bytef *) buf;
+  zin.avail_out = bufsize;
+  zin.next_in = (Bytef *) buf;
+  zin.avail_in = len;
 
-  if (len <= 0) {
-    (*cb) (buf, len, sa);
-    return;
+  if (int zerr = inflate (&zin, Z_SYNC_FLUSH)) {
+    warn ("inflate: %d\n", zerr);
+    fail ();
   }
 
-  int ret;
-  ssize_t out_len = 3*len;
-  char *out_buf = (char *) malloc(out_len);
-  z_streamp zp = New z_stream;
-  
-  zp->zalloc = Z_NULL;
-  zp->zfree  = Z_NULL;
-  zp->opaque = Z_NULL;
-  
-  zp->next_in = (Bytef *) buf;
-  zp->avail_in = len;
-  zp->next_out = (Bytef *) out_buf;
-  zp->avail_out = out_len;
-
-  if ((ret = inflateInit(zp)) != Z_OK) {
-    warn << "err: " << ret << "\n";
-    return;
-  }
-  
-  do {
-    ret = inflate(zp, Z_SYNC_FLUSH);
-    if (ret == Z_OK && zp->avail_out == 0) {
-      zp->avail_out = out_len;
-      out_buf = (char *)realloc((void*)out_buf, (out_len *= 2));
-      zp->next_out = (Bytef *) (out_buf + zp->avail_out);
-    } else
-      if (ret < 0) {
-	warn << zp->msg << "\n";
-	return;
-      }
-  } while (ret != Z_STREAM_END);
-  
-  out_len = zp->total_out;
-
-  if ((ret = inflateEnd(zp)) != Z_OK) {
-    warn << zp->msg << "\n";
-    return;
-  }
-
-  (*cb) (out_buf, out_len, sa);
+  (*cb) (buf, (char *) zin.next_out - buf, sa);
 }

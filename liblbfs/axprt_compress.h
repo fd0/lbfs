@@ -33,16 +33,17 @@ protected:
   bool docompress;
   recvcb_t cb;
   ref<axprt> x;
+  z_stream zin;
+  z_stream zout;
+  size_t bufsize;
+  char *buf;
 
-  // Implement this -- uncompress and call (*cb)
+  axprt_compress (ref<axprt> xx);
+  ~axprt_compress ();
   void rcb (const char *buf, ssize_t len, const sockaddr *sa);
+  void fail () { if (cb) (*cb) (NULL, -1, NULL); }
 
 public:
-  axprt_compress (ref<axprt> xx)
-    : axprt (true, true, xx->socksize), docompress (false), x (xx) {
-    assert (x->reliable && x->connected);
-    x->setrcb (NULL);
-  }
   // Implement this -- compress and call x->sendv
   void sendv (const iovec *, int, const sockaddr *);
   void setwcb (cbv cb) { x->setwcb (cb); }
