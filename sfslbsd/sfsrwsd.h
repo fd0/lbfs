@@ -197,9 +197,9 @@ private:
   }
 
   void make_trashent(unsigned fsno, unsigned trash_idx);
-  void make_trashent_lookup_cb(unsigned, lookup3res *res, clnt_stat err);
+  void make_trashent_lookup_cb(unsigned, unsigned, 
+                               lookup3res *res, clnt_stat err);
   void make_trashent_remove_cb(wccstat3 *res, clnt_stat err);
-  void db_gc(fp_db &db);
 
 public:
   synctab *const st;
@@ -212,6 +212,7 @@ public:
   bool getauthclnt ();
 
   filesrv ();
+  void db_gc(fp_db &db);
 };
 
 extern int sfssfd;

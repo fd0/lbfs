@@ -320,12 +320,13 @@ filesrv::make_trashent(unsigned fsno, unsigned trash_idx)
   arg.name = tmpfile;
   lookup3res *res = New lookup3res;
   c->call (NFSPROC3_LOOKUP, &arg, res,
-	   wrap(this, &filesrv::make_trashent_lookup_cb, r, res),
+	   wrap(this, &filesrv::make_trashent_lookup_cb, r, fsno, res),
 	   auth_default);
 }
 
 void
-filesrv::make_trashent_lookup_cb(unsigned r, lookup3res *res, clnt_stat err)
+filesrv::make_trashent_lookup_cb(unsigned r, unsigned fsno, 
+                                 lookup3res *res, clnt_stat err)
 {
   str rstr = armor32((void*)&r, sizeof(r));
   char tmpfile[7+rstr.len()+1];
