@@ -23,26 +23,6 @@
 
 /* Non-volatile File System Info */
 ex_fsinfo3resok fsinfo;
-#if 0
-nfs_fh3 *fh;
-access3args *aca;
-diropargs3 *doa;
-readdir3args *rda;
-read3args *ra;
-write3args *wa;
-create3args *ca;
-mkdir3args *ma;
-link3args *la;
-symlink3args *sla;
-setattr3args *sa;
-rename3args *rna;
-lbfs_mktmpfile3args *mt;
-lbfs_condwrite3args *cw;
-lbfs_committmp3args *ct;
-vec<lbfs_chunk *> *cvp; 
-lbfs_chunk_loc *chl;
-lbfs_getfp3args *gfp;
-#endif 
 
 xfs_message_function rcvfuncs[] = {
 NULL,						/* version */
@@ -488,6 +468,7 @@ void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
 	      warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
 	      return;	    	    
 	    }
+	    close(chfd);
 	  }
   
 	  if (found) {
@@ -850,7 +831,8 @@ void committmp(ref<condwrite3args> cwa, ex_commit3res *res, time_t rqtime, clnt_
 
 void sendcommittmp(ref<condwrite3args> cwa) {
 
-    //signal the server to commit the tmp file
+  //signal the server to commit the tmp file
+  close(cwa->rfd);
   lbfs_committmp3args ct;
   ct.commit_from = cwa->tmpfh;
 
@@ -869,7 +851,7 @@ void nfs3_write (ref<condwrite3args> cwa, ex_write3res *res, clnt_stat err) {
   
   if (res->status == NFS3_OK) {
     cwa->blocks_written++;
-    if (cwa->blocks_written == cwa->cvp->size())
+    if (/*cwa->done && */cwa->blocks_written == cwa->total_blocks)
       sendcommittmp(cwa);
   } else {
     warn << "nfs3_write: error: " << strerror(res->status) << "\n";
@@ -877,11 +859,11 @@ void nfs3_write (ref<condwrite3args> cwa, ex_write3res *res, clnt_stat err) {
   }
 }
 
-void sendwrite(ref<condwrite3args> cwa, uint chindex) {
+void sendwrite(ref<condwrite3args> cwa, lbfs_chunk *chunk) {
   int err, ost;
   char iobuf[NFS_MAXDATA];
-  uint64 offst = (*cwa->cvp)[chindex]->loc.pos();
-  uint32 count = (*cwa->cvp)[chindex]->loc.count();
+  uint64 offst = chunk->loc.pos();
+  uint32 count = chunk->loc.count();
   while (count > 0) {
     ost = lseek(cwa->rfd, offst, SEEK_SET);
     if (count < NFS_MAXDATA)
@@ -907,34 +889,34 @@ void sendwrite(ref<condwrite3args> cwa, uint chindex) {
   }
 }
 
-void lbfs_sendcondwrite(ref<condwrite3args> cwa, uint chindex, ex_write3res *res, 
-			clnt_stat err) {
+void lbfs_sendcondwrite(ref<condwrite3args> cwa, lbfs_chunk *chunk, 
+			ex_write3res *res, clnt_stat err) {
   if (res->status == NFS3_OK) {
-    if (res->resok->count != (*cwa->cvp)[chindex]->loc.count()) {
+    if (res->resok->count != chunk->loc.count()) {
       warn << "lbfs_sendcondwrite: did not write the whole chunk...\n";
       return;
     }
     cwa->blocks_written++;
-    if (cwa->blocks_written == cwa->cvp->size())
+    if (/*cwa->done && */cwa->blocks_written == cwa->total_blocks)
       sendcommittmp(cwa);
   } else 
     if (res->status == NFS3ERR_FPRINTNOTFOUND) 
-      sendwrite(cwa, chindex);
+      sendwrite(cwa, chunk);
     else {
       warn << "lbfs_sendcondwrite: " << strerror(res->status) << "\n";
       reply_err(cwa->fd, cwa->h->header.sequence_num, res->status);
     }
 }
 
-void sendcondwrite(ref<condwrite3args> cwa, uint chindex) {
+void sendcondwrite(ref<condwrite3args> cwa, lbfs_chunk *chunk) {
 
   lbfs_condwrite3args cw;
   cw.file = cwa->tmpfh;
-  cw.offset = (*cwa->cvp)[chindex]->loc.pos();
-  cw.count = (*cwa->cvp)[chindex]->loc.count();
-  cw.fingerprint = (*cwa->cvp)[chindex]->fingerprint;
+  cw.offset = chunk->loc.pos();
+  cw.count = chunk->loc.count();
+  cw.fingerprint = chunk->fingerprint;
 
-  lseek(cwa->rfd, (*cwa->cvp)[chindex]->loc.pos(), SEEK_SET);
+  lseek(cwa->rfd, chunk->loc.pos(), SEEK_SET);
   char *buf = New char[cw.count];
   int err = read(cwa->rfd, buf, cw.count);
   if (err < 0) {
@@ -950,15 +932,7 @@ void sendcondwrite(ref<condwrite3args> cwa, uint chindex) {
   ex_write3res *res = New ex_write3res;
 
   nfsc->call(lbfs_CONDWRITE, &cw, res,
-	     wrap(&lbfs_sendcondwrite, cwa, chindex, res));
-}
-
-void lbfs_condwrite(ref<condwrite3args> cwa) {
-
-  for (uint i=0; i<cwa->cvp->size(); i++) {
-    warn << "chindex = " << i << " size = " << cwa->cvp->size() << "\n";
-    sendcondwrite(cwa, i);
-  }
+	     wrap(&lbfs_sendcondwrite, cwa, chunk, res));
 }
 
 void lbfs_mktmpfile(int fd, struct xfs_message_putdata* h, 
@@ -978,26 +952,48 @@ void lbfs_mktmpfile(int fd, struct xfs_message_putdata* h,
     return;
   } 
   
-  char fname[MAXPATHLEN];
-  strcpy(fname, fht.getcache_name());
-
-  warn << "fname = " << fname << "\n";
-
   ref<condwrite3args> cwa = New refcounted<condwrite3args> (fd, h, 
 							    *res->resok->obj.handle);
-  cwa->cvp = New vec<lbfs_chunk *>;
-  cwa->blocks_written = 0;
-
-  if (chunk_file(CHUNK_SIZES(0), cwa->cvp, (char const*)fname) < 0) {
-    warn << strerror(errno) << "(" << errno << "): lbfs_mktmpfile(chunkfile)\n";
+  cwa->rfd = open(fht.getcache_name(), O_RDONLY, 0666);
+  if (cwa->rfd < 0) {
+    warn << "lbfs_mktmpfile: " << strerror(errno) << "\n";
     return;
   }
-  
-  cwa->rfd = open(fname, O_RDONLY, 0666);
-  if (cwa->rfd > -1)
-    lbfs_condwrite(cwa);
-  else warn << "lbfs_mktmpfile: error: " << strerror(errno) << "(" << errno << ")\n";
 
+  int data_fd = open(fht.getcache_name(), O_RDONLY, 0666);
+  if (data_fd < 0) {
+    warn << "lbfs_mktmpfile: " << strerror(errno) << "\n";
+    return;
+  }
+  vec<lbfs_chunk *> *v = New vec<lbfs_chunk *>;
+  Chunker *chunker = New Chunker(CHUNK_SIZES(0), v);
+  uint count, index = 0, v_size = 0;
+  unsigned char *buf = new unsigned char[4096];
+  while ((count = read(data_fd, buf, 4096)) > 0) {
+    chunker->chunk(buf, count);
+    if (chunker->cvp->size() > v_size) {
+      //send condwrite request on last_index..size()
+      v_size = chunker->cvp->size();
+      cwa->total_blocks = v_size;
+      warn << "chindex = " << index << " size = " << v_size << "\n";
+      sendcondwrite(cwa, (*chunker->cvp)[index++]);
+    }
+  }
+  chunker->stop();
+  close(data_fd);
+  delete buf;
+  cwa->done = true;
+  cwa->total_blocks = chunker->cvp->size();
+  warn << "blocks written = " << cwa->blocks_written
+       << " total_blocks = " << cwa->total_blocks << "\n";
+  if (index+1 != cwa->total_blocks) {
+    warn << "lbfs_mktmpfile: index = " << index << " total = " << cwa->total_blocks
+	 << "still more chunks!!!\n";
+  }
+  for (uint i=index; i<cwa->total_blocks; i++) {
+    warn << "chindex = " << i << " size = " <<  cwa->total_blocks<< "\n";
+    sendcondwrite(cwa, (*chunker->cvp)[i]);    
+  }
 }
 
 int xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size) {
@@ -1483,7 +1479,7 @@ int xfs_message_symlink(int fd, struct xfs_message_symlink *h, u_int size) {
 void remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
 	    ex_wccstat3 *wres, time_t rqtime, clnt_stat err) {
 
-  if (/*lres->status == NFS3_OK && */wres->status == NFS3_OK) {
+  if (wres->status == NFS3_OK) {
 
     assert(wres->wcc->after.present);
 
