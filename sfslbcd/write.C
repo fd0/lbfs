@@ -52,8 +52,16 @@ struct write_obj {
 	  ex_fattr3 *f = res->resok->file_wcc.after.attributes;
 	  fa = *reinterpret_cast<fattr3 *> (f);
 	}
-	else
+	else {
 	  warn << "wcc check failed: reply out of order, or conflict\n";
+          warn << "commit wcc failed: "
+	       << fa.size << ":" << fa.mtime.seconds << ":"
+	       << fa.ctime.seconds << " -- "
+	       << (res->resok->file_wcc.before.attributes)->size << ":"
+	       << (res->resok->file_wcc.before.attributes)->mtime.seconds << ":"
+	       << (res->resok->file_wcc.before.attributes)->ctime.seconds
+	       << "\n";
+	}
       }
     }
     if (!callback && !err && res->status == NFS3_OK) {
@@ -77,8 +85,16 @@ struct write_obj {
 	  ex_fattr3 *f = res->resok->file_wcc.after.attributes;
 	  fa = *reinterpret_cast<fattr3 *> (f);
 	}
-	else
+	else {
 	  warn << "wcc check failed: reply out of order, or conflict\n";
+          warn << "write wcc failed: "
+	       << fa.size << ":" << fa.mtime.seconds << ":"
+	       << fa.ctime.seconds << " -- "
+	       << (res->resok->file_wcc.before.attributes)->size << ":"
+	       << (res->resok->file_wcc.before.attributes)->mtime.seconds << ":"
+	       << (res->resok->file_wcc.before.attributes)->ctime.seconds
+	       << "\n";
+	}
       }
     }
     if (!callback && !err && res->status == NFS3_OK) {

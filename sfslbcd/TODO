@@ -1,4 +1,6 @@
 
+run with dmalloc; check for memory leaks
+
 return from ACCESS w/o finish fetching the entire file, block any
 subsequent RPC on file until file is fetched
 

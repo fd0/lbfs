@@ -41,6 +41,7 @@ server::access_cached_reply (nfscall *nc, int32_t perm, fattr3 fa,
         e = fc[a->object];
         assert(e);
       }
+      e->osize = fa.size;
       e->fa = fa;
     }
     access3res res(NFS3_OK);
@@ -58,14 +59,15 @@ void
 server::access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 {
   ex_access3res *ares = static_cast<ex_access3res *> (res);
-  if (!err && ares->status == NFS3_OK) {
+  if (!err && ares->status == NFS3_OK && ares->resok->obj_attributes.present) {
     access3args *a = nc->template getarg<access3args> ();
-    ex_fattr3 fa = *ares->resok->obj_attributes.attributes;
+    ex_fattr3 *fa = reinterpret_cast<ex_fattr3 *>
+      (ares->resok->obj_attributes.attributes.addr ());
     fcache *e = fc[a->object];
     // update file cache if cache time < mtime and file is not dirty
-    if (fa.type == NF3REG && (!e || (e->fa.mtime < fa.mtime && !e->dirty))) {
+    if (fa->type == NF3REG && (!e || (e->fa.mtime < fa->mtime && !e->dirty))) {
       str f = fh2fn(a->object);
-      lbfs_read(f, a->object, fa.size, mkref(this), authof(nc->getaid()),
+      lbfs_read(f, a->object, fa->size, mkref(this), authof(nc->getaid()),
 	        wrap(mkref(this), &server::file_cached, rqtime, nc, res));
       return;
     }
@@ -79,7 +81,8 @@ server::file_cached (time_t rqtime, nfscall *nc, void *res, bool ok)
   if (ok) {
     access3args *a = nc->template getarg<access3args> ();
     ex_access3res *ares = static_cast<ex_access3res *> (res);
-    ex_fattr3 *f = ares->resok->obj_attributes.attributes;
+    ex_fattr3 *f = reinterpret_cast<ex_fattr3 *>
+      (ares->resok->obj_attributes.attributes.addr ());
     fattr3 fa = *reinterpret_cast<const fattr3 *> (f);
     fcache *e = fc[a->object];
     if (!e) {
@@ -87,6 +90,7 @@ server::file_cached (time_t rqtime, nfscall *nc, void *res, bool ok)
       e = fc[a->object];
       assert(e);
     }
+    e->osize = fa.size;
     e->fa = fa;
     getreply(rqtime, nc, res, RPC_SUCCESS);
   }
@@ -172,7 +176,8 @@ server::write_to_cache (nfscall *nc, fcache *e)
   if (a->offset+n > e->fa.size)
     e->fa.size = a->offset+n;
   ex_fattr3 *f = const_cast<ex_fattr3*>(ac.attr_lookup (e->fh));
-  f->size = e->fa.size;
+  if (f)
+    f->size = e->fa.size;
   res.resok->file_wcc.after.set_present (true);
   *(res.resok->file_wcc.after.attributes) = e->fa;
   // res.resok->verf = ;
@@ -190,11 +195,12 @@ server::truncate_cache (uint64 size, fcache *e)
   }
   if (ftruncate(e->fd, size) < 0)
     return -1;
-  
+ 
   // update size in both the attribute cache and file cache
   e->fa.size = size;
   ex_fattr3 *f = const_cast<ex_fattr3*>(ac.attr_lookup (e->fh));
-  f->size = e->fa.size;
+  if (f)
+    f->size = e->fa.size;
   e->dirty = true;
   return 0;
 }
@@ -205,8 +211,12 @@ server::close_reply (nfscall *nc, fattr3 fa, bool ok)
   if (ok) {
     nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
     fcache *e = fc[*a];
-    if (e && !e->dirty)
-      e->fa = fa;
+    if (e) {
+      if (!e->dirty)
+	e->fa = fa;
+      // update osize to reflect what the server knows
+      e->osize = fa.size;
+    }
     nc->error (NFS3_OK);
   }
   else
@@ -274,6 +284,37 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
       wtpref = fres->resok->wtpref;
     }
   }
+  else if (nc->proc () == NFSPROC3_SETATTR) {
+    setattr3args *a = nc->template getarg<setattr3args> ();
+    ex_wccstat3 *sres = static_cast<ex_wccstat3 *> (res);
+    fcache *e = fc[a->object];
+    if (!sres->status && a->new_attributes.size.set && e &&
+	sres->wcc->before.present && sres->wcc->after.present) {
+      // does wcc checking. if this is the only client making a change
+      // to the object, install the post operation attribute (ignoring
+      // the size, as we may have a more up-to-date size) as the
+      // attribute for the file cache.
+      if ((sres->wcc->before.attributes)->size == e->osize &&
+	  (sres->wcc->before.attributes)->mtime == e->fa.mtime &&
+	  (sres->wcc->before.attributes)->ctime == e->fa.ctime) {
+	ex_fattr3 *f = sres->wcc->after.attributes;
+	uint64 s = e->fa.size;
+	e->fa = *reinterpret_cast<fattr3 *> (f);
+	// update osize to reflect what the server knows
+        e->osize = e->fa.size;
+	e->fa.size = s;
+      }
+      else {
+        warn << "setattr wcc failed: "
+	     << e->osize << ":" << e->fa.mtime.seconds << ":"
+	     << e->fa.ctime.seconds << " -- "
+	     << (sres->wcc->before.attributes)->size << ":"
+	     << (sres->wcc->before.attributes)->mtime.seconds << ":"
+	     << (sres->wcc->before.attributes)->ctime.seconds << "\n";
+      }
+    }
+  }
+
   getxattr (rqtime, nc->proc (), nc->getaid (), nc->getvoidarg (), res);
   nfs3_exp_disable (nc->proc (), res);
   nc->reply (res);
