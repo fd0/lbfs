@@ -706,10 +706,8 @@ struct getfp_obj {
       }
 
     bytes_written += rres->resok->count;
-#if 0
     if (rres->resok->count < size)
       nfs3_read (cur_offst+rres->resok->count, size-rres->resok->count);
-#endif
   }
   
   void gotdata
@@ -975,6 +973,7 @@ lbfs_getfp (int fd, ref<xfs_message_header> h, cache_entry *e, sfs_aid sa,
 }
 
 struct read_obj {
+  static const int OUTSTANDING_READS = 16;
   typedef callback<void>::ref cb_t;
   cb_t cb;
   int fd;
@@ -984,11 +983,21 @@ struct read_obj {
   xfs_message_open *h;
   sfs_aid sa;
   cache_entry *e;
-  read3args ra;
+  bool eof;
   int out_fd;
   struct xfs_message_installdata msg;
   struct xfs_message_header *h0;
   size_t h0_len;
+  size_t next_offset;
+  bool notified;
+  int readrpc_window;
+  unsigned outstanding_reads;
+
+  void done()
+  {
+    if (outstanding_reads == 0)
+      delete this;
+  }
     
   void compose_file (uint64 offset, ref<ex_read3res> res)
   {
@@ -1005,38 +1014,69 @@ struct read_obj {
     }
   }
 
-  void gotdata (uint64 offset, ref<ex_read3res> res, time_t rqt, clnt_stat err) 
+  void gotdata (uint64 offset, size_t size, 
+                ref<ex_read3res> res, time_t rqt, clnt_stat err)
   {
-    if (!err && res->status == NFS3_OK) {
-      assert (res->resok->file_attributes.present);
-      e->nfs_attr = *(res->resok->file_attributes.attributes);
-      e->set_exp (rqt);
-      e->ltime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);      
-      compose_file (offset, res);
-
-      if (!res->resok->eof) {
-	ra.offset += res->resok->count;
-	ref<ex_read3res> rres = New refcounted <ex_read3res>;
-	c->call (lbfs_NFSPROC3_READ, &ra, rres,
-		 wrap (this, &read_obj::gotdata, ra.offset, rres, timenow),
-		 lbfs_authof (sa));	
-      } else {
-	close (out_fd);
-	nfsobj2xfsnode (h->cred, e, &msg.node);
-	msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R | XFS_OPEN_NW | XFS_DATA_W;
-	msg.header.opcode = XFS_MSG_INSTALLDATA;
-	h0 = (struct xfs_message_header *) &msg;
-	h0_len = sizeof (msg);
-	
-	xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
-					  h0, h0_len, NULL, 0);
-	delete this;
+    outstanding_reads--;
+    if (!notified) {
+      if (!err && res->status == NFS3_OK) {
+        assert (res->resok->file_attributes.present);
+        e->nfs_attr = *(res->resok->file_attributes.attributes);
+        e->set_exp (rqt);
+        e->ltime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);      
+        compose_file (offset, res);
+        if (res->resok->eof)
+	  eof = true;
+  
+        if (res->resok->count < size && !res->resok->eof) {
+	  nfs3_read(offset+res->resok->count, size-res->resok->count);
+	  return;
+        }
+        else if (!eof) {
+          int maxwin = 1+((e->nfs_attr.size-next_offset)/NFS_MAXDATA);
+	  nfs3_read(next_offset, NFS_MAXDATA);
+	  next_offset+=NFS_MAXDATA;
+	  if (lbcd_trace > 0 &&
+	      readrpc_window < OUTSTANDING_READS && readrpc_window < maxwin)
+	    warn << "increasing read window from " << readrpc_window 
+	         << " to " << maxwin << "\n";
+	  for (; readrpc_window < maxwin && readrpc_window < OUTSTANDING_READS;
+	       readrpc_window++) {
+	    nfs3_read(next_offset, NFS_MAXDATA);
+	    next_offset+=NFS_MAXDATA;
+	  }
+	  return;
+        }
+        else if (outstanding_reads == 0) {
+	  close (out_fd);
+	  nfsobj2xfsnode (h->cred, e, &msg.node);
+	  msg.node.tokens |= XFS_OPEN_NR|XFS_DATA_R|XFS_OPEN_NW|XFS_DATA_W;
+	  msg.header.opcode = XFS_MSG_INSTALLDATA;
+	  h0 = (struct xfs_message_header *) &msg;
+	  h0_len = sizeof (msg);
+	  xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+					    h0, h0_len, NULL, 0);
+	  notified = true;
+        }
+      } else { 
+        xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
+        notified = true;
       }
-
-    } else { 
-      xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
-      delete this;
     }
+    done();
+  }
+
+  void nfs3_read(uint64 offset, unsigned size)
+  {
+    read3args ra;
+    ra.file = e->nh;
+    ra.offset = offset;
+    ra.count = size;
+    ref<ex_read3res> rres = New refcounted <ex_read3res>;
+    outstanding_reads++;
+    c->call (lbfs_NFSPROC3_READ, &ra, rres,
+	     wrap(this, &read_obj::gotdata, ra.offset, ra.count, rres, timenow),
+	     lbfs_authof (sa));
   }
 
   ~read_obj ()
@@ -1047,19 +1087,17 @@ struct read_obj {
 
   read_obj (int fd1, ref< xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
 	    ref<aclnt> c1, read_obj::cb_t cb1)
-    : cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1)
+    : cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1),
+      eof(false), notified(false), outstanding_reads(0)
   {
     h = msgcast<xfs_message_open> (hh);
     out_fd = assign_cachefile (fd, h->header.sequence_num, e, 
 			       msg.cache_name, &msg.cache_handle, 
 			       O_CREAT | O_WRONLY | O_TRUNC);
-    ra.file = e->nh;
-    ra.offset = 0;
-    ra.count = NFS_MAXDATA;
-    ref<ex_read3res> rres = New refcounted <ex_read3res>;
-    c->call (lbfs_NFSPROC3_READ, &ra, rres,
-	     wrap (this, &read_obj::gotdata, ra.offset, rres, timenow),
-	     lbfs_authof (sa));
+    nfs3_read(0, NFS_MAXDATA);
+    nfs3_read(NFS_MAXDATA, NFS_MAXDATA);
+    readrpc_window = 2;
+    next_offset = NFS_MAXDATA*2;
   }
 };
 
