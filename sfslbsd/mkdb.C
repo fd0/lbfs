@@ -52,12 +52,21 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
     const u_char *fp;
     size_t fl; 
     if (mapfile (&fp, &fl, fspath) == 0) {
+#if 0
       for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
+#else
+      for (unsigned j = 0; j < 1; j++) {
+#endif
         vec<lbfs_chunk *> cv;
-        chunk_data(CHUNK_SIZES(j), &cv, fp, fl);
+        chunk_data(CHUNK_SIZES(j), cv, fp, fl);
 	for(unsigned i=0; i<cv.size(); i++) { 
 	  cv[i]->loc.set_fh(*fhp);
 	  _fp_db.add_entry(cv[i]->fingerprint, &(cv[i]->loc));
+#if 1
+	  warn << fname << " " <<  cv[i]->fingerprint 
+	       << " @" << cv[i]->loc.pos()
+	       << " +" << cv[i]->loc.count() << "\n";
+#endif
 	  delete cv[i];
 	}
         if (cv.size()==1) break;

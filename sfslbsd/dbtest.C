@@ -36,24 +36,24 @@ lbfs_search_reusable_chunks(vec<lbfs_chunk *> &new_chunks,
 {
   if (new_chunks.size() == 0)
     return -1;
-
+  
   reusable_chunks.setsize(new_chunks.size());
   for (unsigned i = 0; i < new_chunks.size(); i++) {
+    reusable_chunks[i] = 0L;
     fp_db::iterator *iter = 0;
     if (_fp_db.get_iterator(new_chunks[i]->fingerprint, &iter) == 0) {
       if (iter) {
-        lbfs_chunk_loc *c = New lbfs_chunk_loc();
-        if (iter->get(c) == 0)
+        lbfs_chunk_loc *c = new lbfs_chunk_loc();
+        if (!iter->get(c))
           reusable_chunks[i] = c;
-        else {
-	  reusable_chunks[i] = 0L;
+        else 
 	  delete c;
-	}
         delete iter;
-      }
+      } 
     }
-    else 
-      reusable_chunks[i] = 0L;
+    if (reusable_chunks[i] && 
+	reusable_chunks[i]->count() != new_chunks[i]->loc.count())
+      assert(0);
   }
   return 0;
 }
@@ -64,7 +64,7 @@ gotdata(u_int64_t fp, unsigned char *data, size_t count, read3res*, str err)
 {
   if (!err && count > 0) {
     vec<lbfs_chunk *> chunks;
-    chunk_data(CHUNK_SIZES(0), &chunks, data, count);
+    chunk_data(CHUNK_SIZES(0), chunks, data, count);
     for (unsigned i=0; i<chunks.size(); i++) {
       printf("0x%016qx %d 0x%016qx\n", fp, i, chunks[i]->fingerprint);
       delete chunks[i];
@@ -95,19 +95,20 @@ getnfsc(ptr<aclnt> nc, clnt_stat stat)
   _c = nc;
 
   vec<lbfs_chunk *> new_chunks;
-  if (chunk_file(CHUNK_SIZES(0), &new_chunks, _file) < 0) {
+  if (chunk_file(CHUNK_SIZES(0), new_chunks, _file) < 0) {
     printf("cannot open %s for chunking\n", _file);
     exit(-1);
   }
-
+  
   vec<lbfs_chunk_loc *> reusable_chunks;
   _fp_db.open(FP_DB);
+
   lbfs_search_reusable_chunks(new_chunks, reusable_chunks);
  
   for (unsigned i=0; i<new_chunks.size(); i++) {
     if (reusable_chunks[i]) {
-      printf("%s: reuse %" OTF "d %d\n",
-	     _file, reusable_chunks[i]->pos(), reusable_chunks[i]->count());
+      warn("%s: reuse %" OTF "d %d\n",
+	   _file, reusable_chunks[i]->pos(), reusable_chunks[i]->count());
       nfs_fh3 fh;
       reusable_chunks[i]->get_fh(fh);
       unsigned char *buf = New unsigned char[reusable_chunks[i]->count()];

@@ -139,8 +139,7 @@ Chunker::chunk(const unsigned char *data, size_t size)
     handle_hash(data+start_i, size-start_i);
 }
 
-int chunk_file(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
-               const char *path)
+int chunk_file(unsigned chunk_size, vec<lbfs_chunk *>& cvp, const char *path)
 {
   const u_char *fp;
   size_t fl;
@@ -150,7 +149,7 @@ int chunk_file(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
   return r;
 }
 
-int chunk_data(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
+int chunk_data(unsigned chunk_size, vec<lbfs_chunk *>& cvp,
                const unsigned char *data, size_t size)
 {
   Chunker chunker(chunk_size);

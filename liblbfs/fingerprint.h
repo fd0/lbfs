@@ -29,17 +29,16 @@
      (i == 3 ? 524288 : 0))))
 
 #define MIN_CHUNK_SIZE 2048
-#define MAX_CHUNK_SIZE 16384
+#define MAX_CHUNK_SIZE 65536
 
 
 // map file into memory, pointed to by bufp
 int mapfile (const u_char **bufp, size_t *sizep, const char *path);
 u_int64_t fingerprint(const unsigned char *data, size_t count);
 
-int chunk_data(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
+int chunk_data(unsigned chunk_size, vec<lbfs_chunk *>& cvp,
                const unsigned char *data, size_t count);
-int chunk_file(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
-               const char *path);
+int chunk_file(unsigned chunk_size, vec<lbfs_chunk *>& cvp, const char *path);
 
 class Chunker {
 private:
@@ -66,13 +65,15 @@ public:
   void chunk (const unsigned char *data, size_t size);
 
   const vec<lbfs_chunk*>& chunk_vector() { return _cv; }
-  void get_chunk_vector(vec<lbfs_chunk*>*);
+  void get_chunk_vector(vec<lbfs_chunk*>&);
 };
 
 inline void
-Chunker::get_chunk_vector(vec<lbfs_chunk*> *cvp)
+Chunker::get_chunk_vector(vec<lbfs_chunk*>& cvp)
 {
-  *cvp = _cv;
+  cvp.setsize(_cv.size());
+  for (unsigned i=0; i<_cv.size(); i++)
+    cvp[i] = New lbfs_chunk(*(_cv[i]));
 }
 
 #endif _CHUNKING_H_

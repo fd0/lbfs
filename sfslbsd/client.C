@@ -118,8 +118,6 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
 			     size_t count, read3res *, str err)
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
-  lbfs_chunk_loc c;
-  iter->get(&c);
   chunker0->stop();
   const vec<lbfs_chunk *>& cv = chunker0->chunk_vector();
 
@@ -130,7 +128,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     if (err) 
       warn << "CONDWRITE: error reading file: " << err << "\n";
     else if (count != cwa->count)
-      warn << "CONDWRITE: db corrupted, size does not match " 
+      warn << "CONDWRITE: size does not match, old chunk? " 
 	   << "want " << cwa->count << " got " << count << "\n";
     else if (cv.size() != 1 || cv[0]->fingerprint != cwa->fingerprint)
       warn << "CONDWRITE: fingerprint mismatch\n";
@@ -140,6 +138,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     delete[] data;
     delete chunker0;
     iter->del(); 
+    lbfs_chunk_loc c;
     if (!iter->next(&c)) { 
       nfs_fh3 fh; 
       c.get_fh(fh); 

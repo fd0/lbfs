@@ -61,7 +61,19 @@ struct lbfs_chunk {
   lbfs_chunk_loc loc;
   u_int64_t fingerprint;
   sfs_hash hash;
+
   lbfs_chunk(off_t p, size_t s, u_int64_t fp) : loc(p, s), fingerprint(fp) {}
+  lbfs_chunk(lbfs_chunk &c) {
+    loc = c.loc;
+    fingerprint = c.fingerprint;
+    hash = c.hash;
+  }
+  lbfs_chunk& operator= (const lbfs_chunk &c) {
+    loc = c.loc;
+    fingerprint = c.fingerprint;
+    hash = c.hash;
+    return *this;
+  }
 };
 
 #endif

@@ -385,7 +385,7 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
 
       //add chunk to the database
       vec < lbfs_chunk * >cvp;
-      if (chunk_file (CHUNK_SIZES (0), &cvp, (char const *) ga->msg.cache_name) < 0) {
+      if (chunk_file (CHUNK_SIZES (0), cvp, (char const *) ga->msg.cache_name) < 0) {
 	warn << strerror (errno) << "(" << errno << "): nfs3_read(chunkfile)\n";
 	return;
       }

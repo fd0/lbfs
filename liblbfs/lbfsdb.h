@@ -34,22 +34,23 @@ public:
     // get current entry
     int get(V *c) {
       if (!_cursor) 
-	return 1;
+	return -1;
       DBT key;
       DBT data;
       memset(&key, 0, sizeof(key));
       memset(&data, 0, sizeof(data));
       int ret = _cursor->c_get(_cursor, &key, &data, DB_CURRENT);
-      if (ret == 0 && data.data)
+      if (ret == 0)
         *c = *(reinterpret_cast<V*>(data.data));
-      else done();
+      else 
+	done();
       return ret;
     }
     
     // increment iterator, get that entry
     int next(V *c) {
       if (!_cursor) 
-	return 1;
+	return -1;
       DBT key;
       DBT data;
       memset(&key, 0, sizeof(key));
