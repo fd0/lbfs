@@ -32,6 +32,7 @@ read3args *ra;
 write3args *wa;
 create3args *ca;
 mkdir3args *ma;
+symlink3args *sla;
 setattr3args *sa;
 lbfs_mktmpfile3args *mt;
 lbfs_condwrite3args *cw;
@@ -118,13 +119,13 @@ void nfs3_fsinfo(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi,
 void sfs_getfsinfo(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, clnt_stat err) {
 
   assert(fsi->prog == ex_NFS_PROGRAM && fsi->nfs->vers == ex_NFS_V3);
-
+#if 0
   ref<axprt> xx = axprt_compress::alloc(*x);
   sfsc = aclnt::alloc (xx, sfs_program_1);
   nfsc = aclnt::alloc (xx, lbfs_program_3);
-  nfscbs = asrv::alloc (xx, ex_nfscb_program_3,
+  nfscbs = asrv::alloc (xx, lbfscb_program_3,
 			wrap (&cbdispatch));
-
+#endif
   ex_fsinfo3res *res = new ex_fsinfo3res;
 
   nfsc->call(lbfs_NFSPROC3_FSINFO, &fsi->nfs->v3->root, res,
@@ -1127,11 +1128,18 @@ void nfs3_mkdir(int fd, struct xfs_message_mkdir *h, ex_diropres3 *res, time_t r
     nfsobj2xfsnode(h->cred, *(res->resok->obj.handle), 
 		   *(res->resok->obj_attributes.attributes), rqtime, &msg2.node);
 
-    strcpy(msg3.cache_name, fht.getcache_name());
-    int new_fd = open(msg3.cache_name, O_CREAT | O_TRUNC, 0666); 
-
-    if (new_fd < 0)
+    if (fht.setcur(*(res->resok->obj.handle))) {
+      warn << "nfs3_read: Can't find node handle\n";
       return;
+    }
+
+    strcpy(msg3.cache_name, fht.getcache_name());
+    int new_fd = open(msg3.cache_name, O_CREAT, 0666); 
+
+    if (new_fd < 0) {
+      warn << "nfs3_mkdir: " << errno << " " << strerror(errno) << "\n";
+      return;
+    }
     close(new_fd);
   
     fhandle_t new_fh;
@@ -1143,13 +1151,13 @@ void nfs3_mkdir(int fd, struct xfs_message_mkdir *h, ex_diropres3 *res, time_t r
     
     //write new direntry to parent dirfile (do a readdir or just append that entry?)
     if (fht.setcur(h->parent_handle)) {
-      warn << "nfs3_read: Can't find node handle\n";
+      warn << "nfs3_read: Can't find parent handle\n";
       return;
     }
 
     strcpy(msg1.cache_name, fht.getcache_name());
-    int dir_fd = open(msg1.cache_name, O_CREAT | O_APPEND, 0666);
-    if (nfsdirent2xfsfile(dir_fd, h->name, (*res->resok->obj_attributes.attributes).fileid) < 0)
+    int dir_fd = open(msg1.cache_name, O_WRONLY | O_APPEND, 0666);
+    if (nfsdirent2xfsfile(dir_fd, h->name, (*res->resok->obj_attributes.attributes).fileid) < 0) 
       return;
     close(dir_fd);
     //msg1.node.tokens = same as parent dir's
@@ -1216,6 +1224,21 @@ int xfs_message_link(int fd, struct xfs_message_link *h, u_int size) {
 
 int xfs_message_symlink(int fd, struct xfs_message_symlink *h, u_int size) {
 
+  warn << "symlimk !!\n";
+
+  if (fht.setcur(h->parent_handle)) {
+    warn << "xfs_message_symlink: Can't find parent_handle\n";
+    return -1;
+  }
+
+  sla = new symlink3args;
+  sla->where.dir = fht.getnh(fht.getcur());
+  sla->where.name = h->name;
+  xfsattr2nfsattr(h->attr, &(sla->symlink.symlink_attributes));
+  //strncpy(sla->symlink.symlink_data, h->contents, strlen(h->contents));
+
+  
+  
   return 0;
 }
 

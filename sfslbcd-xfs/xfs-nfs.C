@@ -198,15 +198,18 @@ int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid) {
   xde->d_fileno = fid;
   
   if (write(fd, xde, xde->d_reclen) != xde->d_reclen) {
-    warn << "(" << errno << "):write\n";
+    warn << strerror(errno) << "(" << errno << "):write\n";
     return -1;
   }
   return 0;
 }
 
 int xfsfile_rm_dirent(int fd, const char* fname) {
-
+  xfs_dirent *xde = (xfs_dirent *)malloc(sizeof(*xde));
+  int err = read(fd, xde, sizeof(*xde));
   
+  warn << err << "xde->d_namlen = " << xde->d_namlen << "\n";
+
   return 0;
 }
 
