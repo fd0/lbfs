@@ -1478,31 +1478,21 @@ struct remove_obj {
     if (!err && lres->status == NFS3_OK) {
       rqt1 = rqt;
       wres =  New refcounted <ex_wccstat3>;
-      c->call (lbfs_NFSPROC3_REMOVE, &doa, wres,
-	       wrap (this, &remove_obj::install, timenow));
-    } else {
-      xfs_reply_err (fd, h.header.sequence_num, err ? err : wres->status);
-      delete this;
-    }
-  }
-#if 0
-  void branch (time_t rqt, clnt_stat err) 
-  {
-    if (!err && lres->status == NFS3_OK) {
-      rqt1 = rqt;
-      wres =  New refcounted <ex_wccstat3>;
       switch (h.header.opcode) {
       case XFS_MSG_REMOVE:
-      c->call (lbfs_NFSPROC3_REMOVE, &doa, wres,
-	       wrap (this, &remove_obj::install, timenow));
-	
-      }
+	c->call (lbfs_NFSPROC3_REMOVE, &doa, wres,
+		 wrap (this, &remove_obj::install, timenow));
+	break;
+      case XFS_MSG_RMDIR:
+	c->call (lbfs_NFSPROC3_RMDIR, &doa, wres,
+		 wrap (this, &remove_obj::install, timenow));
+      }	
     } else {
       xfs_reply_err (fd, h.header.sequence_num, err ? err : wres->status);
       delete this;
     }
   }
-#endif 
+
   remove_obj (int fd1, const xfs_message_remove &h1, sfs_aid sa1, ref<aclnt> c1) :
     fd(fd1), c(c1), h(h1), sa(sa1) 
   {
@@ -1528,4 +1518,177 @@ void
 lbfs_remove (int fd, const xfs_message_remove &h, sfs_aid sa, ref<aclnt> c)
 {
   vNew remove_obj (fd, h, sa, c);
+}
+
+struct rename_obj {
+  int fd;
+  ref<aclnt> c;
+  
+  const struct xfs_message_rename h;
+  sfs_aid sa;
+  time_t rqt1, rqt2;
+  cache_entry *e1, *e2, *e3;
+  ptr<ex_lookup3res> lres;
+  ptr<ex_rename3res> rnres;
+  ptr<ex_getattr3res> gares;
+
+  void update_attr (ex_fattr3 attr1, ex_fattr3 attr2)
+  {
+    nfstime3 cache_time = e3->ltime;
+    attr2.expire += rqt2;
+    e3->nfs_attr = attr2;
+    if (!greater(attr2.mtime, attr1.mtime) && !greater(attr1.mtime, cache_time))
+      e3->ltime = attr2.mtime;
+#if 0
+    if (greater (attr1.mtime, cache_time) || greater (attr1.ctime, cache_time)) {
+      attr2.expire += rqt1;
+      e3->nfs_attr = attr2;
+    }
+    else if (greater (attr2.mtime, attr1.mtime)) {
+      attr2.expire += rqt2;
+      e3->nfs_attr = attr2;
+    }
+    else {
+      e3->ltime = max(attr2.mtime, attr2.ctime);
+      attr2.expire += rqt2;
+      e3->nfs_attr = attr2;
+    }
+#endif
+  }
+
+  void do_install (time_t rqt, clnt_stat err) 
+  {
+    if (!err && gares->status == NFS3_OK) {
+      struct xfs_message_installnode msg1;	//update attr of file renamed 
+      struct xfs_message_installdata msg2;	//new parent dir content
+      struct xfs_message_installdata msg3;	//old parent dir content
+      struct xfs_message_header *h1 = NULL;
+      size_t h1_len = 0;
+      struct xfs_message_header *h2 = NULL;
+      size_t h2_len = 0;
+      struct xfs_message_header *h3 = NULL;
+      size_t h3_len = 0;
+      
+      e3 = nfsindex[lres->resok->object];
+      if (!e3) {
+#if DEBUG > 0
+	warn << "rename_obj::do_install: Can't find file handle\n";
+#endif
+	xfs_reply_err(fd, h.header.sequence_num, ENOENT);
+	delete this;
+      }
+      ex_fattr3 lattr = lres->resok->obj_attributes.present ?
+	*(lres->resok->obj_attributes.attributes) : 
+	*(lres->resok->dir_attributes.attributes);
+      update_attr (lattr, *gares->attributes);
+      
+      nfsobj2xfsnode (h.cred, e3, &msg1.node);
+      msg1.parent_handle = h.new_parent_handle;
+      strlcpy (msg1.name, h.new_name, sizeof (msg1.name));
+
+      msg1.header.opcode = XFS_MSG_INSTALLNODE;
+      h1 = (struct xfs_message_header *) &msg1;
+      h1_len = sizeof (msg1);
+      
+      assign_cachefile (fd, h.header.sequence_num, e2, msg2.cache_name,
+			&msg2.cache_handle);
+      assert (rnres->res->todir_wcc.after.present);
+      e2->nfs_attr = *(rnres->res->todir_wcc.after.attributes);
+      nfsobj2xfsnode (h.cred, e2, &msg2.node);
+      e2->incache = false; // sad mtime update problem with openbsd nfsd
+      msg2.flag = XFS_ID_INVALID_DNLC;
+      msg2.header.opcode = XFS_MSG_INSTALLDATA;
+      h2 = (struct xfs_message_header *) &msg2;
+      h2_len = sizeof (msg2);
+
+      if (!xfs_handle_eq (&h.old_parent_handle,
+			  &h.new_parent_handle)) {
+	assign_cachefile (fd, h.header.sequence_num, e1, msg3.cache_name,
+			  &msg3.cache_handle);
+	assert (rnres->res->fromdir_wcc.after.present);
+	e1->nfs_attr = *(rnres->res->fromdir_wcc.after.attributes);
+	nfsobj2xfsnode (h.cred, e1, &msg3.node);
+	
+	e1->incache = false; // sad mtime update problem with openbsd nfsd
+	msg3.flag = XFS_ID_INVALID_DNLC;
+	msg3.header.opcode = XFS_MSG_INSTALLDATA;
+	h3 = (struct xfs_message_header *) &msg3;
+	h3_len = sizeof (msg3);
+      }
+
+      xfs_send_message_wakeup_multiple (fd, h.header.sequence_num,
+					0, h1, h1_len, h2, h2_len,
+					h3, h3_len, NULL, 0);
+    } else
+      xfs_reply_err (fd, h.header.sequence_num, err ? err : gares->status);
+    delete this;
+  }
+
+  void do_rename (clnt_stat err) 
+  {
+    if (!err && rnres->status == NFS3_OK) {
+      gares = New refcounted <ex_getattr3res>;
+      nfsc->call (lbfs_NFSPROC3_GETATTR, &lres->resok->object, gares,
+		  wrap (this, &rename_obj::do_install, timenow));
+    } else {
+      xfs_reply_err (fd, h.header.sequence_num, err ? err : rnres->status);
+      delete this;
+    }
+  }
+
+  void do_lookup (time_t rqt, clnt_stat err) 
+  {
+    if (!err && lres->status == NFS3_OK) {
+
+      rqt1 = rqt;
+      e2 = xfsindex[h.new_parent_handle];
+      if (!e2) {
+#if DEBUG > 0
+	warn << "rename_obj::do_lookup: Can't find new_parent_handle\n";
+#endif
+	xfs_reply_err(fd, h.header.sequence_num, ENOENT);
+	delete this;
+      }   
+      
+      rename3args rna;
+      rna.from.dir = e1->nh;
+      rna.from.name = h.old_name;
+      rna.to.dir = e2->nh;
+      rna.to.name = h.new_name;
+      
+      rnres = New refcounted <ex_rename3res>;
+      c->call (lbfs_NFSPROC3_RENAME, &rna, rnres,
+	       wrap (this, &rename_obj::do_rename));
+    } else {
+      xfs_reply_err (fd, h.header.sequence_num, err ? err : lres->status);
+      delete this;
+    }
+  }
+
+  rename_obj (int fd1, const xfs_message_rename &h1, sfs_aid sa1, ref<aclnt> c1) :
+    fd(fd1), c(c1), h(h1), sa(sa1) 
+  {
+    e1 =  xfsindex[h.old_parent_handle];
+    if (!e1) {
+#if DEBUG > 0
+      warn << "rename_obj: Can't find old_parent_handle\n";
+#endif
+      xfs_reply_err(fd, h.header.sequence_num, ENOENT);
+      delete this;
+    }
+    
+    diropargs3 doa;
+    doa.dir = e1->nh;
+    doa.name = h.old_name;
+    
+    lres = New refcounted <ex_lookup3res>;
+    c->call (lbfs_NFSPROC3_LOOKUP, &doa, lres,
+	     wrap (this, &rename_obj::do_lookup, timenow));
+  }    
+};
+
+void
+lbfs_rename (int fd, const xfs_message_rename &h, sfs_aid sa, ref<aclnt> c)
+{
+  vNew rename_obj (fd, h, sa, c);
 }

@@ -282,7 +282,24 @@ xfs_rmdir (ref<xfscall> xfsc)
 void 
 xfs_rename (ref<xfscall> xfsc) 
 {
+  xfs_message_rename *h = (xfs_message_rename *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_rename\n";
+  warn << h->header.sequence_num << ":" <<" xfs_old_parenthandle ("
+    << (int) h->old_parent_handle.a << ","
+    << (int) h->old_parent_handle.b << ","
+    << (int) h->old_parent_handle.c << ","
+    << (int) h->old_parent_handle.d << ")\n";
+  warn << "old name: " << h->old_name << "\n";
+  warn << h->header.sequence_num << ":" <<" xfs_new_parenthandle ("
+    << (int) h->new_parent_handle.a << ","
+    << (int) h->new_parent_handle.b << ","
+    << (int) h->new_parent_handle.c << ","
+    << (int) h->new_parent_handle.d << ")\n";
+  warn << "new name: " << h->new_name << "\n";
+#endif
 
+  lbfs_rename (xfsc->fd, *h, xfsc->getaid (), nfsc);
 }
 
 void 
