@@ -125,7 +125,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
 
   if (err || count != cwa->count || cv.size() != 1 || 
       cv[0]->fingerprint() != cwa->fingerprint || !cv[0]->hash_eq(cwa->hash)) {
-    if (lbsd_trace > 0) {
+    if (lbsd_trace > 1) {
       if (err) 
         warn << "CONDWRITE: error reading file: " << err << "\n";
       else if (count != cwa->count)

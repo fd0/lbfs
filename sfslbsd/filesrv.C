@@ -26,6 +26,8 @@
 #include "lbfs.h"
 #include "sfsrwsd.h"
 
+#define LBSD_GC_PERIOD 60
+
 extern int lbsd_trace;
 
 static struct timeval t0;
@@ -347,7 +349,7 @@ filesrv::make_trashent_lookup_cb(unsigned r, unsigned fsno,
       if (lbsd_trace > 1)
         warn << "GC: schedule old fh for " << tmpfile << " for gc\n";
       if (!db_gc_on) {
-        delaycb(5, wrap(this, &filesrv::db_gc));
+        delaycb(LBSD_GC_PERIOD, wrap(this, &filesrv::db_gc));
 	db_gc_on = true;
       }
     }
@@ -370,12 +372,12 @@ filesrv::make_trashent_remove_cb(wccstat3 *res, clnt_stat err)
 void
 filesrv::db_gc()
 {
-  size_t n = removed_fhs.size();
   int k = 0;
-  if (lbsd_trace > 1) {
-    warn << "GC: trying to gc " << n << " fhs\n";
+  int n = 0;
+  if (lbsd_trace > 0)
     gettimeofday(&t0, 0L);
-  }
+  if (lbsd_trace > 1)
+    warn << "GC: trying to gc " << n << " fhs\n";
   fp_db::iterator *iter = 0;
   if (fpdb.get_iterator(&iter) == 0 && iter) {
     chunk_location c;
@@ -387,22 +389,22 @@ filesrv::db_gc()
 	c.get_fh(fh);
         for(size_t i=0; i<removed_fhs.size(); i++) {
 	  if (fh == removed_fhs[i]) {
-	    n--;
+	    n++;
             iter->del();
 	    break;
 	  }
         }
-      } while(!iter->next(&c) && n > 0);
-    } 
+      } while(!iter->next(&c));
+    }
   }
   if (iter)
     delete iter;
-  if (lbsd_trace > 1) {
+  if (lbsd_trace > 0) {
     gettimeofday(&t1, 0L);
     unsigned d = timediff()/1000;
-    warn << "GC: " << k << " chunks in " << d << " msec, "
-         << removed_fhs.size()-n << " removed\n";
+    warn << "GC: " << k << " chunks in " << d << " msec, " << n << " removed\n";
   }
+  fpdb.sync();
   removed_fhs.setsize(0);
   db_gc_on = false;
 }
