@@ -61,7 +61,7 @@ sfslbcd_connect (sfsprog*prog, ref<nfsserv> ns, int tcpfd,
     vNew refcounted<server>(sfsserverargs (ns, tcpfd, prog, ma, cb));
   }
   else {
-    warn <<  s;
+    warnx << s << "\n";
     (*cb) (NULL);
   }
 }
@@ -75,7 +75,9 @@ sfslbcd_getfd(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
   sfs_connectarg carg = ma->carg;
   sfs_parsepath (carg.ci5->sname, &location, NULL, &port);
   if (fd < 0) {
-    warnx << location << ": Could not connect to host: " << strerror (errno);
+    warnx << location << ": cannot connect to host: "
+          << strerror (errno) << "\n";
+    (*cb) (NULL);
     return;
   }
   if (!isunixsocket (fd))
