@@ -1,6 +1,10 @@
 
 XXX user count is not kept correct, there are ACCESS RPCs w/o CLOSE
 
+XXX close-to-open consistency should be: on any open, fetch latest,
+    unless file already open for write. on any close, flush all data
+    to server. right now we count users, not writers.
+
 XXX call getreply on all NFS replies, even those in helper functions
 XXX write to cached file, remember STABLE flag, update attribute (size+mtime)
 XXX on CLOSE, send stuff to server, reflect STABLE flag, but don't
