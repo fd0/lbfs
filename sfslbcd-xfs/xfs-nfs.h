@@ -26,7 +26,7 @@
 #include <sys/dir.h>
 #include "nfs3exp_prot.h"
 #include <xfs/xfs_message.h>
-#include "fh_map.h"
+#include "cache.h"
 
 #ifdef __linux__
 #include <xfs/xfs_dirent.h>

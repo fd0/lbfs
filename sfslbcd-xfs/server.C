@@ -21,7 +21,7 @@
 
 #include "xfs.h"
 #include "xfs-sfs.h"
-#include "fh_map.h"
+#include "cache.h"
 #include "crypt.h"
 
 ex_fsinfo3resok nfs_fsinfo;

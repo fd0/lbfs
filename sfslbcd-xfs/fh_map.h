@@ -19,8 +19,8 @@
  *
  */
 
-#ifndef _FHMAP_H_
-#define _FHMAP_H_
+#ifndef _CACHE_H_
+#define _CACHE_H_
 
 #include <xfs/xfs_message.h>
 #include "nfs3exp_prot.h"
@@ -50,14 +50,13 @@ struct equals<xfs_handle> {
   }
 };
 
-
 typedef struct cache_entry{
   static u_int64_t nextxh;
 
   xfs_handle xh;
   nfs_fh3 nh;
   ex_fattr3 nfs_attr;
-  nfstime3 ltime;
+  nfstime3 ltime; //mtime of local cache
   str cache_name;
   bool incache;
   uint32 writers;
@@ -66,6 +65,7 @@ typedef struct cache_entry{
 
   cache_entry (nfs_fh3 &n, ex_fattr3 &na);
   ~cache_entry ();
+  set_exp (ex_fattr3 &na, time_t rqtime, bool update_dir_expire);
 } cache_entry;
 
 extern ihash<nfs_fh3, cache_entry, &cache_entry::nh,
@@ -86,7 +86,6 @@ cache_entry::cache_entry (nfs_fh3 &n, ex_fattr3 &na)
   xfsindex.insert (this);
 }
 
-
 inline
 cache_entry::~cache_entry ()
 {
@@ -94,7 +93,16 @@ cache_entry::~cache_entry ()
   xfsindex.remove (this);
 }
 
-#endif /* _FHMAP_H_ */
+inline
+cache_entry::set_exp (time_t rqtime, bool update_dir_expire) 
+{
+  // change expire to rpc_time + expire
+  if (nfs_attr.type != NF3DIR || update_dir_expire)
+    nfs_attr.expire += rqtime;
+}
+#endif /* _CACHE_H_ */
+
+
 
 
 

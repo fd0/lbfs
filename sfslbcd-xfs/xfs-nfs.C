@@ -21,7 +21,8 @@
 
 #include "xfs-nfs.h"
 
-bool xfs_fheq(xfs_handle x1, xfs_handle x2) {
+bool xfs_fheq(xfs_handle x1, xfs_handle x2) 
+{
   if (xfs_handle_eq(&x1, &x2)) 
     return true;
   else return false;
@@ -33,7 +34,8 @@ nfs_fheq (nfs_fh3 n1, nfs_fh3 n2)
   return n1.data == n2.data;
 }
 
-u_char nfs_rights2xfs_rights(u_int32_t access, ftype3 ftype, u_int32_t mode) {
+u_char nfs_rights2xfs_rights(u_int32_t access, ftype3 ftype, u_int32_t mode) 
+{
   u_char ret = 0;
 
   if (ftype == NF3DIR) {
@@ -42,8 +44,8 @@ u_char nfs_rights2xfs_rights(u_int32_t access, ftype3 ftype, u_int32_t mode) {
     if (access & (ACCESS3_MODIFY | ACCESS3_EXTEND | ACCESS3_DELETE))
       ret |= XFS_RIGHT_W;
   } else {
-    if ((ftype == NF3LNK) && (access & 
-			       (ACCESS3_READ | ACCESS3_LOOKUP | ACCESS3_EXECUTE)))
+    if ((ftype == NF3LNK) && 
+	(access & (ACCESS3_READ | ACCESS3_LOOKUP | ACCESS3_EXECUTE)))
       ret |= XFS_RIGHT_R;
     if ((access & (ACCESS3_READ | ACCESS3_LOOKUP)) && (mode & S_IRUSR)) 
       ret |= XFS_RIGHT_R;
@@ -58,8 +60,8 @@ u_char nfs_rights2xfs_rights(u_int32_t access, ftype3 ftype, u_int32_t mode) {
 }
 
 void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr, 
-		    time_t rqtime,  xfs_msg_node *node, bool update_dir_expire) {
-
+		    time_t rqtime,  xfs_msg_node *node, bool update_dir_expire) 
+{
   // change expire to rpc_time + expire
   if (attr.type != NF3DIR || update_dir_expire)
     attr.expire += rqtime;
@@ -136,7 +138,8 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr,
 
 static long blocksize = XFS_DIRENT_BLOCKSIZE;
 
-int flushbuf(write_dirent_args *args) {
+int flushbuf(write_dirent_args *args) 
+{
   unsigned inc = blocksize - (args->ptr - args->buf);
   xfs_dirent *last = (xfs_dirent *)args->last;
 
@@ -150,7 +153,8 @@ int flushbuf(write_dirent_args *args) {
   return 0;
 }
 
-int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
+int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) 
+{
 
   args->off = 0;
   args->buf = (char *)malloc (blocksize);
@@ -212,7 +216,8 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
   return 0;
 }
 
-int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid) {
+int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid) 
+{
 
   xfs_dirent *xde = (xfs_dirent *)malloc(sizeof(*xde));
   bzero(xde, sizeof(*xde));
@@ -233,7 +238,8 @@ int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid) {
   return 0;
 }
 
-int xfsfile_rm_dirent(int fd, const char* fname) {
+int xfsfile_rm_dirent(int fd, const char* fname) 
+{
   xfs_dirent *xde = (xfs_dirent *)malloc(sizeof(*xde));
   int err, offset = 0, reclen = sizeof(*xde);
   
@@ -263,7 +269,8 @@ int xfsfile_rm_dirent(int fd, const char* fname) {
   return 0;
 }
 
-int xfsattr2nfsattr(uint32 opcode, xfs_attr xa, sattr3 *na) {
+int xfsattr2nfsattr(uint32 opcode, xfs_attr xa, sattr3 *na) 
+{
 
   if (XA_VALID_MODE(&xa)) {
     na->mode.set_set(true);
@@ -307,8 +314,8 @@ int xfsattr2nfsattr(uint32 opcode, xfs_attr xa, sattr3 *na) {
   return 0;
 }
 
-int fattr2sattr(ex_fattr3 fa, sattr3 *sa) {
-  
+int fattr2sattr(ex_fattr3 fa, sattr3 *sa) 
+{  
   sa->mode.set_set(true);
   *sa->mode.val = fa.mode;
 
