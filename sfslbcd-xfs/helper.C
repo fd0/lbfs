@@ -5,7 +5,6 @@
 #include "xfs-nfs.h"
 #include "cache.h"
 #include "../sfslbsd/sfsrwsd.h"
-//#include <sys/types.h>
 #include <sys/stat.h>
 
 AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
@@ -222,6 +221,7 @@ struct getroot_obj {
 	    sfs_fsi->nfs->vers == ex_NFS_V3);
     if (lbfs > 0)
       x->compress();
+
     nfs_fsi = New refcounted<ex_fsinfo3res>;
     nc->call (lbfs_NFSPROC3_FSINFO, &sfs_fsi->nfs->v3->root, nfs_fsi,
 	      wrap (this, &getroot_obj::gotnfs_fsinfo), lbfs_authof (sa));
@@ -706,8 +706,10 @@ struct getfp_obj {
       }
 
     bytes_written += rres->resok->count;
+#if 0
     if (rres->resok->count < size)
       nfs3_read (cur_offst+rres->resok->count, size-rres->resok->count);
+#endif
   }
   
   void gotdata
