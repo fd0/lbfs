@@ -54,7 +54,6 @@ chunk_file(const char *path, vec<u_int64_t> *fvp, vec<lbfs_chunk *> *cvp)
   for (i = 0; i < fl;) {
     f = w.slide8 (fp[i]);
     if ((f % BREAKMARK_K) == BREAKMARK_X) {
-      printf ("C%d 0x%016qx\n", i, f);
       lbfs_chunk *c = new lbfs_chunk(path, last_i, i-last_i);
       fvp->push_back(f);
       cvp->push_back(c);
@@ -63,7 +62,6 @@ chunk_file(const char *path, vec<u_int64_t> *fvp, vec<lbfs_chunk *> *cvp)
     }
     i++;
   }
-  printf ("C%d 0x%016qx\n", i, f);
   lbfs_chunk *c = new lbfs_chunk(path, last_i, i-last_i); 
   fvp->push_back(f);
   cvp->push_back(c);

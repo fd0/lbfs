@@ -17,22 +17,23 @@
 //
 //   f(A) mod K = x
 //
-// we use K = 4096 so that average chunk size is 4k.
+// we use K = 8192 so that average chunk size is 8k.
 
 #define FINGERPRINT_PT     0xbfe6b8a5bf378d83LL
 #define BREAKMARK_X        0x78
-#define BREAKMARK_K        4096
+#define BREAKMARK_K        8192
 #define BREAKMARK_CHUNK_SZ 64
 
+#define MY_PATH_MAX 1024
 
 struct lbfs_chunk {
-  char path[PATH_MAX];
+  char path[MY_PATH_MAX];
   off_t pos;
   size_t size;
 
   lbfs_chunk() {}
   lbfs_chunk(const char *p, off_t o, size_t s) {
-    strncpy(path, p, PATH_MAX);
+    strncpy(path, p, (strlen(p)+1) > MY_PATH_MAX ? MY_PATH_MAX : (strlen(p)+1));
     pos = o;
     size = s;
   }
@@ -42,7 +43,7 @@ inline bool
 operator ==(const lbfs_chunk &a, const lbfs_chunk &b)
 {
   return 
-    ((strncmp(a.path, b.path, PATH_MAX) == 0) && 
+    ((strncmp(a.path, b.path, MY_PATH_MAX) == 0) && 
      a.pos == b.pos && 
      a.size == b.size);
 }
