@@ -27,6 +27,7 @@
 #include "serial.h"
 #include "sfsrwsd.h"
 #include <grp.h>
+#include "arpc.h"
 
 #include "lbfsdb.h"
 #include "fingerprint.h"
@@ -415,6 +416,9 @@ client::nextgen ()
 client::client (ref<axprt_crypt> x)
   : sfsserv (x), fsrv (NULL), generation (nextgen ())
 {
+#if 0
+  ref<axprt> xx = axprt_compress::alloc(x);
+#endif
   nfssrv = asrv::alloc (x, lbfs_program_3,
 			wrap (mkref (this), &client::nfs3dispatch));
   nfscbc = aclnt::alloc (x, lbfscb_program_3);

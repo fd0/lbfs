@@ -201,8 +201,12 @@ doleases (filesrv *fsrv, u_int64_t cgen, u_int32_t fsno, svccb *sbp, void *res)
 {
   lbfs_exp_enable (sbp->proc(), res);
   xattrvec xv;
+#if 0
   nfs3_getxattr (&xv, LBFS_PROC_RES_TRANS(sbp->proc()), 
                  sbp->getvoidarg (), res);
+#else
+  lbfs_getxattr (&xv, sbp->proc(), sbp->getvoidarg (), res);
+#endif
 
   for (xattr *xp = xv.base (); xp < xv.lim (); xp++)
     dolease (fsrv, cgen, fsno, xp);

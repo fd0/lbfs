@@ -141,18 +141,17 @@ lbfs_constop (u_int32_t proc)
   case lbfs_NFSPROC3_RMDIR:
   case lbfs_NFSPROC3_RENAME:
   case lbfs_NFSPROC3_LINK:
+  case lbfs_GETFP:
+    return false;
+  default:
   case lbfs_NFSPROC3_COMMIT:
   case lbfs_CONDWRITE:
   case lbfs_MKTMPFILE:
   case lbfs_COMMITTMP:
-    return false;
-  default:
-  case lbfs_GETFP:         // sic
     return true;
   }
 }
 
-#if 0
 #define getxattr(proc, arg, res)			\
   case proc:						\
     rpc_traverse (*xvp, *static_cast<res *> (resp));	\
@@ -164,7 +163,7 @@ lbfs_getxattr (xattrvec *xvp, u_int32_t proc, void *argp, void *resp)
   xvp->clear ();
   xvp->push_back ().fh = static_cast<nfs_fh3 *> (argp);
   switch (proc) {
-    ex_NFS_PROGRAM_3_APPLY_NOVOID (getxattr, nfs3void);
+    LBFS_PROGRAM_3_APPLY_NOVOID (getxattr, nfs3void);
   default:
     panic ("lbfs_getxattr: bad proc %d\n", proc);
     break;
@@ -173,7 +172,6 @@ lbfs_getxattr (xattrvec *xvp, u_int32_t proc, void *argp, void *resp)
       && !*static_cast<nfsstat3 *> (resp))
     xvp->pop_front ();
 }
-#endif
 
 /*
  *  Convert to/from the ex_ version of data structures
