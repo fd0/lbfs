@@ -693,7 +693,6 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
       }
       delete ci;
     }
-chunk_not_found:
     if (!found) {
 #if DEBUG > 0
       warn << "compose_file: fp = " << res->resok->fprints[i].fingerprint 
