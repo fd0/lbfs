@@ -637,6 +637,7 @@ struct getfp_obj {
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				      h0, h0_len, NULL, 0);
     if (!lbcd_trace) {
+      warn << "***********************************\n";
       warn << "File name           = " << e->name << "\n";
       warn << "File data received  = " << bytes_recv << " bytes\n";
       warn << "File size           = " << e->nfs_attr.size << " bytes\n";
@@ -1090,6 +1091,9 @@ lbfs_readfile (int fd, ref<xfs_message_header> h, cache_entry *e, sfs_aid sa,
 }
 
 struct open_obj {
+private:
+  PRIVDEST ~open_obj () {}
+public:
   int fd;
   ref<aclnt> c;
 
@@ -1100,7 +1104,6 @@ struct open_obj {
 
   void done () 
   {
-    if (h) delete h;
     delete this;
   }
 
@@ -1840,6 +1843,7 @@ struct putdata_obj {
       e->ltime = max(attr.mtime, attr.ctime);
       xfs_send_message_wakeup (fd, h->header.sequence_num, 0);    
       if (!lbcd_trace) {
+	warn << "***********************************\n";
 	warn << "File name           = " << e->name << "\n";
 	warn << "File data sent      = " << bytes_sent << " bytes\n";
 	warn << "File size           = " << e->nfs_attr.size << " bytes\n";
