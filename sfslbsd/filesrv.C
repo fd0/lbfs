@@ -400,12 +400,13 @@ filesrv::make_trashent_remove_cb(wccstat3 *res, clnt_stat err)
 void
 filesrv::db_gc(fp_db::iterator *iter)
 {
-  bool over = false;
+  bool over = true;
   int nchunks = 0;
   int nremoved = 0;
   if (lbsd_trace > 0)
     gettimeofday(&t0, 0L);
   if (removed_fhs.size()) {
+    over = false;
     if (iter == 0) {
       if (fpdb.get_iterator(&iter) != 0 || !iter)
 	goto end;
@@ -434,7 +435,6 @@ filesrv::db_gc(fp_db::iterator *iter)
     unsigned d = timediff()/1000;
     warn << "GC: " << nchunks << " chunks in " << d << " msec\n";
   }
-
   if (!over) {
     delaycb(0, wrap(this, &filesrv::db_gc, iter));
     return;
@@ -446,6 +446,7 @@ end:
   removed_fhs.setsize(0);
   db_gc_on = false;
 
+  warn << sfs_trash.size() << " volumn(s)\n";
   for(size_t i=0; i<sfs_trash.size(); i++)
     warn << "volume " << i << " has " 
          << sfs_trash[i].nactive << " active tmp files\n";
