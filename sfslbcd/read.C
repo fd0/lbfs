@@ -24,7 +24,7 @@
 #include "lbfs_prot.h"
 
 struct read_obj {
-  static const int PARALLEL_READS = 8;
+  static const int PARALLEL_READS = 4;
   typedef callback<void,bool,bool>::ref cb_t;
 
   cb_t cb;
@@ -32,14 +32,13 @@ struct read_obj {
   nfs_fh3 fh;
   AUTH *auth;
   int fd;
-  size_t size;
-  size_t requested;
+  uint64 size;
   unsigned int outstanding_reads;
   bool errorcb;
-  server::fcache *fe;
+  file_cache *fe;
 
   void
-  read_reply(time_t rqtime, uint64 off, size_t size,
+  read_reply(time_t rqtime, uint64 off, uint64 cnt,
              ref<read3args> arg, ref<ex_read3res> res, clnt_stat err) 
   {
     outstanding_reads--;
@@ -50,12 +49,11 @@ struct read_obj {
 	fail();
 	return;
       }
-      if (write(fd, res->resok->data.base (), res->resok->count) < (int)size) {
+      if (write(fd, res->resok->data.base (), res->resok->count) < (int)cnt) {
 	fail();
 	return;
       }
-      if (fe->r)
-        fe->r->add (off, size);
+      fe->rcv->add (off, cnt);
       do_read();
       ok();
       return;
@@ -63,28 +61,42 @@ struct read_obj {
     fail();
   }
 
-  void nfs3_read (uint64 off, uint32 size) 
+  void nfs3_read (uint64 off, uint32 cnt) 
   {
+    fe->req->add(off, cnt);
     ref<read3args> a = New refcounted<read3args>;
     a->file = fh;
     a->offset = off;
-    a->count = size;
+    a->count = cnt;
     outstanding_reads++;
     ref<ex_read3res> res = New refcounted <ex_read3res>;
     srv->nfsc->call (lbfs_NFSPROC3_READ, a, res,
 	             wrap (this, &read_obj::read_reply,
-		           timenow, off, size, a, res),
+		           timenow, off, cnt, a, res),
 		     auth);
   }
 
   bool do_read() {
-    if (requested < size) {
-      unsigned s = size-requested;
-      s = s > srv->rtpref ? srv->rtpref : s;
-      nfs3_read (requested, s);
-      requested += s;
-      if (requested < size)
+    while (fe->pri.size()) {
+      uint64 off = fe->pri.pop_front();
+      if (off < size) {
+        unsigned s = size-off;
+        s = s > srv->rtpref ? srv->rtpref : s;
+	if (!fe->req->filled(off, s)) {
+          nfs3_read (off, s);
+	  return false;
+	}
+      }
+    }
+    uint64 off;
+    uint64 cnt;
+    if (fe->req->has_next_gap(0, off, cnt)) {
+      assert(off < size);
+      cnt = cnt > srv->rtpref ? srv->rtpref : cnt;
+      if (!fe->req->filled(off, cnt)) {
+	nfs3_read (off, cnt);
 	return false;
+      }
     }
     return true;
   }
@@ -109,9 +121,9 @@ struct read_obj {
     }
   }
 
-  read_obj (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
+  read_obj (str fn, nfs_fh3 fh, uint64 size, ref<server> srv,
             AUTH *a, read_obj::cb_t cb)
-    : cb(cb), srv(srv), fh(fh), auth(a), size(size), requested(0),
+    : cb(cb), srv(srv), fh(fh), auth(a), size(size),
       outstanding_reads(0), errorcb(false)
   {
     fd = open (fn, O_CREAT | O_TRUNC | O_WRONLY, 0666);
@@ -120,8 +132,9 @@ struct read_obj {
       fail();
     }
     else {
-      fe = srv->fc[fh];
+      fe = srv->file_cache_lookup(fh);
       assert(fe);
+      fe->block(size);
       bool eof = false;
       for (int i=0; i<PARALLEL_READS && !eof; i++)
         eof = do_read();
@@ -134,7 +147,7 @@ struct read_obj {
 };
 
 void
-lbfs_read (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
+lbfs_read (str fn, nfs_fh3 fh, uint64 size, ref<server> srv,
            AUTH *a, read_obj::cb_t cb)
 {
   vNew read_obj (fn, fh, size, srv, a, cb);

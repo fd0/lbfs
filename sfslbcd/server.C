@@ -27,25 +27,21 @@
 #include "lbfs_prot.h"
 #include "ranges.h"
 
-int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 2);
-
 void
 server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
 {
-  fcache *e = fc[obj];
+  file_cache *e = file_cache_lookup(obj);
   // update file cache if cache time < mtime and file is not dirty or
   // blocked (i.e. being loaded by another RPC)
   if (fa.type == NF3REG &&
-      (!e || (e->fa.mtime < fa.mtime && e->ok()))) {
+      (!e || (e->fa.mtime < fa.mtime && e->is_ok()))) {
     if (!e) {
-      fcache_insert (obj);
-      e = fc[obj];
+      file_cache_insert (obj);
+      e = file_cache_lookup(obj);
       assert(e);
     }
     e->fa = fa;
     e->osize = fa.size;
-    e->status = fcache::fcache_block;
-    e->r = New ranges(0, fa.size);
     str f = fh2fn (obj);
     lbfs_read (f, obj, fa.size, mkref(this), authof(aid),
 	       wrap(mkref(this), &server::file_cached, e));
@@ -67,22 +63,20 @@ server::access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 }
 
 void
-server::file_cached (fcache *e, bool done, bool ok)
+server::file_cached (file_cache *e, bool done, bool ok)
 {
   if (done) {
     if (ok)
-      e->status = fcache::fcache_ok;
+      e->ok();
     else
-      e->status = fcache::fcache_error;
-    delete e->r;
-    e->r = 0;
+      e->error();
   }
   vec<nfscall *> rpcs;
   for (unsigned i=0; i<e->rpcs.size(); i++)
     rpcs.push_back(e->rpcs[i]);
   e->rpcs.clear();
   for (unsigned i=0; i<rpcs.size(); i++) {
-#if 0
+#if 1
     warn << "RPC " << rpcs[i]->proc () << " runs\n";
 #endif
     dispatch(rpcs[i]);
@@ -90,7 +84,7 @@ server::file_cached (fcache *e, bool done, bool ok)
 }
 
 void
-server::read_from_cache (nfscall *nc, fcache *e)
+server::read_from_cache (nfscall *nc, file_cache *e)
 {
   read3args *a = nc->template getarg<read3args> ();
   if (e->fd < 0) {
@@ -127,7 +121,7 @@ server::read_from_cache (nfscall *nc, fcache *e)
 }
 
 void
-server::write_to_cache (nfscall *nc, fcache *e)
+server::write_to_cache (nfscall *nc, file_cache *e)
 {
   write3args *a = nc->template getarg<write3args> ();
   if (e->fd < 0) {
@@ -151,8 +145,8 @@ server::write_to_cache (nfscall *nc, fcache *e)
     nc->reject(SYSTEM_ERR);
     return;
   }
-  assert(e->ok() || e->dirty());
-  e->status = fcache::fcache_dirty;
+  assert(e->is_ok() || e->is_dirty());
+  e->dirty();
 
   write3res res(NFS3_OK);
   res.resok->count = n;
@@ -177,7 +171,7 @@ server::write_to_cache (nfscall *nc, fcache *e)
 }
 
 int
-server::truncate_cache (uint64 size, fcache *e)
+server::truncate_cache (uint64 size, file_cache *e)
 {
   if (e->fd < 0) {
     str fn = fh2fn(e->fh);
@@ -193,8 +187,8 @@ server::truncate_cache (uint64 size, fcache *e)
   ex_fattr3 *f = const_cast<ex_fattr3*>(ac.attr_lookup (e->fh));
   if (f)
     f->size = e->fa.size;
-  assert(e->ok() || e->dirty());
-  e->status = fcache::fcache_dirty;
+  assert(e->is_ok() || e->is_dirty());
+  e->dirty();
   return 0;
 }
 
@@ -203,9 +197,9 @@ server::close_reply (nfscall *nc, fattr3 fa, bool ok)
 {
   if (ok) {
     nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
-    fcache *e = fc[*a];
+    file_cache *e = file_cache_lookup(*a);
     if (e) {
-      if (!e->dirty())
+      if (!e->is_dirty())
 	e->fa = fa;
       // update osize to reflect what the server knows
       e->osize = fa.size;
@@ -217,12 +211,12 @@ server::close_reply (nfscall *nc, fattr3 fa, bool ok)
 }
 
 void
-server::flush_cache (nfscall *nc, fcache *e)
+server::flush_cache (nfscall *nc, file_cache *e)
 {
   // need to set e->dirty to false before calling lbfs_write, so
   // lbfs_write will update the attribute cache when making nfs calls.
-  assert(e->dirty());
-  e->status = fcache::fcache_ok;
+  assert(e->is_dirty());
+  e->ok();
   str fn = fh2fn(e->fh);
   // set size to the size of the file when it was first cached, so wcc
   // checking will work
@@ -238,8 +232,8 @@ server::getxattr (time_t rqtime, unsigned int proc,
                   sfs_aid aid, void *arg, void *res)
 {
   nfs_fh3 *fh = static_cast<nfs_fh3 *> (arg);
-  fcache *e = fc[*fh];
-  if (e && e->dirty()) // if file is dirty, don't update attribute cache
+  file_cache *e = file_cache_lookup(*fh);
+  if (e && e->is_dirty()) // if file is dirty, don't update attribute cache
     return;
 
   xattrvec xv;
@@ -281,7 +275,7 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
   else if (nc->proc () == NFSPROC3_SETATTR) {
     setattr3args *a = nc->template getarg<setattr3args> ();
     ex_wccstat3 *sres = static_cast<ex_wccstat3 *> (res);
-    fcache *e = fc[a->object];
+    file_cache *e = file_cache_lookup(a->object);
     if (!sres->status && a->new_attributes.size.set && e &&
 	sres->wcc->before.present && sres->wcc->after.present) {
       // does wcc checking. if this is the only client making a change
@@ -405,18 +399,17 @@ server::dont_run_rpc (nfscall *nc)
     return false;
 
   nfs_fh3 *fh = static_cast<nfs_fh3 *> (nc->getvoidarg ());
-  fcache *e = fc[*fh];
+  file_cache *e = file_cache_lookup(*fh);
 
   // can execute CLOSE if cache is not dirty
-  if (nc->proc () == cl_NFSPROC3_CLOSE && (e->ok() || e->block()))
+  if (nc->proc () == cl_NFSPROC3_CLOSE && (e->is_ok() || e->is_blocked()))
     return false;
 
   if (e) {
-    if (e->block()) {
+    if (e->is_blocked()) {
       // can execute READ or WRITE if range requested in those RPC has
       // already been fetched
-      if (e->r &&
-	  (nc->proc () == NFSPROC3_READ || nc->proc () == NFSPROC3_WRITE)) {
+      if (nc->proc () == NFSPROC3_READ || nc->proc () == NFSPROC3_WRITE) {
 	uint64 offset;
 	uint64 size;
 	if (nc->proc () == NFSPROC3_READ) {
@@ -429,17 +422,19 @@ server::dont_run_rpc (nfscall *nc)
 	  offset = a->offset;
 	  size = a->count;
 	}
-	if (e->r->filled(offset, size))
+	if (e->received(offset, size))
 	  return false;
-#if 0
+#if 1
         warn << "RPC " << nc->proc () << " blocked: "
 	     << offset << ":" << size << "\n";
 #endif
+	if (nc->proc() == NFSPROC3_READ)
+	  e->want(offset, size, rtpref);
       }
       e->rpcs.push_back(nc);
       return true;
     }
-    else if (e->error()) {
+    else if (e->is_error()) {
       nc->reject (SYSTEM_ERR);
       return true;
     }
@@ -452,8 +447,8 @@ server::dispatch (nfscall *nc)
 {
   if (nc->proc () == NFSPROC3_GETATTR) {
     // if file is cached and dirty, return attribute from file cache
-    fcache *e = fc[*nc->template getarg<nfs_fh3> ()];
-    if (e && e->dirty()) {
+    file_cache *e = file_cache_lookup(*nc->template getarg<nfs_fh3> ());
+    if (e && e->is_dirty()) {
       getattr3res res (NFS3_OK);
       *res.attributes = e->fa;
       nc->reply (&res);
@@ -494,7 +489,7 @@ server::dispatch (nfscall *nc)
 
   else if (nc->proc () == NFSPROC3_READ) {
     read3args *a = nc->template getarg<read3args> ();
-    fcache *e = fc[a->file];
+    file_cache *e = file_cache_lookup(a->file);
     if (e) {
       read_from_cache (nc, e);
       return;
@@ -505,12 +500,12 @@ server::dispatch (nfscall *nc)
 
   else if (nc->proc() == cl_NFSPROC3_CLOSE) {
     nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
-    fcache *e = fc[*a];
+    file_cache *e = file_cache_lookup(*a);
     if (e && e->fd >= 0) {
       close(e->fd);
       e->fd = -1;
     }
-    if (e && e->dirty())
+    if (e && e->is_dirty())
       flush_cache (nc, e);
     else {
       if (!e)
@@ -522,7 +517,7 @@ server::dispatch (nfscall *nc)
 
   else if (nc->proc () == NFSPROC3_WRITE) {
     write3args *a = nc->template getarg<write3args> ();
-    fcache *e = fc[a->file];
+    file_cache *e = file_cache_lookup(a->file);
     if (e) {
       write_to_cache (nc, e);
       return;
@@ -537,7 +532,7 @@ server::dispatch (nfscall *nc)
     // server always since we won't forward other attributes to server
     // on CLOSE.
     setattr3args *a = nc->template getarg<setattr3args> ();
-    fcache *e = fc[a->object];
+    file_cache *e = file_cache_lookup(a->object);
     if (a->new_attributes.size.set && e) {
       if (truncate_cache (*(a->new_attributes.size.val), e) < 0) {
         nc->reject (SYSTEM_ERR);
@@ -560,11 +555,12 @@ server::dispatch (nfscall *nc)
 }
 
 void
-server::remove_cache (server::fcache e)
+server::file_cache_remove (file_cache *e)
 {
-  str fn = fh2fn(e.fh);
+  str fn = fh2fn(e->fh);
   warn << "remove " << fn << "\n";
   if (unlink(fn.cstr()) < 0)
     perror("removing cache file");
+  delete e;
 }
 

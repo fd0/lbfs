@@ -32,6 +32,7 @@
 #include "crypt.h"
 #include "list.h"
 #include "lrucache.h"
+#include "ranges.h"
 
 inline
 const strbuf &
@@ -101,35 +102,73 @@ public:
   int32_t access_lookup (const nfs_fh3 &, sfs_aid, u_int32_t mask);
 };
 
-class ranges;
+class file_cache {
+  friend class read_obj;
+public:
+  nfs_fh3 fh;
+  int status;
+  fattr3 fa;
+  uint64 osize;
+  int fd;
+  vec<nfscall *> rpcs;
+
+private:
+  static const int fcache_ok = 0;
+  static const int fcache_blocked = 1;
+  static const int fcache_dirty = 2;
+  static const int fcache_error = 3;
+
+  vec<uint64> pri;
+  ranges *rcv;
+  ranges *req;
+  void cr() {
+    if (rcv) {
+      delete rcv;
+      delete req;
+    }
+    rcv = 0;
+    req = 0;
+  }
+  void ar(uint64 size) {
+    assert(!rcv && !req);
+    rcv = New ranges(0, size);
+    req = New ranges(0, size);
+  }
+
+public:
+  file_cache(nfs_fh3 fh)
+    : fh(fh), status(fcache_blocked), fd(-1), rcv(0), req(0) {}
+  ~file_cache() { if (rcv) delete rcv; assert(rpcs.size() == 0); }
+
+  bool is_ok()      const { return status == fcache_ok; }
+  bool is_dirty()   const { return status == fcache_dirty; }
+  bool is_blocked() const { return status == fcache_blocked; }
+  bool is_error()   const { return status == fcache_error; }
+  void ok()      { cr(); status = fcache_ok; }
+  void dirty()   { cr(); status = fcache_dirty; }
+  void error()   { cr(); status = fcache_error; }
+  void block(uint64 size) { ar(size); status = fcache_blocked; }
+
+  bool received(uint64 off, uint64 size) const {
+    if (is_blocked() && (!rcv || !rcv->filled(off, size)))
+      return false;
+    return true;
+  }
+  void want(uint64 off, uint64 size, unsigned rtpref) {
+    for(uint64 i=off; i<off+size; i+=rtpref)
+      pri.push_back(i);
+  }
+
+};
+
 
 class server : public sfsserver_auth {
   friend class read_obj;
   friend class write_obj;
 protected:
   str cdir;
-  struct fcache {
-    static const int fcache_ok = 0;
-    static const int fcache_block = 1;
-    static const int fcache_dirty = 2;
-    static const int fcache_error = 3;
-    nfs_fh3 fh;
-    int status;
-    fattr3 fa;
-    uint64 osize;
-    int fd;
-    vec<nfscall *> rpcs;
-    ranges *r;
-    fcache(nfs_fh3 fh)
-      : fh(fh), status(fcache_block), fd(-1), r(0) {}
-    bool ok() const { return status == fcache_ok; }
-    bool dirty() const { return status == fcache_dirty; }
-    bool block() const { return status == fcache_block; }
-    bool error() const { return status == fcache_error; }
-  };
-
   attr_cache ac;
-  lrucache<nfs_fh3, fcache> fc;
+  lrucache<nfs_fh3, file_cache *> fc;
 
   void dispatch_dummy (svccb *sbp);
   void cbdispatch (svccb *sbp);
@@ -137,17 +176,16 @@ protected:
   void getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
   bool dont_run_rpc (nfscall *nc);
 
-  void flush_cache (nfscall *nc, fcache *e);
-  void read_from_cache (nfscall *nc, fcache *e);
-  void write_to_cache (nfscall *nc, fcache *e);
-  int truncate_cache (uint64 size, fcache *e);
+  void flush_cache (nfscall *nc, file_cache *e);
+  void read_from_cache (nfscall *nc, file_cache *e);
+  void write_to_cache (nfscall *nc, file_cache *e);
+  int truncate_cache (uint64 size, file_cache *e);
   void check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid);
 
   void close_reply (nfscall *nc, fattr3 fa, bool ok);
   void access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
-  void file_cached (fcache *e, bool done, bool ok);
+  void file_cached (file_cache *e, bool done, bool ok);
 
-  void remove_cache (fcache e);
   str fh2fn(nfs_fh3 fh) {
     strbuf n;
     unsigned char x = 0;
@@ -159,10 +197,19 @@ protected:
     return n;
   }
 
-  void fcache_insert (nfs_fh3 fh) {
-    struct fcache f(fh);
+  void file_cache_insert (nfs_fh3 fh) {
+    file_cache *f = New file_cache(fh);
     fc.insert(fh,f);
   }
+  file_cache *file_cache_lookup (nfs_fh3 fh) {
+    file_cache **e = fc[fh];
+    if (e) {
+      assert(*e);
+      return *e;
+    }
+    return 0;
+  }
+  void file_cache_remove (file_cache *e);
 
 public:
   typedef sfsserver_auth super;
@@ -181,9 +228,9 @@ public:
                  sfs_aid aid, void *arg, void *res);
 };
 
-void lbfs_read (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
+void lbfs_read (str fn, nfs_fh3 fh, uint64 size, ref<server> srv,
                 AUTH *a, callback<void, bool, bool>::ref cb);
-void lbfs_write (str fn, nfs_fh3 fh, size_t size, fattr3 fa, ref<server> srv,
+void lbfs_write (str fn, nfs_fh3 fh, uint64 size, fattr3 fa, ref<server> srv,
                  AUTH *a, callback<void, fattr3, bool>::ref cb);
 
 #endif
