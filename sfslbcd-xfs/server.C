@@ -233,8 +233,18 @@ xfs_symlink (ref<xfscall> xfsc)
 void 
 xfs_remove (ref<xfscall> xfsc) 
 {
+  xfs_message_remove *h = (xfs_message_remove *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_remove\n";
+  warn << h->header.sequence_num << ":" <<" xfs_parenthandle ("
+    << (int) h->parent_handle.a << ","
+    << (int) h->parent_handle.b << ","
+    << (int) h->parent_handle.c << ","
+    << (int) h->parent_handle.d << ")\n";
+  warn << "file name: " << h->name << "\n";
+#endif
 
-  
+  lbfs_remove (xfsc->fd, *h, xfsc->getaid (), nfsc);
 }
 
 void 

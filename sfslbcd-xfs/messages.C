@@ -2366,7 +2366,7 @@ remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
 
       msg2.header.opcode = XFS_MSG_INSTALLATTR;
       --(a.attributes->nlink);
-      nfsobj2xfsnode (h->cred, e2->nh, *(a.attributes), rqtime, &msg1.node);
+      nfsobj2xfsnode (h->cred, e2->nh, *(a.attributes), rqtime, &msg2.node);
       h1 = (struct xfs_message_header *) &msg2;
       h1_len = sizeof (msg2);
 
@@ -2407,7 +2407,7 @@ nfs3_remove (int fd, ref<struct xfs_message_remove> h,
     cache_entry *e = xfsindex[h->parent_handle];
     if (!e) {
 #if DEBUG > 0
-      warn << "xfs_message_mkdir: Can't find parent_handle\n";
+      warn << "xfs_message_remove: Can't find parent_handle\n";
 #endif
       reply_err(fd, h->header.sequence_num, ENOENT);
       return;

@@ -51,13 +51,40 @@ struct getattr_obj {
   const nfs_fh3 fh;
   ptr<ex_getattr3res> res;
   
-  void gotattr (time_t rqt, clnt_stat err) 
+  void installattr (ptr<ex_getattr3res> res, time_t rqt, clnt_stat err)
   {
 #if 0
+    if (!err) {
+      struct xfs_message_header *h0 = NULL;
+      size_t h0_len = 0;
+      struct xfs_message_installattr msg;
+
+      msg.header.opcode = XFS_MSG_INSTALLATTR;
+      h0 = (struct xfs_message_header *) &msg;
+      h0_len = sizeof (msg);
+
+      bool update_dir_expire = false;
+      cache_entry *e = update_cache (fh, attr);
+      if (e->nfs_attr.type == NF3DIR) {
+	nfstime3 maxtime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
+	if (!greater(maxtime, e->ltime))
+	  update_dir_expire = true;
+      }
+      e->set_exp (rqt, update_dir_expire);
+      nfsobj2xfsnode (cred, e, &msg.node);
+      
+      xfs_send_message_wakeup_multiple (fd, seqnum,
+					0, h0, h0_len, NULL, 0);
+    } else 
+      xfs_reply_err (fd, seqnum, err);
+#endif
+  }
+  
+  void gotattr (time_t rqt, clnt_stat err) 
+  {
     if (!cb)
       installattr (res, rqt, err);
     else
-#endif
       if (!err)
 	(*cb) (res, rqt, err);
       else
@@ -1373,4 +1400,115 @@ void
 lbfs_setattr (int fd, const xfs_message_putattr &h, sfs_aid sa, ref<aclnt> c)
 {
   vNew setattr_obj (fd, h, sa, c);
+}
+
+struct remove_obj {
+  int fd;
+  ref<aclnt> c;
+  
+  const struct xfs_message_remove h;
+  sfs_aid sa;
+  time_t rqt1;
+  cache_entry *e1, *e2;
+  diropargs3 doa;
+  ptr<ex_lookup3res> lres;
+  ptr<ex_wccstat3> wres;
+
+  void install (time_t rqt, clnt_stat err) 
+  {
+    if (!err && wres->status == NFS3_OK) {
+
+      assert (wres->wcc->after.present);
+
+      struct xfs_message_installdata msg1;
+      struct xfs_message_header *h0 = NULL;
+      size_t h0_len = 0;
+      struct xfs_message_installattr msg2;
+      struct xfs_message_header *h1 = NULL;
+      size_t h1_len = 0;
+      
+      assign_cachefile (fd, h.header.sequence_num, e1, 
+			msg1.cache_name, &msg1.cache_handle);
+      nfsobj2xfsnode (h.cred, e1, &msg1.node);
+      e1->incache = false; //TODO:try to remove entry from dirfile locally
+      e1->nfs_attr = *(wres->wcc->after.attributes);
+      e1->set_exp (rqt, true);
+      msg1.node.tokens |= XFS_DATA_R;
+      msg1.flag = XFS_ID_INVALID_DNLC;
+    
+      msg1.header.opcode = XFS_MSG_INSTALLDATA;
+      h0 = (struct xfs_message_header *) &msg1;
+      h0_len = sizeof (msg1);
+
+      assert (lres->resok->obj_attributes.present || lres->resok->dir_attributes.present);
+      ex_post_op_attr a = lres->resok->obj_attributes.present ? 
+	lres->resok->obj_attributes : lres->resok->dir_attributes;
+      if ((a.attributes->type == NF3DIR && a.attributes->nlink > 2) ||
+	  (a.attributes->type == NF3REG && a.attributes->nlink > 1)) {
+	e2 = nfsindex[lres->resok->object];
+	if (!e2) {
+#if DEBUG > 0
+	  warn << "remove_obj::install: Can't find handle\n";
+#endif
+	  delete this;
+	}
+	
+	msg2.header.opcode = XFS_MSG_INSTALLATTR;
+	--(a.attributes->nlink);
+	e2->nfs_attr = *a.attributes;
+	e2->set_exp (rqt1, e2->nfs_attr.type == NF3DIR); 
+	nfsobj2xfsnode (h.cred, e2, &msg2.node);
+	h1 = (struct xfs_message_header *) &msg2;
+	h1_len = sizeof (msg2);
+	
+	xfs_send_message_wakeup_multiple (fd, h.header.sequence_num,
+					  0, h0, h0_len, h1, h1_len,
+					  NULL, 0);
+      } else //TODO: bump it off the hash table
+	xfs_send_message_wakeup_multiple (fd, h.header.sequence_num,
+					  0, h0, h0_len, NULL, 0);
+      
+    } else xfs_reply_err (fd, h.header.sequence_num, err ? err : wres->status);
+
+    delete this;
+  }
+
+  void do_remove (time_t rqt, clnt_stat err) 
+  {
+    if (!err && lres->status == NFS3_OK) {
+      rqt1 = rqt;
+      wres =  New refcounted <ex_wccstat3>;
+      c->call (lbfs_NFSPROC3_REMOVE, &doa, wres,
+	       wrap (this, &remove_obj::install, timenow));
+    } else {
+      xfs_reply_err (fd, h.header.sequence_num, err ? err : wres->status);
+      delete this;
+    }
+  }
+
+  remove_obj (int fd1, const xfs_message_remove &h1, sfs_aid sa1, ref<aclnt> c1) :
+    fd(fd1), c(c1), h(h1), sa(sa1) 
+  {
+    e1 = xfsindex[h.parent_handle];
+    if (!e1) {
+#if DEBUG > 0
+      warn << "xfs_message_remove: Can't find parent_handle\n";
+#endif
+      xfs_reply_err(fd, h.header.sequence_num, ENOENT);
+      delete this;
+    }
+
+    doa.dir = e1->nh;
+    doa.name = h.name;
+
+    lres = New refcounted <ex_lookup3res>;
+    c->call (lbfs_NFSPROC3_LOOKUP, &doa, lres,
+	     wrap (this, &remove_obj::do_remove, timenow));
+  }
+};
+
+void
+lbfs_remove (int fd, const xfs_message_remove &h, sfs_aid sa, ref<aclnt> c)
+{
+  vNew remove_obj (fd, h, sa, c);
 }
