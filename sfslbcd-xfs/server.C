@@ -48,7 +48,7 @@ xfs_getroot (ref<xfscall> xfsc)
   warn << "Received xfs_getroot\n";
 #endif
   
-  lbfs_getroot (xfsc->fd, *((xfs_message_getroot *) xfsc->argp), 
+  lbfs_getroot (xfsc->fd, ((xfs_message_getroot *) xfsc->argp), 
 		xfsc->getaid (), sfsc, nfsc);
 }
 
@@ -65,7 +65,7 @@ xfs_getnode (ref<xfscall> xfsc)
     << (int) h->parent_handle.d << ")\n";
 #endif
 
-  lbfs_getnode (xfsc->fd, *h, xfsc->getaid (), nfsc);
+  lbfs_getnode (xfsc->fd, h, xfsc->getaid (), nfsc);
 }
 
 void 
@@ -84,7 +84,7 @@ xfs_getattr (ref<xfscall> xfsc)
   cache_entry *e = xfsindex[h->handle];
   if (!e)
     xfs_reply_err (xfsc->fd, h->header.sequence_num, ENOENT);
-  else lbfs_attr (xfsc->fd, *(xfs_message_putattr *)h, xfsc->getaid (), e->nh, nfsc, NULL);
+  else lbfs_attr (xfsc->fd, (xfs_message_putattr *)h, xfsc->getaid (), e->nh, nfsc, NULL);
 }
 
 void 
@@ -107,8 +107,8 @@ xfs_getdata (ref<xfscall> xfsc)
   }
   assert (e->nfs_attr.type != NF3DIR);
   if (e->incache)
-    lbfs_readexist (xfsc->fd, *h, e);
-  else lbfs_open (xfsc->fd, *((xfs_message_open *)h), xfsc->getaid (), nfsc);
+    lbfs_readexist (xfsc->fd, h, e);
+  else lbfs_open (xfsc->fd, (xfs_message_open *)h, xfsc->getaid (), nfsc);
 }
 
 void 
@@ -126,10 +126,7 @@ xfs_inactivenode (ref<xfscall> xfsc)
 
   if (h->flag == XFS_DELETE || h->flag == XFS_NOREFS) {
     cache_entry *e = xfsindex[h->handle];
-    if (e) {
-      e->incache = false;
-      //TODO: remove from hash table
-    }
+    if (e) delete e;
   }
 }
 
@@ -146,7 +143,7 @@ xfs_open (ref<xfscall> xfsc)
     << (int) h->handle.d << ")\n";
 #endif
   
-  lbfs_open (xfsc->fd, *h, xfsc->getaid (), nfsc);
+  lbfs_open (xfsc->fd, h, xfsc->getaid (), nfsc);
 }
 
 void 
@@ -163,7 +160,7 @@ xfs_putdata (ref<xfscall> xfsc)
   warn << "flag = " << h->flag << "\n";
 #endif
   
-  lbfs_putdata (xfsc->fd, *h, xfsc->getaid (), nfsc);  
+  lbfs_putdata (xfsc->fd, h, xfsc->getaid (), nfsc);  
 }
 
 void 
@@ -182,7 +179,7 @@ xfs_putattr (ref<xfscall> xfsc)
   cache_entry *e = xfsindex[h->handle];
   if (!e)
     xfs_reply_err (xfsc->fd, h->header.sequence_num, ENOENT);
-  else lbfs_attr (xfsc->fd, *(xfs_message_putattr *)h, xfsc->getaid (), e->nh, nfsc, NULL);
+  else lbfs_attr (xfsc->fd, (xfs_message_putattr *)h, xfsc->getaid (), e->nh, nfsc, NULL);
 }
 
 void 
@@ -199,7 +196,7 @@ xfs_create (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif
 
-  lbfs_create (xfsc->fd, *h, xfsc->getaid(), nfsc);
+  lbfs_create (xfsc->fd, h, xfsc->getaid(), nfsc);
 }
 
 void 
@@ -216,7 +213,7 @@ xfs_mkdir (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif
 
-  lbfs_create (xfsc->fd, *h, xfsc->getaid (), nfsc);
+  lbfs_create (xfsc->fd, h, xfsc->getaid (), nfsc);
 }
 
 void 
@@ -238,7 +235,7 @@ xfs_link (ref<xfscall> xfsc)
        << (int) h->from_handle.d << ")\n";
 #endif  
   
-  lbfs_link (xfsc->fd, *h, xfsc->getaid (), nfsc);
+  lbfs_link (xfsc->fd, h, xfsc->getaid (), nfsc);
 }
 
 void 
@@ -255,7 +252,7 @@ xfs_symlink (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif  
  
-  lbfs_symlink (xfsc->fd, *h, xfsc->getaid (), nfsc);
+  lbfs_symlink (xfsc->fd, h, xfsc->getaid (), nfsc);
 }
 
 void 
@@ -272,7 +269,7 @@ xfs_remove (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif
 
-  lbfs_remove (xfsc->fd, *h, xfsc->getaid (), nfsc);
+  lbfs_remove (xfsc->fd, h, xfsc->getaid (), nfsc);
 }
 
 void 
@@ -289,7 +286,7 @@ xfs_rmdir (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif
 
-  lbfs_remove (xfsc->fd, *h, xfsc->getaid (), nfsc);
+  lbfs_remove (xfsc->fd, h, xfsc->getaid (), nfsc);
 }
 
 void 
@@ -312,7 +309,7 @@ xfs_rename (ref<xfscall> xfsc)
   warn << "new name: " << h->new_name << "\n";
 #endif
 
-  lbfs_rename (xfsc->fd, *h, xfsc->getaid (), nfsc);
+  lbfs_rename (xfsc->fd, h, xfsc->getaid (), nfsc);
 }
 
 void 

@@ -97,29 +97,29 @@ compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
   return strncmp(h, hash.base(), sha1::hashsize);
 }
 
-void lbfs_getroot (int, xfs_message_getroot &, sfs_aid, 
+void lbfs_getroot (int, xfs_message_getroot *, sfs_aid, 
 		   ref<aclnt> sc1, ref<aclnt> nc1);
-void lbfs_getnode (int, xfs_message_getnode &, sfs_aid, ref<aclnt>);
+void lbfs_getnode (int, xfs_message_getnode *, sfs_aid, ref<aclnt>);
 typedef callback<void, ptr<ex_getattr3res>, time_t, clnt_stat>::ptr attr_cb_t;
-void lbfs_attr (int, const xfs_message_putattr &, sfs_aid, const nfs_fh3 &, 
+void lbfs_attr (int, const xfs_message_putattr *, sfs_aid, const nfs_fh3 &, 
 		   ref<aclnt>, attr_cb_t);
 //callback<void, const ex_getattr3res *, clnt_stat> = NULL);
-void lbfs_open (int fd, const xfs_message_open &h, sfs_aid sa, 
+void lbfs_open (int fd, const xfs_message_open *h, sfs_aid sa, 
 		ref<aclnt> c);
-void lbfs_readexist (int fd, const xfs_message_getdata &h, cache_entry *e);
-void lbfs_create (int fd, const xfs_message_create &h, sfs_aid sa, 
+void lbfs_readexist (int fd, const xfs_message_getdata *h, cache_entry *e);
+void lbfs_create (int fd, const xfs_message_create *h, sfs_aid sa, 
 		  ref<aclnt> c);
-void lbfs_link (int fd, const xfs_message_link &h, sfs_aid sa, 
+void lbfs_link (int fd, const xfs_message_link *h, sfs_aid sa, 
 		ref<aclnt> c);
-void lbfs_symlink (int fd, const xfs_message_symlink &h, sfs_aid sa, 
+void lbfs_symlink (int fd, const xfs_message_symlink *h, sfs_aid sa, 
 		   ref<aclnt> c);
-void lbfs_setattr (int fd, const xfs_message_putattr &h, sfs_aid sa, 
+void lbfs_setattr (int fd, const xfs_message_putattr *h, sfs_aid sa, 
 		   ref<aclnt> c);
-void lbfs_remove (int fd, const xfs_message_remove &h, sfs_aid sa, 
+void lbfs_remove (int fd, const xfs_message_remove *h, sfs_aid sa, 
 		  ref<aclnt> c);
-void lbfs_rename (int fd, const xfs_message_rename &h, sfs_aid sa, 
+void lbfs_rename (int fd, const xfs_message_rename *h, sfs_aid sa, 
 		  ref<aclnt> c);
-void lbfs_putdata (int fd, const xfs_message_putdata &h, sfs_aid sa, 
+void lbfs_putdata (int fd, const xfs_message_putdata *h, sfs_aid sa, 
 		   ref<aclnt> c);
 /* helper.C */
 

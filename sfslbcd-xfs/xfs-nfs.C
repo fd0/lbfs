@@ -133,7 +133,7 @@ int flushbuf(write_dirent_args *args)
 
 int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) 
 {
-#if 0
+#if 1
   args->off = 0;
   args->buf = (char *)malloc (blocksize);
   if (args->buf == NULL) {
@@ -145,17 +145,17 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
 #endif  
   assert(res->status == NFS3_OK);
   entry3 *nfs_dirent = res->resok->reply.entries;
-  xfs_dirent *xde = NULL;
+  xfs_dirent *xde = (xfs_dirent *) malloc (sizeof (*xde)); 
   int reclen = sizeof(*xde);
 
   while (nfs_dirent != NULL) {
-#if 0
+#if 1
     if (args->ptr + reclen > args->buf + blocksize) {
       if (flushbuf (args) < 0) 
 	return -1;
     }
+    xde = (xfs_dirent *) args->ptr;   
 #endif
-    xde = (xfs_dirent *) malloc (sizeof (*xde)); //args->ptr;
     bzero(xde, sizeof(*xde));
     xde->d_namlen = nfs_dirent->name.len();
 #if DEBUG
@@ -172,7 +172,7 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
     warn << "xde->d_name = " << xde->d_name 
 	 << " nfs_dirent_name = " << nfs_dirent->name.cstr() << "\n";
 #endif
-#if 0
+#if 1
     args->ptr += xde->d_reclen;
     args->off += xde->d_reclen;
     args->last = xde;
@@ -186,11 +186,10 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
 #if DEBUG
     warn << "wrote " << xde->d_name << "\n";
 #endif
-    delete xde;
 #endif
     nfs_dirent = nfs_dirent->nextentry;
   }
-
+  delete xde;
   return 0;
 }
 
@@ -220,23 +219,22 @@ int xfsfile_rm_dirent(int fd1, int fd2, const char* fname)
 {
   xfs_dirent *xde = (xfs_dirent *)malloc(sizeof(*xde));
   int err, offset = 0, reclen = sizeof(*xde);
-  warn << "Looking for " << fname << "\n";
   
   do {
     if ((err = read(fd1, xde, sizeof(*xde))) < 0) {
-#if DEBUG
+#if DEBUG > 3
       warn << "xfsfile_rm_dirent: " << strerror(errno) << "\n";
 #endif
       return -1;
     }
     if (err != sizeof(*xde)) {
-#if DEBUG
+#if DEBUG > 3
       warn << "err = " << err << " ..short read..wierd\n";
 #endif
       return -1;
     }
     offset += reclen;
-#if DEBUG
+#if DEBUG > 3
     warn << "xde->d_namlen = " << xde->d_namlen << "\n";
     warn << "xde->d_name = " << xde->d_name << "\n";
     warn << "xde->d_reclen = " << xde->d_reclen << "\n";
@@ -251,7 +249,7 @@ int xfsfile_rm_dirent(int fd1, int fd2, const char* fname)
     offset += reclen;
     err = write (fd2, xde, sizeof (*xde));
     if (err != sizeof(*xde)) {
-#if DEBUG
+#if DEBUG > 3
       warn << "err = " << err << " ..short write..wierd\n";
 #endif
       return -1;
