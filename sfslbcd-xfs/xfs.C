@@ -284,7 +284,8 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
-  case XFS_MSG_REMOVE: {
+  case XFS_MSG_REMOVE: 
+  case XFS_MSG_RMDIR: {
     struct xfs_message_remove *hh = (struct xfs_message_remove*)msgstr.cstr();
     ref<struct xfs_message_remove> msg = 
       New refcounted<struct xfs_message_remove>;
@@ -296,6 +297,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
+#if 0
   case XFS_MSG_RMDIR: {
     struct xfs_message_rmdir *hh = (struct xfs_message_rmdir*)msgstr.cstr();
     ref<struct xfs_message_rmdir> msg = 
@@ -308,6 +310,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
+#endif
   case XFS_MSG_RENAME: {
     struct xfs_message_rename *hh = (struct xfs_message_rename *)msgstr.cstr();
     ref<struct xfs_message_rename> msg = 

@@ -1485,7 +1485,24 @@ struct remove_obj {
       delete this;
     }
   }
-
+#if 0
+  void branch (time_t rqt, clnt_stat err) 
+  {
+    if (!err && lres->status == NFS3_OK) {
+      rqt1 = rqt;
+      wres =  New refcounted <ex_wccstat3>;
+      switch (h.header.opcode) {
+      case XFS_MSG_REMOVE:
+      c->call (lbfs_NFSPROC3_REMOVE, &doa, wres,
+	       wrap (this, &remove_obj::install, timenow));
+	
+      }
+    } else {
+      xfs_reply_err (fd, h.header.sequence_num, err ? err : wres->status);
+      delete this;
+    }
+  }
+#endif 
   remove_obj (int fd1, const xfs_message_remove &h1, sfs_aid sa1, ref<aclnt> c1) :
     fd(fd1), c(c1), h(h1), sa(sa1) 
   {

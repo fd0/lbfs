@@ -114,8 +114,23 @@ xfs_getdata (ref<xfscall> xfsc)
 void 
 xfs_inactivenode (ref<xfscall> xfsc) 
 {
+  xfs_message_inactivenode *h = (xfs_message_inactivenode *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_inactivenode\n";
+  warn << h->header.sequence_num << ":" <<" xfs_handle ("
+    << (int) h->handle.a << ","
+    << (int) h->handle.b << ","
+    << (int) h->handle.c << ","
+    << (int) h->handle.d << ")\n";
+#endif
 
-  
+  if (h->flag == XFS_DELETE || h->flag == XFS_NOREFS) {
+    cache_entry *e = xfsindex[h->handle];
+    if (e) {
+      e->incache = false;
+      //TODO: remove from hash table
+    }
+  }
 }
 
 void 
@@ -179,7 +194,7 @@ xfs_mkdir (ref<xfscall> xfsc)
 {
   xfs_message_create *h = (xfs_message_create *) xfsc->argp;
 #if DEBUG > 0
-  warn << "Received xfs_create\n";
+  warn << "Received xfs_mkdir\n";
   warn << h->header.sequence_num << ":" <<" xfs_handle ("
        << (int) h->parent_handle.a << ","
        << (int) h->parent_handle.b << ","
@@ -250,22 +265,36 @@ xfs_remove (ref<xfscall> xfsc)
 void 
 xfs_rmdir (ref<xfscall> xfsc) 
 {
+  xfs_message_remove *h = (xfs_message_remove *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_rmdir\n";
+  warn << h->header.sequence_num << ":" <<" xfs_parenthandle ("
+    << (int) h->parent_handle.a << ","
+    << (int) h->parent_handle.b << ","
+    << (int) h->parent_handle.c << ","
+    << (int) h->parent_handle.d << ")\n";
+  warn << "file name: " << h->name << "\n";
+#endif
 
-  
+  lbfs_remove (xfsc->fd, *h, xfsc->getaid (), nfsc);
 }
 
 void 
 xfs_rename (ref<xfscall> xfsc) 
 {
 
-  
 }
 
 void 
 xfs_pioctl (ref<xfscall> xfsc) 
 {
+  xfs_message_pioctl *h = (xfs_message_pioctl *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_pioctl!! Return EINVAL no matter what!!!\n";
+  warn << "pioctl: opcode = " << h->opcode << "\n";
+#endif
 
-  
+  xfs_send_message_wakeup (xfsc->fd, h->header.sequence_num, EINVAL);    
 }
 
 void 
