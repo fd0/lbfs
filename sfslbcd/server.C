@@ -270,7 +270,8 @@ server::getxattr (time_t rqtime, unsigned int proc,
 {
   nfs_fh3 *fh = static_cast<nfs_fh3 *> (arg);
   file_cache *e = file_cache_lookup(*fh);
-  if (e && e->is_dirty()) // if file is dirty, don't update attribute cache
+  if (e && (e->is_dirty() || e->is_flush()))
+    // if file is dirty or being flushed, don't update attribute cache
     return;
 
   xattrvec xv;
@@ -503,9 +504,10 @@ void
 server::dispatch (nfscall *nc)
 {
   if (nc->proc () == NFSPROC3_GETATTR) {
-    // if file is cached and dirty, return attribute from file cache
+    // if file is cached, and dirty or being flushed, return attribute
+    // from file cache
     file_cache *e = file_cache_lookup(*nc->template getarg<nfs_fh3> ());
-    if (e && e->is_dirty()) {
+    if (e && (e->is_dirty() || e->is_flush())) {
       getattr3res res (NFS3_OK);
       *res.attributes = e->fa;
       nc->reply (&res);
