@@ -15,6 +15,8 @@ int chunk_data(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
 int chunk_file(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
                const char *path);
 
+#define MIN_CHUNK_SIZE 2048
+#define MAX_CHUNK_SIZE 16384
 
 class Chunker {
 private:

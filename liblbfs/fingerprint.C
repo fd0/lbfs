@@ -116,8 +116,10 @@ Chunker::chunk(const unsigned char *data, size_t size)
   size_t pos0 = _cur_pos;
   for (size_t i=0; i<size; i++, _cur_pos++) {
     f_break = _w.slide8 (data[i]);
-    if ((f_break % _chunk_size) == BREAKMARK_VALUE) {
-      lbfs_chunk *c = new lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
+    size_t cs = _cur_pos - _last_pos;
+    if (((f_break % _chunk_size) == BREAKMARK_VALUE && cs >= MIN_CHUNK_SIZE) ||
+	cs >= MAX_CHUNK_SIZE) {
+      lbfs_chunk *c = new lbfs_chunk(_last_pos, cs, _fp);
       _w.reset();
       _fp = 0;
 

@@ -329,7 +329,6 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     nfs3_exp_enable (NFSPROC3_READ, rres);
     *(res->resfail) = *((reinterpret_cast<ex_read3res*>(rres))->resfail);
   }
-  // XXX - how to make sure nfs3reply does not crash?
   nfs3reply (sbp, res, rqs, RPC_SUCCESS);
 
   for (unsigned i=0; i<cv->size(); i++) delete (*cv)[i];
