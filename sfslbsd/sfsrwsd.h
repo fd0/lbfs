@@ -200,6 +200,8 @@ private:
   void make_trashent_lookup_cb(unsigned, unsigned, 
                                lookup3res *res, clnt_stat err);
   void make_trashent_remove_cb(wccstat3 *res, clnt_stat err);
+  void db_gc();
+  bool db_gc_on;
 
 public:
   synctab *const st;
@@ -212,7 +214,9 @@ public:
   bool getauthclnt ();
 
   filesrv ();
-  void db_gc(fp_db &db);
+  
+  fp_db fpdb;
+  tmpfh_table fhtab;
 };
 
 extern int sfssfd;
@@ -261,9 +265,6 @@ class client : public virtual refcount, public sfsserv {
 
   ptr<asrv> nfssrv;
 
-  fp_db fpdb;
-  tmpfh_table fhtab;
-
   static u_int64_t nextgen ();
 
   void fail ();
@@ -308,9 +309,6 @@ class client : public virtual refcount, public sfsserv {
   void getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *, 
                  size_t count, read3res *, str err);
   void getfp (svccb *sbp, filesrv::reqstate rqs);
-
-  void db_gc_cb ();
-  bool db_gc_on;
 
 protected:
   explicit client (ref<axprt_crypt> x);

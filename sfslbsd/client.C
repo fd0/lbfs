@@ -32,12 +32,13 @@
 #include "fingerprint.h"
 #include "lbfs.h"
 
-#define DEBUG 1
 #define KEEP_TMP_VERSIONS 1
+int lbsd_trace = (getenv("LBSD_TRACE") ? atoi (getenv ("LBSD_TRACE")) : 0);
 
-struct timeval t0;
-struct timeval t1;
-inline unsigned timediff() {
+static struct timeval t0;
+static struct timeval t1;
+static inline unsigned timediff() 
+{
   return (t1.tv_sec*1000000+t1.tv_usec)-(t0.tv_sec*1000000+t0.tv_usec);
 }
 
@@ -124,18 +125,18 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
 
   if (err || count != cwa->count || cv.size() != 1 || 
       cv[0]->fingerprint() != cwa->fingerprint || !cv[0]->hash_eq(cwa->hash)) {
-#if DEBUG > 0
-    if (err) 
-      warn << "CONDWRITE: error reading file: " << err << "\n";
-    else if (count != cwa->count)
-      warn << "CONDWRITE: size does not match, old chunk? " 
-	   << "want " << cwa->count << " got " << count << "\n";
-    else 
-    if (cv.size() != 1 || cv[0]->fingerprint() != cwa->fingerprint)
-      warn << "CONDWRITE: fingerprint mismatch\n";
-    else 
-      warn << "CONDWRITE: sha1 hash mismatch\n";
-#endif
+    if (lbsd_trace > 0) {
+      if (err) 
+        warn << "CONDWRITE: error reading file: " << err << "\n";
+      else if (count != cwa->count)
+        warn << "CONDWRITE: size does not match, old chunk? " 
+	     << "want " << cwa->count << " got " << count << "\n";
+      else 
+      if (cv.size() != 1 || cv[0]->fingerprint() != cwa->fingerprint)
+        warn << "CONDWRITE: fingerprint mismatch\n";
+      else 
+        warn << "CONDWRITE: sha1 hash mismatch\n";
+    }
     delete[] data;
     delete chunker0;
     iter->del(); 
@@ -156,9 +157,8 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   }
  
   else {
-#if DEBUG > 1
-    warn << "CONDWRITE: bingo, found a condwrite candidate\n";
-#endif
+    if (lbsd_trace > 1)
+      warn << "CONDWRITE: bingo, found a condwrite candidate\n";
     nfs3_write(fsrv->c, cwa->file, 
 	       wrap(mkref(this), &client::condwrite_write_cb, 
 		    sbp, rqs, cwa->count),
@@ -166,15 +166,14 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     
     delete chunker0;
     delete iter;
-    fpdb.sync();
+    fsrv->fpdb.sync();
     return;
   }
 
   delete iter;
-#if DEBUG > 0
-  warn << "CONDWRITE: ran out of files to try\n";
-#endif
-  fpdb.sync();
+  if (lbsd_trace > 0)
+    warn << "CONDWRITE: ran out of files to try\n";
+  fsrv->fpdb.sync();
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
   
@@ -206,13 +205,13 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
     
-  tmpfh_record *tfh_rec = fhtab.tab[cwa->file]; 
+  tmpfh_record *tfh_rec = fsrv->fhtab.tab[cwa->file]; 
   if (tfh_rec) 
     tfh_rec->chunks.push_back 
       (New chunk(cwa->offset, cwa->count, cwa->fingerprint));
 
   fp_db::iterator *iter = 0;
-  if (fpdb.get_iterator(cwa->fingerprint, &iter) == 0) {
+  if (fsrv->fpdb.get_iterator(cwa->fingerprint, &iter) == 0) {
     if (iter) { 
       chunk_location c; 
       if (!iter->get(&c)) { 
@@ -231,9 +230,8 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
       delete iter; 
     }
   }
-#if DEBUG > 0
-  warn << "CONDWRITE: " << cwa->fingerprint << " not in DB\n";
-#endif
+  if (lbsd_trace)
+    warn << "CONDWRITE: " << cwa->fingerprint << " not in DB\n";
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
 
@@ -256,7 +254,7 @@ client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs,
 	break;
       default:
 	if (!cres->status) 
-	  fhtab.tab.insert 
+	  fsrv->fhtab.tab.insert 
 	    (New tmpfh_record
 	     (*(cres->resok->obj.handle),dir,path,strlen(path)));
 	delete[] path;
@@ -274,9 +272,8 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   str rstr = armor32((void*)&r, sizeof(r));
   char *tmpfile = New char[7+rstr.len()+1];
   sprintf(tmpfile, "oscar.%s", rstr.cstr());
-#if DEBUG > 1
-  warn << "MKTMPFILE: " << tmpfile << "\n";
-#endif
+  if (lbsd_trace > 2)
+    warn << "MKTMPFILE: " << tmpfile << "\n";
   
   u_int32_t authno = sbp->getaui ();
   create3args c3arg;
@@ -293,10 +290,6 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
 		       sbp, rqs, c3arg.where.dir, tmpfile, cres),
 		 authtab[authno]);
   fsrv->update_trashent(rqs.fsno);
-  if (!db_gc_on) {
-    delaycb(5, wrap(mkref (this), &client::db_gc_cb));
-    db_gc_on = true;
-  }
 }
 
 void
@@ -310,10 +303,10 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
   u_int32_t authno = sbp->getaui ();
 #endif 
 
-#if DEBUG > 1
-  gettimeofday(&t1, 0L);
-  warn << "committmp: " << timediff() << " usecs\n";
-#endif
+  if (lbsd_trace > 2) {
+    gettimeofday(&t1, 0L);
+    warn << "COMMITTMP: " << timediff() << " usecs\n";
+  }
 
   commit3res *cres = New commit3res;
   if (!res)
@@ -327,23 +320,23 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
     nfs3reply (sbp, cres, rqs, RPC_FAILED);
   }
 
-  tmpfh_record *tfh_rec = fhtab.tab[tmpfh];
+  tmpfh_record *tfh_rec = fsrv->fhtab.tab[tmpfh];
   if (tfh_rec) {
     for (unsigned i=0; i<tfh_rec->chunks.size(); i++) {
       chunk *c = tfh_rec->chunks[i];
 #if KEEP_TMP_VERSIONS
       c->location().set_fh(tmpfh);
-      fpdb.add_entry(c->fingerprint(), &(c->location()));
+      fsrv->fpdb.add_entry(c->fingerprint(), &(c->location()));
 #endif
       c->location().set_fh(fh);
-      fpdb.add_entry(c->fingerprint(), &(c->location()));
-#if DEBUG > 1
-      warn << "COMMITTMP: adding " << c->fingerprint() << " @"
-	   << c->location().pos() << " " 
-	   << c->location().count() << " to database\n";
-#endif
+      fsrv->fpdb.add_entry(c->fingerprint(), &(c->location()));
+      if (lbsd_trace > 2) {
+        warn << "COMMITTMP: adding " << c->fingerprint() << " @"
+	     << c->location().pos() << " " 
+	     << c->location().count() << " to database\n";
+      }
     }
-    fpdb.sync();
+    fsrv->fpdb.sync();
     tfh_rec->name[tfh_rec->len] = '\0';
 
 #if KEEP_TMP_VERSIONS == 0
@@ -357,7 +350,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
 		   authtab[authno]);
 #endif
 
-    fhtab.tab.remove(tfh_rec);
+    fsrv->fhtab.tab.remove(tfh_rec);
     delete tfh_rec;
   }
 }
@@ -392,9 +385,8 @@ void
 client::committmp (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
-#if DEBUG > 1
-  gettimeofday(&t0, 0L);
-#endif
+  if (lbsd_trace > 2)
+    gettimeofday(&t0, 0L);
   nfs3_copy (fsrv->c, cta->commit_from, cta->commit_to,
              wrap(read_cb_nop),
              wrap(mkref(this), &client::committmp_cb, sbp, rqs));
@@ -404,9 +396,9 @@ void
 client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
                   size_t count, read3res *rres, str err)
 {
-#if DEBUG > 1
-  lbfs_getfp3args *arg = sbp->template getarg<lbfs_getfp3args> ();
-#endif
+  lbfs_getfp3args *arg = 0;
+  if (lbsd_trace > 2) 
+    arg = sbp->template getarg<lbfs_getfp3args> ();
   if (!err && !rres->status && rres->resok->eof) 
     chunker->stop();
   const vec<chunk *>& cv = chunker->chunk_vector();
@@ -421,24 +413,21 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       x.hash = cv[i]->hash();
       x.count = cv[i]->location().count();
       res->resok->fprints[i] = x;
-#if DEBUG > 2
-      warn << "GETFP: " << cv[i]->fingerprint() << " " 
-	   << armor32(x.hash.base(), sha1::hashsize) << "\n";
-#endif
+      if (lbsd_trace > 3)
+        warn << "GETFP: " << cv[i]->fingerprint() << " " 
+	     << armor32(x.hash.base(), sha1::hashsize) << "\n";
     }
     res->resok->eof=rres->resok->eof;
     res->resok->file_attributes = 
       *(reinterpret_cast<ex_post_op_attr*>(&(rres->resok->file_attributes)));
-#if DEBUG > 1
-    warn << "GETFP: " << arg->offset << " returned " << n 
-         << " eof " << res->resok->eof << "\n";
-#endif
+    if (lbsd_trace > 2)
+      warn << "GETFP: " << arg->offset << " returned " << n 
+           << " eof " << res->resok->eof << "\n";
     nfs3reply (sbp, res, rqs, RPC_SUCCESS);
   }
   else {
-#if DEBUG > 1
-    warn << "GETFP: failed " << err << "\n";
-#endif
+    if (lbsd_trace > 1)
+      warn << "GETFP: failed " << err << "\n";
     if (rres->status) {
       res->set_status(rres->status);
       nfs3_exp_enable (NFSPROC3_READ, rres);
@@ -449,12 +438,12 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       nfs3reply (sbp, res, rqs, RPC_FAILED);
   }
 
-#if DEBUG > 2
-  gettimeofday(&t1, NULL);
-  warn << "GETFP in " << timediff() << " usecs\n";
-  fflush(stdout);
-  fflush(stderr);
-#endif
+  if (lbsd_trace > 2) {
+    gettimeofday(&t1, NULL);
+    warn << "GETFP in " << timediff() << " usecs\n";
+    fflush(stdout);
+    fflush(stderr);
+  }
   delete chunker;
 }
 
@@ -462,9 +451,10 @@ void
 client::getfp (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_getfp3args *arg = sbp->template getarg<lbfs_getfp3args> ();
-#if DEBUG > 1
-  warn << "GETFP: ask @" << arg->offset << " +" << arg->count << "\n"; 
-#endif
+  if (lbsd_trace > 1)
+    warn << "GETFP: ask @" << arg->offset << " +" << arg->count << "\n"; 
+  if (lbsd_trace > 2)
+    gettimeofday(&t0, NULL);
   Chunker *chunker = New Chunker(true);
   nfs3_read 
     (fsrv->c, arg->file, 
@@ -477,10 +467,8 @@ void
 client::trashent_link_cb (svccb *sbp, filesrv::reqstate rqs, 
                           link3res *lnres, clnt_stat err)
 {
-#if DEBUG > 0
-  if (err) 
+  if (lbsd_trace > 1 && err)
     warn << "trashent_link_cb: failed\n";
-#endif
   normal_dispatch(sbp, rqs);
   delete lnres;
 }
@@ -513,17 +501,6 @@ client::trashent_link (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh)
 	         wrap(mkref(this), &client::trashent_link_cb, sbp, rqs, lnres),
 		 authtab[authno]);
   fsrv->update_trashent(rqs.fsno);
-  if (!db_gc_on) {
-    delaycb(5, wrap(mkref (this), &client::db_gc_cb));
-    db_gc_on = true;
-  }
-}
-
-void
-client::db_gc_cb ()
-{
-  fsrv->db_gc(fpdb);
-  db_gc_on = false;
 }
 
 void
@@ -558,12 +535,9 @@ client::nfs3dispatch (svccb *sbp)
     committmp(sbp, rqs);
   else if (sbp->proc () == lbfs_CONDWRITE)
     condwrite(sbp, rqs);
-  else if (sbp->proc () == lbfs_GETFP) {
-#if DEBUG > 2
-    gettimeofday(&t0, NULL);
-#endif
+  else if (sbp->proc () == lbfs_GETFP)
     getfp(sbp, rqs);
-  }
+
 #if KEEP_TMP_VERSIONS == 0
   //
   // keep removed files (via REMOVE or RENAME)
@@ -589,11 +563,10 @@ client::nfs3dispatch (svccb *sbp)
 	          authtab[authno]);
   }
 #endif
+
   else {
-#if DEBUG > 2
-    if (sbp->proc () == NFSPROC3_LOOKUP) 
+    if (lbsd_trace > 1 && sbp->proc () == NFSPROC3_LOOKUP)
       warn ("server: %lu %lu\n", xc->bytes_sent, xc->bytes_recv);
-#endif
     normal_dispatch(sbp, rqs);
   }
 }
@@ -632,9 +605,6 @@ client::client (ref<axprt_crypt> xx)
   authtab[0] = authunix_create ("localhost", (uid_t) 32767,
 				(gid_t) 9999, 0, NULL);
   clienttab.insert (this);
-
-  fpdb.open (FP_DB);
-  db_gc_on = false;
 }
 
 client::~client ()

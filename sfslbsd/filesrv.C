@@ -26,6 +26,14 @@
 #include "lbfs.h"
 #include "sfsrwsd.h"
 
+extern int lbsd_trace;
+
+static struct timeval t0;
+static struct timeval t1;
+static inline unsigned timediff() {
+  return (t1.tv_sec*1000000+t1.tv_usec)-(t0.tv_sec*1000000+t0.tv_usec);
+}
+
 class erraccum : public virtual refcount {
   typedef callback<void, bool>::ref cb_t;
   const cb_t cb;
@@ -160,7 +168,7 @@ lbfs_exp_disable (u_int32_t proc, void *resp)
 
 
 filesrv::filesrv ()
-  : leasetime (60), st (synctab_alloc ())
+  : leasetime (60), db_gc_on(false), st (synctab_alloc ())
 {
 }
 
@@ -170,6 +178,7 @@ filesrv::init (cb_t c)
   assert (!cb);
   cb = c;
   aclntudp_create (host, 0, nfs_program_3, wrap (this, &filesrv::getnfsc));
+  fpdb.open (FP_DB);
 }
 
 void
@@ -335,14 +344,19 @@ filesrv::make_trashent_lookup_cb(unsigned r, unsigned fsno,
     if (res->resok->obj_attributes.present) {
       /* schedule removal of this fh from database */
       removed_fhs.push_back(res->resok->object);
-      warn << "GC: schedule old fh for " << tmpfile << " for gc\n";
+      if (lbsd_trace > 1)
+        warn << "GC: schedule old fh for " << tmpfile << " for gc\n";
+      if (!db_gc_on) {
+        delaycb(5, wrap(this, &filesrv::db_gc));
+	db_gc_on = true;
+      }
     }
     diropargs3 arg;
     arg.name = tmpfile;
     arg.dir = sfs_trash[fsno].subdirs[r % SFS_TRASH_DIR_BUCKETS];
     wccstat3 *wres = New wccstat3;
-    c->call (NFSPROC3_REMOVE, &arg, wres,
-	     wrap(this, &filesrv::make_trashent_remove_cb, wres), auth_default);
+    c->call(NFSPROC3_REMOVE, &arg, wres,
+	    wrap(this, &filesrv::make_trashent_remove_cb, wres), auth_default);
   }
   delete res;
 }
@@ -353,17 +367,20 @@ filesrv::make_trashent_remove_cb(wccstat3 *res, clnt_stat err)
   delete res;
 }
 
-// expensive... need to reimplement this in a better way
 void
-filesrv::db_gc(fp_db &db)
+filesrv::db_gc()
 {
   size_t n = removed_fhs.size();
   int k = 0;
-  warn << "GC: trying to gc " << n << " number of fhs\n";
+  if (lbsd_trace > 1) {
+    warn << "GC: trying to gc " << n << " fhs\n";
+    gettimeofday(&t0, 0L);
+  }
   fp_db::iterator *iter = 0;
-  if (db.get_iterator(&iter) == 0 && iter) {
+  if (fpdb.get_iterator(&iter) == 0 && iter) {
     chunk_location c;
-    if (!iter->get(&c)) {
+    int j = iter->get(&c);
+    if (!j) {
       do {
 	k++;
 	nfs_fh3 fh;
@@ -375,13 +392,19 @@ filesrv::db_gc(fp_db &db)
 	    break;
 	  }
         }
-      } while(!iter->next(&c)); // XXX check n > 0
-    }
+      } while(!iter->next(&c) && n > 0);
+    } 
   }
   if (iter)
     delete iter;
-  warn << "GC: iterated over " << k << " number of files\n";
+  if (lbsd_trace > 1) {
+    gettimeofday(&t1, 0L);
+    unsigned d = timediff()/1000;
+    warn << "GC: " << k << " chunks in " << d << " msec, "
+         << removed_fhs.size()-n << " removed\n";
+  }
   removed_fhs.setsize(0);
+  db_gc_on = false;
 }
 
 void

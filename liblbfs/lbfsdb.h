@@ -157,7 +157,7 @@ db_base<K,V>::get_iterator(K k, db_base::iterator **iterp)
       *iterp = New iterator(cursor, true);
       return 0;
     }
-  } 
+  }
   return -1;
 }
 
@@ -169,11 +169,13 @@ db_base<K,V>::get_iterator(db_base::iterator **iterp)
   if (_dbp->cursor(_dbp, NULL, &cursor, 0) == 0) { 
     DBT key;
     DBT data;
+    memset(&key, 0, sizeof(key));
+    memset(&data, 0, sizeof(data));
     if (cursor->c_get(cursor, &key, &data, DB_FIRST) == 0) {
       *iterp = New iterator(cursor, false);
       return 0;
     }
-  } 
+  }
   return -1;
 }
 
