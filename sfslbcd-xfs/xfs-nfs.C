@@ -180,6 +180,7 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
     }
 #endif
     xde = (xfs_dirent *)args->ptr; //(xfs_dirent *)malloc(reclen);
+    bzero(xde, sizeof(*xde));
     xde->d_namlen = nfs_dirent->name.len();
     warn << "xde->namlen = " << xde->d_namlen 
 	 << " nfs_dirent_len = " << nfs_dirent->name.len() << "\n";
@@ -212,6 +213,7 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
 int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid) {
 
   xfs_dirent *xde = (xfs_dirent *)malloc(sizeof(*xde));
+  bzero(xde, sizeof(*xde));
   xde->d_namlen = strlen(fname);
   strcpy(xde->d_name, fname);
   xde->d_reclen = sizeof(*xde);
