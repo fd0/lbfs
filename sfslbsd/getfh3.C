@@ -260,6 +260,7 @@ struct read_obj {
   cb_t cb;
   ref<aclnt> c;
   bool cb_called;
+  AUTH *auth;
 
   const nfs_fh3 fh;
   off_t pos; 
@@ -307,12 +308,12 @@ struct read_obj {
     arg.count = (want <= NFS3_BLOCK_SIZE ? want : NFS3_BLOCK_SIZE);
     read3res *res = New read3res;
     c->call (NFSPROC3_READ, &arg, res,
-	     wrap (this, &read_obj::gotdata, res), auth_default);
+	     wrap (this, &read_obj::gotdata, res), auth);
   }
   
-  read_obj (ref<aclnt> c, const nfs_fh3 &f, off_t p, uint32 cnt, 
+  read_obj (ref<aclnt> c, AUTH *auth, const nfs_fh3 &f, off_t p, uint32 cnt, 
             read_cb_t rcb, cb_t cb)
-    : read_cb(rcb), cb(cb), c(c), fh(f)
+    : read_cb(rcb), cb(cb), c(c), auth(auth), fh(f)
   {
     count = 0;
     pos = p;
@@ -323,10 +324,10 @@ struct read_obj {
 };
 
 void
-nfs3_read (ref<aclnt> c, const nfs_fh3 &fh, off_t pos, uint32 count, 
-           read_obj::read_cb_t rcb, read_obj::cb_t cb)
+nfs3_read (ref<aclnt> c, AUTH *auth, const nfs_fh3 &fh, off_t pos,
+           uint32 count, read_obj::read_cb_t rcb, read_obj::cb_t cb)
 {
-  vNew read_obj (c, fh, pos, count, rcb, cb);
+  vNew read_obj (c, auth, fh, pos, count, rcb, cb);
 }
 
 
@@ -336,6 +337,7 @@ struct copy_obj {
   read_cb_t read_cb;
   cb_t cb;
   ref<aclnt> c;
+  AUTH *auth;
 
   const nfs_fh3 src;
   const nfs_fh3 dst;
@@ -372,7 +374,7 @@ struct copy_obj {
 	arg.offset = 0;
 	arg.count = size;
         c->call (NFSPROC3_COMMIT, &arg, &cres,
-	         wrap(this, &copy_obj::gotcommit), auth_default);
+	         wrap(this, &copy_obj::gotcommit), auth);
       }
       else 
 	delete this;
@@ -407,7 +409,7 @@ struct copy_obj {
         write3res *wres2 = New write3res;
         c->call (NFSPROC3_WRITE, &arg, wres2,
 	         wrap(this, &copy_obj::gotwrite, 
-		      arg.offset, arg.count, rres, wres2), auth_default);
+		      arg.offset, arg.count, rres, wres2), auth);
         outstanding_writes++;
       }
       else 
@@ -451,7 +453,7 @@ struct copy_obj {
       write3res *wres = New write3res;
       c->call (NFSPROC3_WRITE, &arg, wres,
 	       wrap(this, &copy_obj::gotwrite, 
-		    arg.offset, arg.count, res, wres), auth_default);
+		    arg.offset, arg.count, res, wres), auth);
       outstanding_writes++;
       outstanding_reads--;
       read_cb(reinterpret_cast<unsigned char *>(res->resok->data.base()), 
@@ -468,7 +470,7 @@ struct copy_obj {
     arg.count = count;
     c->call (NFSPROC3_READ, &arg, rres,
 	     wrap (this, &copy_obj::gotread, arg.offset, arg.count, rres), 
-	     auth_default);
+	     auth);
     outstanding_reads++;
   }
 
@@ -497,12 +499,12 @@ struct copy_obj {
   void do_getattr()
   {
     c->call (NFSPROC3_GETATTR, &src, &ares,
-	     wrap (this, &copy_obj::gotattr), auth_default);
+	     wrap (this, &copy_obj::gotattr), auth);
   }
 
-  copy_obj (ref<aclnt> c, const nfs_fh3 &s, const nfs_fh3 &d, 
+  copy_obj (ref<aclnt> c, AUTH *auth, const nfs_fh3 &s, const nfs_fh3 &d, 
             read_cb_t rcb, cb_t cb, bool in_order)
-    : read_cb(rcb), cb(cb), c(c), src(s), dst(d), cb_called(false)
+    : read_cb(rcb), cb(cb), c(c), auth(auth), src(s), dst(d), cb_called(false)
   {
     errors = outstanding_reads = outstanding_writes = 0;
     if (in_order)
@@ -514,15 +516,16 @@ struct copy_obj {
 };
 
 void
-nfs3_copy (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst,
+nfs3_copy (ref<aclnt> c, AUTH *auth, const nfs_fh3 &src, const nfs_fh3 &dst,
            copy_obj::read_cb_t rcb, copy_obj::cb_t cb, bool in_order)
 {
-  vNew copy_obj (c, src, dst, rcb, cb, in_order);
+  vNew copy_obj (c, auth, src, dst, rcb, cb, in_order);
 }
 
 struct write_obj {
   typedef callback<void, write3res *, str>::ref cb_t;
   ref<aclnt> c;
+  AUTH *auth;
   cb_t cb;
   bool cb_called;
 
@@ -584,16 +587,17 @@ struct write_obj {
       arg.data.set(reinterpret_cast<char*>(data+count), cnt, freemode::NOFREE);
       write3res *res = New write3res;
       c->call (NFSPROC3_WRITE, &arg, res,
-	       wrap (this, &write_obj::done_write, res), auth_default);
+	       wrap (this, &write_obj::done_write, res), auth);
       pos += cnt;
       count += cnt;
       outstanding_writes++;
     }
   }
   
-  write_obj (ref<aclnt> c, const nfs_fh3 &f, 
+  write_obj (ref<aclnt> c, AUTH *auth, const nfs_fh3 &f, 
              unsigned char *data, off_t p, uint32 cnt, stable_how s, cb_t cb)
-    : c(c), cb(cb), fh(f), data(data), pos(p), total(cnt), stable(s)
+    : c(c), auth(auth), cb(cb), fh(f), data(data),
+      pos(p), total(cnt), stable(s)
   {
     count = 0;
     outstanding_writes = 0;
@@ -605,11 +609,10 @@ struct write_obj {
 
 // data will be deleted at the end when write is finished.
 void
-nfs3_write (ref<aclnt> c, const nfs_fh3 &fh, 
-            write_obj::cb_t cb, 
-	    unsigned char *data, off_t pos, uint32 count, stable_how s)
+nfs3_write (ref<aclnt> c, AUTH *auth, const nfs_fh3 &fh, write_obj::cb_t cb,
+            unsigned char *data, off_t pos, uint32 count, stable_how s)
 {
-  vNew write_obj (c, fh, data, pos, count, s, cb);
+  vNew write_obj (c, auth, fh, data, pos, count, s, cb);
 }
 
 

@@ -251,7 +251,7 @@ void getfh3 (ref<aclnt> c, str path,
 // data pointer, number of bytes read, and offset to the rcb. when all read
 // requests are finished, call cb and pass the total number of bytes read.
 
-void nfs3_read (ref<aclnt> c, const nfs_fh3 &fh,
+void nfs3_read (ref<aclnt> c, AUTH *auth, const nfs_fh3 &fh,
                 off_t pos, size_t count,
                 callback<void, const unsigned char *, size_t, off_t>::ref rcb,
                 callback<void, size_t, read3res *, str>::ref cb);
@@ -264,13 +264,14 @@ void nfs3_mkdir (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
 // the src file handle, call rcb and pass in the data pointer, number of bytes
 // read, and offset. when copy is completed, call cb, pass in the file
 // attribute of the dst filehandle, and the final commit res object.
-void nfs3_copy (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst, 
+void nfs3_copy (ref<aclnt> c, AUTH *auth,
+                const nfs_fh3 &src, const nfs_fh3 &dst, 
                 callback<void, const unsigned char *, size_t, off_t>::ref rcb,
                 callback<void, commit3res *, str>::ref cb,
 		bool in_order = true);
 
 // issues multiple concurrent NFS write requests to server.
-void nfs3_write (ref<aclnt> c, const nfs_fh3 &fh, 
+void nfs3_write (ref<aclnt> c, AUTH *auth, const nfs_fh3 &fh, 
                  callback<void, write3res *, str>::ref cb,
 		 unsigned char *data, off_t pos, uint32 count, stable_how s);
 

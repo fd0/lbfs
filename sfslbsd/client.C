@@ -143,7 +143,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
       Chunker *chunker = New Chunker;
       unsigned char *buf = New unsigned char[c.count()];
       nfs3_read
-	(rqs.c, fh, 
+	(rqs.c, authtab[sbp->getaui ()], fh, 
 	 c.pos(), c.count(),
 	 wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos(), chunker), 
 	 wrap(mkref(this), &client::condwrite_got_chunk, 
@@ -162,7 +162,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
       return;
     }
     nfs_fh3 fh = u->fh;
-    nfs3_write(rqs.c, fh,
+    nfs3_write(rqs.c, authtab[sbp->getaui ()], fh,
 	       wrap(mkref(this), &client::condwrite_write_cb, 
 		    sbp, rqs, cwa->count),
 	       data, cwa->offset, cwa->count, UNSTABLE);
@@ -231,6 +231,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
       u->chunks.push_back
         (New chunk(cwa->offset, cwa->count, cwa->hash));
     else {
+      warn << "u not in use, sbp queued\n";
       u->sbps.push_back(sbp);
       return;
     }
@@ -252,7 +253,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
         Chunker *chunker = New Chunker;
 	unsigned char *buf = New unsigned char[c.count()];
 	nfs3_read
-	  (rqs.c, fh,
+	  (rqs.c, authtab[sbp->getaui ()], fh,
 	   c.pos(), c.count(),
 	   wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos(),chunker),
 	   wrap(mkref(this), &client::condwrite_got_chunk,
@@ -454,7 +455,7 @@ client::committmp (svccb *sbp, filesrv::reqstate rqs)
     else {
       if (lbsd_trace > 2)
         gettimeofday(&t0, 0L);
-      nfs3_copy (rqs.c, u->fh, cta->commit_to,
+      nfs3_copy (rqs.c, authtab[sbp->getaui ()], u->fh, cta->commit_to,
                  wrap(read_cb_nop),
                  wrap(mkref(this), &client::committmp_cb, sbp, rqs));
     }
@@ -562,7 +563,7 @@ client::getfp (svccb *sbp, filesrv::reqstate rqs)
     gettimeofday(&t0, NULL);
   Chunker *chunker = New Chunker;
   nfs3_read 
-    (rqs.c, arg->file, 
+    (rqs.c, authtab[sbp->getaui ()], arg->file, 
      arg->offset, arg->count,
      wrap(mkref(this), &client::chunk_data, chunker),
      wrap(mkref(this), &client::getfp_cb, sbp, rqs, chunker));
