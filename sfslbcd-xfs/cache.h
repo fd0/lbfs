@@ -65,7 +65,7 @@ typedef struct cache_entry{
 
   cache_entry (nfs_fh3 &n, ex_fattr3 &na);
   ~cache_entry ();
-  set_exp (ex_fattr3 &na, time_t rqtime, bool update_dir_expire);
+  void set_exp (time_t rqtime, bool update_dir_expire = false);
 } cache_entry;
 
 extern ihash<nfs_fh3, cache_entry, &cache_entry::nh,
@@ -93,7 +93,7 @@ cache_entry::~cache_entry ()
   xfsindex.remove (this);
 }
 
-inline
+inline void
 cache_entry::set_exp (time_t rqtime, bool update_dir_expire) 
 {
   // change expire to rpc_time + expire
