@@ -747,7 +747,7 @@ struct getfp_obj {
     bool found = false;
     nfs_fh3 fh;
     chunk_location c;
-    cache_entry *e = NULL;
+    cache_entry *e1 = NULL;
     
     for (uint i=0; i<fpres->resok->fprints.size(); i++) {
       found = false;
@@ -763,8 +763,8 @@ struct getfp_obj {
 #endif
 	      continue;
 	    }
-	    e = nfsindex[fh];
-	    if (!e) {
+	    e1 = nfsindex[fh];
+	    if (!e1) {
 #if DEBUG > 0
 	      warn << "compose_file: null fh or Can't find node handle\n";
 #endif
@@ -772,9 +772,9 @@ struct getfp_obj {
 	      continue;
 	    }    
 #if DEBUG > 0
-	    warn << "reading chunks from " << e->cache_name << "\n";
+	    warn << "reading chunks from " << e1->cache_name << "\n";
 #endif
-	    chfd = open (e->cache_name, O_RDONLY, 0666);
+	    chfd = open (e1->cache_name, O_RDONLY, 0666);
 	    if (chfd < 0) {
 #if DEBUG > 0
 	      warn << "compose_file: error: " << strerror (errno) 
@@ -1231,7 +1231,7 @@ struct link_obj {
   link_obj (int fd1, const xfs_message_link &h1, sfs_aid sa1, 
 	      ref<aclnt> c1) : fd(fd1), c(c1), h(h1), sa(sa1) 
   {
-    cache_entry *e1 = xfsindex[h.from_handle];
+    e1 = xfsindex[h.from_handle];
     if (!e1) {
 #if DEBUG > 0
       warn << "link_obj: Can't find from_handle\n";
