@@ -67,8 +67,7 @@ NULL						/* gc nodes */
 };
 
 void lbfs_condwrite(ref<condwrite3args> cwa, clnt_stat err);
-void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count, 
-		 cache_entry *new_e);
+void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count);
 void nfs3_rmdir(int fd, struct xfs_message_rmdir *h, ref<ex_lookup3res> lres,
 		clnt_stat err);
 
@@ -154,7 +153,7 @@ xfs_message_getroot (int fd, struct xfs_message_getroot *h, u_int size)
 }
 
 void 
-nfs3_lookup (int fd, struct xfs_message_getnode *h,
+nfs3_lookup (int fd, struct xfs_message_getnode *h, uint32 seqnum,
 	     ref<ex_lookup3res > lres, time_t rqtime, clnt_stat err)
 {
 
@@ -165,10 +164,10 @@ nfs3_lookup (int fd, struct xfs_message_getnode *h,
 
   if (err || lres->status != NFS3_OK) {
     if (err)
-      warn << err << ":nfs3_lookup\n";
+      warn << h->header.sequence_num << ":" << err << ":nfs3_lookup\n";
     else {
-      warn << strerror(lres->status) << ":nfs3_lookup\n";
-      reply_err(fd, h->header.sequence_num, lres->status);
+      warn << h->header.sequence_num << ":" <<strerror(lres->status) << ":nfs3_lookup\n";
+      reply_err(fd, seqnum, lres->status);
     }
     return;
   }
@@ -178,7 +177,7 @@ nfs3_lookup (int fd, struct xfs_message_getnode *h,
     else if (lres->resok->dir_attributes.present)
       a = lres->resok->dir_attributes;
     else {
-      warn << "lookup: error no attr present\n";
+      warn << h->header.sequence_num << ":" <<"lookup: error no attr present\n";
       return;
     }
   }
@@ -191,34 +190,34 @@ nfs3_lookup (int fd, struct xfs_message_getnode *h,
   h0 = (struct xfs_message_header *) &msg;
   h0_len = sizeof (msg);
 
-  xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+  xfs_send_message_wakeup_multiple (fd, seqnum, 0,
 				    h0, h0_len, NULL, 0);
 }
 
 int 
 xfs_message_getnode (int fd, struct xfs_message_getnode *h, u_int size)
 {
-  warn << "get node !! msg.parent_handle ("
+  warn << h->header.sequence_num << ":" <<"get node !! msg.parent_handle ("
     << (int) h->parent_handle.a << ","
     << (int) h->parent_handle.b << ","
     << (int) h->parent_handle.c << ","
     << (int) h->parent_handle.d << ")\n";
-  warn << "file name = " << h->name << "\n";
+  warn << h->header.sequence_num << ":" <<"file name = " << h->name << "\n";
 
   cache_entry *e = xfsindex[h->parent_handle];
   if (!e) {
-    warn << "xfs_message_getnode: Can't find parent_handle\n";
+    warn << h->header.sequence_num << ":" << "xfs_message_getnode: Can't find parent_handle\n";
     return -1;
   }
 
   diropargs3 doa;
   doa.dir = e->nh;
   doa.name = h->name;
-  warn << "requesting file name " << doa.name << "\n";
+  warn << h->header.sequence_num << ":" << "requesting file name " << doa.name << "\n";
   ref<ex_lookup3res> res = New refcounted<ex_lookup3res>;
 
   nfsc->call (lbfs_NFSPROC3_LOOKUP, &doa, res,
-	      wrap (&nfs3_lookup, fd, h, res, timenow));
+	      wrap (&nfs3_lookup, fd, h, h->header.sequence_num, res, timenow));
 
   return 0;
 }
@@ -243,7 +242,12 @@ write_dirfile (int fd, struct xfs_message_getdata *h, //cache_entry *e,
 
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
-    warn << "write_dirfile: Can't find parent_handle\n";
+    warn << "write_dirfile: Can't find handle ("        
+	 << h->handle.a << ","
+	 << h->handle.b << ","
+	 << h->handle.c << ","
+	 << h->handle.d << ")\n";
+
     return;
   }
 
@@ -319,7 +323,7 @@ nfs3_readdir (int fd, struct xfs_message_getdata *h, cache_entry *e,
 
   }
   else {
-    if (!err)
+    if (err)
       warn << "nfs3_readdir: " << err << "\n";
     else {
       warn << "nfs3_readdir: " << strerror (errno) << "(" << errno << ")\n";
@@ -330,7 +334,7 @@ nfs3_readdir (int fd, struct xfs_message_getdata *h, cache_entry *e,
 
 void 
 write_file (ref<getfp_args> ga, uint64 offset, uint32 count,
-	    ref<ex_read3res > res, cache_entry *new_e)
+	    ref<ex_read3res > res)
 {
 
   warn << "filename = " << ga->out_fname << " offset = " << offset << "\n";
@@ -357,19 +361,19 @@ write_file (ref<getfp_args> ga, uint64 offset, uint32 count,
   close (out_fd);
 
   if (res->resok->count < count)
-    normal_read (ga, offset + res->resok->count, count - res->resok->count, 
-		 new_e);
+    normal_read (ga, offset + res->resok->count, count - res->resok->count);
   else
     ga->blocks_written++;
 }
 
 void 
-nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *new_e,
+nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
 	   ref<ex_read3res > res, clnt_stat err)
 {
-  if (!err && res->status == NFS3_OK && res->resok->file_attributes.present) {
+  if (!err && res->status == NFS3_OK) {
+    assert (res->resok->file_attributes.present);
 
-    write_file (ga, offset, count, res, new_e);
+    write_file (ga, offset, count, res);
 
     if (ga->blocks_written == ga->total_blocks && ga->eof) {
 
@@ -379,8 +383,6 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *new_e,
 	return;
       }
 
-      new_e->nh = e->nh; 
-      delete e;
       //add chunk to the database
       vec < lbfs_chunk * >cvp;
       if (chunk_file (CHUNK_SIZES (0), &cvp, (char const *) ga->msg.cache_name) < 0) {
@@ -389,32 +391,23 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *new_e,
       }
       for (uint i = 0; i < cvp.size (); i++) {
 	warn << "adding fp = " << cvp[i]->fingerprint << " to lbfsdb\n";
-	cvp[i]->loc.set_fh (new_e->nh);
+	cvp[i]->loc.set_fh (e->nh);
 	lbfsdb.add_entry (cvp[i]->fingerprint, &(cvp[i]->loc));
         delete cvp[i];
       }
       lbfsdb.sync ();
-      new_e->open = INCACHE;
+      e->cache_name = ga->msg.cache_name;
+      e->open = INCACHE;
 
       struct xfs_message_header *h0 = NULL;
       size_t h0_len = 0;
-      struct xfs_message_updatefid msg2;
-      struct xfs_message_header *h1 = NULL;
-      size_t h1_len = 0;
 
       ga->msg.header.opcode = XFS_MSG_INSTALLDATA;
       h0 = (struct xfs_message_header *) &(ga->msg);
       h0_len = sizeof (ga->msg);
 
-      msg2.header.opcode = XFS_MSG_UPDATEFID;
-      msg2.old_handle = ga->h->handle;
-      msg2.new_handle = new_e->xh;
-      
-      h1 = (struct xfs_message_header *) &msg2;
-      h1_len = sizeof (msg2);
-
       xfs_send_message_wakeup_multiple (ga->fd, ga->h->header.sequence_num, 0,
-					h0, h0_len, h1, h1_len, NULL, 0);
+					h0, h0_len, NULL, 0);
     }
   }
   else {
@@ -428,7 +421,7 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *new_e,
 }
 
 void 
-normal_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *new_e)
+normal_read (ref<getfp_args> ga, uint64 offset, uint32 count)
 {
   cache_entry *e = xfsindex[ga->h->handle];
   if (!e) {
@@ -443,11 +436,11 @@ normal_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *new_e
 
   ref<ex_read3res > rres = New refcounted < ex_read3res >;
   nfsc->call (lbfs_NFSPROC3_READ, &ra, rres,
-	      wrap (&nfs3_read, ga, offset, count, new_e, rres));
+	      wrap (&nfs3_read, ga, offset, count, rres));
 }
 
 void 
-compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res > res, cache_entry *new_e)
+compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res > res)
 {
 
   int err, chfd, out_fd;
@@ -544,7 +537,7 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res > res, cache_entry *new_e)
     }
     if (!found) {
       warn << "compose_file: fp = " << res->resok->fprints[i].fingerprint << " not in DB\n";
-      normal_read (ga, offset, res->resok->fprints[i].count, new_e);
+      normal_read (ga, offset, res->resok->fprints[i].count);
     }
     offset += res->resok->fprints[i].count;
   }
@@ -556,41 +549,34 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res > res, cache_entry *new_e)
       warn << "compose_file: Can't find node handle\n";
       return;      
     }
-    new_e->nh = e->nh; 
-    delete e;
-    new_e->open = INCACHE;
+    e->cache_name = ga->msg.cache_name;
+    e->open = INCACHE;
 
     struct xfs_message_header *h0 = NULL;
     size_t h0_len = 0;
-    struct xfs_message_updatefid msg2;
-    struct xfs_message_header *h1 = NULL;
-    size_t h1_len = 0;
 
     ga->msg.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &(ga->msg);
     h0_len = sizeof (ga->msg);
 
-    msg2.header.opcode = XFS_MSG_UPDATEFID;
-    msg2.old_handle = ga->h->handle;
-    msg2.new_handle = new_e->xh;
-      
-    h1 = (struct xfs_message_header *) &msg2;
-    h1_len = sizeof (msg2);
-    
     xfs_send_message_wakeup_multiple (ga->fd, ga->h->header.sequence_num, 0,
-				      h0, h0_len, h1, h1_len, NULL, 0);
+				      h0, h0_len, NULL, 0);
   }
 }
 
 void 
 lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
-	    cache_entry *new_e, clnt_stat err)
+	    clnt_stat err)
 {
 
   if (!err && res->status == NFS3_OK) {
     cache_entry *e = xfsindex[ga->h->handle];
     if (!e) {
-      warn << "lbfs_getfp: Can't find node handle\n";
+      warn << "lbfs_getfp: Can't find node handle (" 
+	   << ga->h->handle.a << ","
+	   << ga->h->handle.b << ","
+	   << ga->h->handle.c << ","
+	   << ga->h->handle.d << ")\n";
       return;
     }
 
@@ -601,7 +587,7 @@ lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
 
     ga->total_blocks += res->resok->fprints.size ();
     ga->eof = res->resok->eof;
-    compose_file (ga, res, new_e);
+    compose_file (ga, res);
 
     if (!res->resok->eof) {
       //ga->offset += gfp->count; //ga->res->resok->count;
@@ -613,7 +599,7 @@ lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
       ref<lbfs_getfp3res > fpres = New refcounted < lbfs_getfp3res >;
       //ga->res = fpres;
       nfsc->call (lbfs_GETFP, &gfp, fpres,
-		  wrap (&lbfs_getfp, ga, fpres, timenow, new_e));
+		  wrap (&lbfs_getfp, ga, fpres, timenow));
     }
   }
   else {
@@ -667,9 +653,17 @@ getfp (int fd, struct xfs_message_getdata *h, cache_entry *e)
   msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R
     | XFS_OPEN_NW | XFS_DATA_W;	//This line is a hack...need to get read access 
 
-  nfs_fh3 new_fh = nfs_fh3();
-  cache_entry *new_e = new cache_entry(new_fh, e->nfs_attr);
-  strcpy (msg.cache_name, new_e->cache_name);
+  str fhstr = armor32(e->nh.data.base(), e->nh.data.size());
+  int r = rand();
+  str rstr = armor32((void*)&r, sizeof(int));
+  //char *newcache = New char[5+fhstr.len()+1+rstr.len()+1];
+  str newcache = strbuf("cache/%02X/sfslbcd.%s.%s", 
+			e->xh.a >> 8, fhstr.cstr(), rstr.cstr());
+
+  //nfs_fh3 new_fh = nfs_fh3();
+  //cache_entry *new_e = new cache_entry(new_fh, e->nfs_attr);
+  //strcpy (msg.cache_name, new_e->cache_name);
+  strcpy (msg.cache_name, newcache);
   int cfd = open (msg.cache_name, O_CREAT | O_WRONLY | O_TRUNC, 0666);
   if (cfd < 0) {
     warn << "xfs_message_getdata: " << strerror (errno) << "\n";
@@ -686,7 +680,7 @@ getfp (int fd, struct xfs_message_getdata *h, cache_entry *e)
 
   ref<getfp_args> ga = New refcounted<getfp_args> (fd, h);
   ga->msg = msg;
-  strcpy (ga->out_fname, new_e->cache_name);
+  strcpy (ga->out_fname, msg.cache_name);
 
   lbfs_getfp3args gfp;
   gfp.file = e->nh;
@@ -696,7 +690,7 @@ getfp (int fd, struct xfs_message_getdata *h, cache_entry *e)
   ref<lbfs_getfp3res > fpres = New refcounted < lbfs_getfp3res >;
 
   nfsc->call (lbfs_GETFP, &gfp, fpres,
-	      wrap (&lbfs_getfp, ga, fpres, timenow, new_e));
+	      wrap (&lbfs_getfp, ga, fpres, timenow));
 }
 
 bool 
@@ -940,7 +934,12 @@ committmp (ref<condwrite3args > cwa, ref<ex_commit3res > res, time_t rqtime,
 
     cache_entry *e = xfsindex[cwa->h->handle];
     if (!e) {
-      warn << "committmp: Can't find node handle\n";
+      warn << "committmp: Can't find node handle(" 
+	   << cwa->h->handle.a << ","
+	   << cwa->h->handle.b << ","
+	   << cwa->h->handle.c << ","
+	   << cwa->h->handle.d << ")\n";
+
       return;
     }
     ex_fattr3 attr = *(res->resok->file_wcc.after.attributes);
@@ -1195,8 +1194,11 @@ int
 xfs_message_inactivenode (int fd, struct xfs_message_inactivenode *h, u_int size)
 {
 
-  warn << "inactivenode !!\n";
-
+  warn << "inactivenode !!(" 
+       << h->handle.a << ","
+       << h->handle.b << ","
+       << h->handle.c << ","
+       << h->handle.d << ")\n";
   //remove node from cache
   if (h->flag == XFS_DELETE ||	//Node is no longer in kernel cache. Delete immediately!!
        h->flag == XFS_NOREFS) {	//Node is still in kernel cache. Delete when convenient.
@@ -1229,7 +1231,7 @@ nfs3_setattr (int fd, struct xfs_message_putattr *h, ref<ex_wccstat3 > res,
 
     cache_entry *e = xfsindex[h->handle];
     if (!e) {
-      warn << "nfs3_read: Can't find node handle\n";
+      warn << "nfs3_setattr: Can't find node handle\n";
       return;
     }
     nfsobj2xfsnode (h->cred, e->nh,
@@ -1260,7 +1262,7 @@ xfs_message_putattr (int fd, struct xfs_message_putattr *h, u_int size)
 
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
-    warn << "nfs3_read: Can't find node handle\n";
+    warn << "xfs_message_putattr: Can't find node handle\n";
     return -1;
   }
 
@@ -1329,7 +1331,7 @@ nfs3_create (int fd, struct xfs_message_create *h, ref<ex_diropres3 > res,
     //write new direntry to parent dirfile (do a readdir or just append that entry?)
     cache_entry *e2 = xfsindex[h->parent_handle];
     if (!e2) {
-      warn << "nfs3_read: Can't find parent handle\n";
+      warn << "nfs3_create: Can't find parent handle\n";
       return;
     }
     
@@ -1440,7 +1442,7 @@ nfs3_mkdir (int fd, struct xfs_message_mkdir *h, ref<ex_diropres3 > res,
 
     cache_entry *e1 = nfsindex[*(res->resok->obj.handle)];
     if (!e1) {
-      warn << "nfs3_read: Can't find node handle\n";
+      warn << "nfs3_mkdir: Can't find node handle\n";
       return;
     }
 
@@ -1463,7 +1465,7 @@ nfs3_mkdir (int fd, struct xfs_message_mkdir *h, ref<ex_diropres3 > res,
     //write new direntry to parent dirfile (do a readdir or just append that entry?)
     cache_entry *e2 = xfsindex[h->parent_handle];
     if (!e2) {
-      warn << "nfs3_read: Can't find parent handle\n";
+      warn << "nfs3_mkdir: Can't find parent handle\n";
       return;
     }
 
@@ -2050,7 +2052,11 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
 
   cache_entry *e2 = xfsindex[rena->h->new_parent_handle];
   if (!e2) {
-    warn << "nfs3_rename_getattr: Can't find file new_parent_handle\n";
+    warn << "nfs3_rename_getattr: Can't find file new_parent_handle(" 
+	 << rena->h->new_parent_handle.a << ","
+	 << rena->h->new_parent_handle.b << ","
+	 << rena->h->new_parent_handle.c << ","
+	 << rena->h->new_parent_handle.d << ")\n";
     return;
   }
   strcpy (msg2.cache_name, e2->cache_name);
@@ -2485,7 +2491,7 @@ cbdispatch (svccb * sbp)
 	}
 	e->nfs_attr = *a;
       }
-      delete a;
+      //delete a; should we delete this?
       sbp->reply (NULL);
       break;
     }

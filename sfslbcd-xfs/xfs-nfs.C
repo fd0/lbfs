@@ -80,10 +80,10 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr, time_t rqtime,
 
   node->handle = e->xh; 
   warn << "nfsfh becomes node.handle (" 
-       << (int)node->handle.a << ","
-       << (int)node->handle.b << ","
-       << (int)node->handle.c << ","
-       << (int)node->handle.d << ")\n";
+       << node->handle.a << ","
+       << node->handle.b << ","
+       << node->handle.c << ","
+       << node->handle.d << ")\n";
 
   node->anonrights = XFS_RIGHT_R | XFS_RIGHT_W | XFS_RIGHT_X;
   node->tokens = XFS_ATTR_R; // | ~XFS_DATA_MASK;
