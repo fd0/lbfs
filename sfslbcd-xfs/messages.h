@@ -41,6 +41,26 @@
 
 extern fh_map fht;
 
+class condwrite3args {
+public:
+  condwrite3args(int filedesc, struct xfs_message_putdata* msg, nfs_fh3 tfh) :
+    fd(filedesc), h(msg), tmpfh(tfh) {}
+  
+  int fd;
+  struct xfs_message_putdata* h;
+  nfs_fh3 tmpfh;
+  int rfd;
+  uint chunk_index;
+  vec<lbfs_chunk *> *cvp;
+  lbfs_condwrite3res *res;
+};
+
+#if 0
+class xfs_message {
+ public: xfs_message(xfs_message_header header, )
+}
+#endif
+
 int xfs_message_getroot (int, struct xfs_message_getroot*, u_int);
 
 int xfs_message_getnode (int, struct xfs_message_getnode*, u_int);
