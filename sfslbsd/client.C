@@ -46,7 +46,11 @@ client::fail ()
 void
 client::nfs3reply (svccb *sbp, void *res, filesrv::reqstate rqs, clnt_stat err)
 {
+#if 0
   xdrproc_t xdr = nfs_program_3.tbl[LBFS_PROC_RES_TRANS(sbp->proc ())].xdr_res;
+#else
+  xdrproc_t xdr = lbfs_program_3.tbl[sbp->proc()].xdr_res;
+#endif
 
   if (err) {
     xdr_delete (xdr, res);
@@ -56,7 +60,7 @@ client::nfs3reply (svccb *sbp, void *res, filesrv::reqstate rqs, clnt_stat err)
   doleases (fsrv, generation, rqs.fsno, sbp, res);
 
   if (fsrv->fixres (sbp, res, &rqs)) {
-    nfs3_exp_enable (LBFS_PROC_RES_TRANS(sbp->proc ()), res);
+    lbfs_exp_enable (sbp->proc(), res);
     sbp->reply (res);
     xdr_delete (xdr, res);
   }
@@ -363,13 +367,13 @@ client::nfs3dispatch (svccb *sbp)
   if (!fsrv->fixarg (sbp, &rqs))
     return;
 
-  if (sbp->proc () == lbfs_NFSPROC3_MKTMPFILE)
+  if (sbp->proc () == lbfs_MKTMPFILE)
     mktmpfile(sbp, rqs);
-  else if (sbp->proc () == lbfs_NFSPROC3_COMMITTMP)
+  else if (sbp->proc () == lbfs_COMMITTMP)
     committmp(sbp, rqs);
-  else if (sbp->proc () == lbfs_NFSPROC3_CONDWRITE)
+  else if (sbp->proc () == lbfs_CONDWRITE)
     condwrite(sbp, rqs);
-  else if (sbp->proc () == lbfs_NFSPROC3_GETFP)
+  else if (sbp->proc () == lbfs_GETFP)
     getfp(sbp, rqs);
   else {
     void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();

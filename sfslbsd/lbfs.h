@@ -17,6 +17,8 @@
        (p == lbfs_NFSPROC3_COMMITTMP ? NFSPROC3_COMMIT : p)))
 
 extern void lbfs_nfs3exp_err (svccb *sbp, nfsstat3 status);
+extern void lbfs_exp_enable(u_int32_t, void *);
+extern void lbfs_exp_disable(u_int32_t, void *);
 
 // issues READ requests to server. for each successful read, pass data
 // pointer, number of bytes read, and offset to the rcb. when all read

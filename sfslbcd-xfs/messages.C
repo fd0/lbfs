@@ -618,7 +618,7 @@ void lbfs_nfs3_condwrite(ref<condwrite3args> cwa, clnt_stat err) {
     cwa->res = new ex_write3res;
     cwa->chunk_index++;
 
-    nfsc->call(lbfs_NFSPROC3_CONDWRITE, cw, cwa->res,
+    nfsc->call(lbfs_CONDWRITE, cw, cwa->res,
            wrap(&lbfs_nfs3_condwrite, cwa));
   } else {
     //signal the server to commit the tmp file
@@ -632,7 +632,7 @@ void lbfs_nfs3_condwrite(ref<condwrite3args> cwa, clnt_stat err) {
     ct->commit_to = fht.getnh(fht.getcur());
     
     ex_commit3res *cres = new ex_commit3res;
-    nfsc->call(lbfs_NFSPROC3_COMMITTMP, ct, cres,
+    nfsc->call(lbfs_COMMITTMP, ct, cres,
 	       wrap(&nfs3_committmp, cwa, cres));
 
   }
@@ -693,7 +693,7 @@ int xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size) {
 
   ex_diropres3 *res = new ex_diropres3;
 
-  nfsc->call(lbfs_NFSPROC3_MKTMPFILE, mt, res,
+  nfsc->call(lbfs_MKTMPFILE, mt, res,
 	     wrap(&lbfs_nfs3_mktmpfile, fd, h, res));
   
   return 0;

@@ -131,16 +131,16 @@ program LBFS_PROGRAM {
 		lbfs_NFSPROC3_COMMIT (commit3args) = 21;
 		
 		ex_write3res
-		lbfs_NFSPROC3_CONDWRITE (lbfs_condwrite3args) = 22;
+		lbfs_CONDWRITE (lbfs_condwrite3args) = 22;
 		
 		ex_diropres3
-		lbfs_NFSPROC3_MKTMPFILE (lbfs_mktmpfile3args) = 23;
+		lbfs_MKTMPFILE (lbfs_mktmpfile3args) = 23;
 		
 		ex_commit3res
-		lbfs_NFSPROC3_COMMITTMP (lbfs_committmp3args) = 24;
+		lbfs_COMMITTMP (lbfs_committmp3args) = 24;
 
 		lbfs_getfp3res
-		lbfs_NFSPROC3_GETFP (lbfs_getfp3args) = 25;
+		lbfs_GETFP (lbfs_getfp3args) = 25;
 
 	} = 3;
 } = 344444;
