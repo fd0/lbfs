@@ -269,14 +269,23 @@ void
 client::tmpwrite_cb (svccb *sbp, filesrv::reqstate rqs, 
                      write3res *wres, clnt_stat err)
 {
+  lbfs_tmpwrite3args *twa = sbp->template getarg<lbfs_tmpwrite3args> ();
+  ufd_rec *u = ufdtab.tab[twa->fd];
+  assert(u);
+  u->writes--;
   if (!err && !wres->status)
     nfs3reply(sbp, wres, rqs, RPC_SUCCESS);
   else {
-    lbfs_tmpwrite3args *twa = sbp->template getarg<lbfs_tmpwrite3args> ();
-    ufd_rec *u = ufdtab.tab[twa->fd];
-    assert(u);
     u->error = true;
     nfs3reply(sbp, wres, rqs, err ? RPC_FAILED : RPC_SUCCESS);
+  }
+
+  // if no more writes, finish off by doing the commit. in absolutely horrible
+  // case there might be some more writes left to be done as well.
+  if (u->writes == 0) {
+    for (size_t i=0; i<u->sbps.size(); i++)
+      demux(u->sbps[i],rqs);
+    u->sbps.setsize(0);
   }
 }
 
@@ -286,7 +295,7 @@ client::tmpwrite (svccb *sbp, filesrv::reqstate rqs)
   lbfs_tmpwrite3args *fwa = sbp->template getarg<lbfs_tmpwrite3args> ();
   ufd_rec *u = ufdtab.tab[fwa->fd];
   if (u) {
-    if (u->inuse) {
+    if (u->inuse && u->writes < WRITES_MAX) {
       u_int32_t authno = sbp->getaui ();
       write3args warg;
       warg.file = u->fh;
@@ -428,7 +437,7 @@ client::committmp (svccb *sbp, filesrv::reqstate rqs)
   
   ufd_rec *u = ufdtab.tab[cta->fd]; 
   if (u) {
-    if (!u->inuse)
+    if (!u->inuse || u->writes > 0)
       u->sbps.push_back(sbp);
     else if (u->error)
       lbfs_nfs3exp_err (sbp, NFS3ERR_IO); // correct errno to use?
@@ -466,11 +475,12 @@ client::aborttmp (svccb *sbp, filesrv::reqstate rqs)
     }
     else {
       for (size_t i=0; i<u->sbps.size(); i++)
-        lbfs_nfs3exp_err (sbp, NFS3ERR_ABORTED);
+        lbfs_nfs3exp_err (u->sbps[i], NFS3ERR_ABORTED);
       u->sbps.setsize(0);
     }
     ufdtab.tab.remove(u);
     delete u;
+    sbp->reply (NULL);
   }
   else
     lbfs_nfs3exp_err (sbp, NFS3ERR_NOENT);

@@ -38,6 +38,7 @@ filesrv *defsrv;
 ufd_rec::ufd_rec (unsigned ufd)
 {
   fd = ufd;
+  writes = 0;
   inuse = false;
   error = false;
 }
