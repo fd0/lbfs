@@ -83,7 +83,6 @@ class getfp_args {
  int fd;
  ref<struct xfs_message_open> h;
  uint64 offset; 
- //int cfd;
  struct xfs_message_installdata msg;
  char *out_fname;
  uint blocks_written;

@@ -901,7 +901,15 @@ xfs_message_getdata (int fd, ref<struct xfs_message_getdata> h, u_int size)
     return -1;
   }
   assert(e->nfs_attr.type != NF3DIR);
+  
+#if 0
   nfs3_read_exist (fd, h, e);
+#else
+  ref<struct xfs_message_open> ho = New refcounted <struct xfs_message_open>;
+  *ho = *(*(reinterpret_cast< ref<struct xfs_message_open>* >(&h)));
+  xfs_message_open (fd, ho, size);
+#endif
+
   return 0;
 }
 
@@ -909,7 +917,7 @@ int
 xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
 {
 
-  warn << "XXXX open!! msg.handle ("
+  warn << "XXXX open!! " << h->tokens << " msg.handle ("
     << (int) h->handle.a << ","
     << (int) h->handle.b << ","
     << (int) h->handle.c << ","
@@ -925,8 +933,9 @@ xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
   if (e->nfs_attr.type == NF3DIR)
     warn << "xfs_message_open on directory: " << e->writers << "\n";
   
+  uint32 owriters = e->writers;
   if (h->tokens & (XFS_OPEN_NW|XFS_OPEN_EW)) {
-    e->writers++;
+    e->writers = 1;
     warn << "open for write: " << e->writers << " writers\n";
   }
 
@@ -961,7 +970,7 @@ xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
       warn << "directory in cache, writers " << e->writers << "\n";
 
     // don't read if there are other writers on the cache
-    if (e->writers > 1) {
+    if (owriters > 0) {
       ref<struct xfs_message_getdata> hga = 
         New refcounted <struct xfs_message_getdata>;
       *hga = *(*(reinterpret_cast< ref<struct xfs_message_getdata>* >(&h)));
@@ -1061,6 +1070,7 @@ committmp (ref<condwrite3args > cwa, ref<ex_commit3res > res,
       reply_err(cwa->fd, cwa->h->header.sequence_num, ENOENT);
       return;
     }
+    warn << "committmp wake xfs!\n";
     ex_fattr3 attr = *(res->resok->file_wcc.after.attributes);
     attr.expire += rqtime;
     e->nfs_attr = attr;
@@ -1316,6 +1326,7 @@ lbfs_mktmpfile (int fd, ref<struct xfs_message_putdata> h,
     return;
   }
 
+  warn << "can do condwrite\n";
   ref<condwrite3args > cwa = 
     New refcounted < condwrite3args > (fd, h, *res->resok->obj.handle);
   strcpy (cwa->fname, e->cache_name);
@@ -1373,7 +1384,10 @@ void condwrite_chunk(ref<condwrite3args> cwa)
     }
     cwa->eof = true;
   }
-  warn << "total_blocks = "  << cwa->total_blocks << "\n";
+  warn << "total_blocks = "  << cwa->total_blocks << " " 
+       << count << " eof " << cwa->eof << "\n";
+  if (cwa->eof && cwa->total_blocks == 0)
+    sendcommittmp(cwa);
 }
 
 int 
@@ -1394,7 +1408,7 @@ xfs_message_putdata (int fd, ref<struct xfs_message_putdata> h, u_int size)
     return -1;
   }
 
-  //get temp file handle so the update will be atomic
+  // get temp file handle so the update will be atomic
   lbfs_mktmpfile3args mt;
   mt.commit_to = e->nh;
   xfsattr2nfsattr (h->header.opcode, h->attr, &mt.obj_attributes);
@@ -1404,16 +1418,20 @@ xfs_message_putdata (int fd, ref<struct xfs_message_putdata> h, u_int size)
   nfsc->call (lbfs_MKTMPFILE, &mt, res,
 	      wrap (&lbfs_mktmpfile, fd, h, res));
 
-  // XXX - benjie: more madness... we apparently can't depend on xfs to tell
-  // us when it is opening a file for a small write, so we can't assert there.
-  // this also means sometimes we will overwrite the data file w/o telling
-  // xfs. oh well.
-  //
-  // assert(e->writers>0);
+  // XXX - benjie: more madness... xfs doesn't really tell us if it is closing
+  // the file, or simply doing a fsync and then may write some more. the code
+  // says if the FSYNC bit is on, then it is doing a fsync. but then,
+  // sometimes, it also never calls putdata again afterward... we just make
+  // the file not open for writing. if another read occured on the same file,
+  // tough luck?
+  e->writers = 0;
+
+#if 0
   if (!(h->flag&XFS_FSYNC) && e->writers>0) {
     e->writers--;
     warn << "close for write: " << e->writers << " writers\n";
   }
+#endif
   return 0;
 }
 
@@ -1500,6 +1518,9 @@ xfs_message_putattr (int fd, ref<struct xfs_message_putattr> h, u_int size)
   if (sa->guard.check)
     sa.guard.ctime->seconds = h->attr.xa_ctime;
 #endif
+  if (sa.new_attributes.size.set)
+    warn << "setting size to " 
+         << (uint32) *(sa.new_attributes.size.val) << "\n";
   ref<ex_wccstat3 > res = New refcounted < ex_wccstat3 >;
   nfsc->call (lbfs_NFSPROC3_SETATTR, &sa, res,
 	      wrap (&nfs3_setattr, fd, h, res, timenow));
@@ -1594,10 +1615,7 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
     h1_len = sizeof (msg2);
 
     e1->incache = true;
-    // XXX - benjie: again, xfs screws us: current xfs implementation does not
-    // set mode on create, so we can't tell if file is created for writing or
-    // reading...
-    // e1->writers++;
+    e1->writers = 1;
     msg3.node = msg2.node;
     msg3.flag = 0;
     msg3.header.opcode = XFS_MSG_INSTALLDATA;
