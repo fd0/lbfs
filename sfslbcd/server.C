@@ -1,7 +1,7 @@
 /*
  *
- * Copyright (C) 1998-2000 David Mazieres (dm@uun.org)
  * Copyright (C) 2002 Benjie Chen (benjie@lcs.mit.edu)
+ * Copyright (C) 1998-2000 David Mazieres (dm@uun.org)
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -20,11 +20,9 @@
  *
  */
 
-#define DEBUG 1
+// implementation description is in "notes"
 
-//
-// please consult "notes" on semantics of this client
-//
+#define DEBUG 1
 
 #include <typeinfo>
 #include "sfslbcd.h"
@@ -164,17 +162,12 @@ server::write_to_cache (nfscall *nc, file_cache *e)
   // we COMMIT everything on close, so we can return FILE_SYNC here
   res.resok->committed = FILE_SYNC;
   
-  // change size, but not mtime, in both attribute and file cache. wcc
-  // data reflects file size before and after update.
   res.resok->file_wcc.before.set_present (true);
   (res.resok->file_wcc.before.attributes)->size = e->fa.size;
   (res.resok->file_wcc.before.attributes)->mtime = e->fa.mtime;
   (res.resok->file_wcc.before.attributes)->ctime = e->fa.ctime;
   if (a->offset+n > e->fa.size)
     e->fa.size = a->offset+n;
-  ex_fattr3 *f = const_cast<ex_fattr3*>(ac.attr_lookup (e->fh));
-  if (f)
-    f->size = e->fa.size;
   res.resok->file_wcc.after.set_present (true);
   *(res.resok->file_wcc.after.attributes) = e->fa;
   // res.resok->verf = ;
@@ -193,11 +186,7 @@ server::truncate_cache (uint64 size, file_cache *e)
   if (ftruncate(e->fd, size) < 0)
     return -1;
  
-  // update size in both the attribute cache and file cache
   e->fa.size = size;
-  ex_fattr3 *f = const_cast<ex_fattr3*>(ac.attr_lookup (e->fh));
-  if (f)
-    f->size = e->fa.size;
   assert(e->is_idle() || e->is_dirty());
   e->dirty();
   return 0;
@@ -282,6 +271,9 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
       nc->reject (SYSTEM_ERR);
     return;
   }
+
+  getxattr (rqtime, nc->proc (), nc->getaid (), nc->getvoidarg (), res);
+
   if (nc->proc () == NFSPROC3_FSINFO) {
     ex_fsinfo3res *fres = static_cast<ex_fsinfo3res *> (res);
     if (!fres->status) {
@@ -289,16 +281,54 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
       wtpref = fres->resok->wtpref;
     }
   }
+
+  // intercept RPC replies and replace the size field w/ up-to-date
+  // size from the file cache. in case of SETATTR, we want to update
+  // the cached file's attribute with attribute from server, ignoring
+  // the server's size and mtime values.
+
+  if (nc->proc () == NFSPROC3_ACCESS) {
+    access3args *a = nc->template getarg<access3args> ();
+    ex_access3res *r = static_cast<ex_access3res *> (res);
+    file_cache *e = file_cache_lookup(a->object);
+    if (e && !r->status && r->resok->obj_attributes.present) {
+      if (e->fa.size != (r->resok->obj_attributes.attributes)->size) {
+	assert(e->is_dirty() || e->is_flush());
+	(r->resok->obj_attributes.attributes)->size = e->fa.size;
+      }
+    }
+  }
+  else if (nc->proc () == NFSPROC3_LOOKUP) {
+    ex_lookup3res *r = static_cast<ex_lookup3res *> (res);
+    file_cache *e = 0;
+    if (!r->status && (e = file_cache_lookup(r->resok->object)) &&
+        r->resok->obj_attributes.present) {
+      if (e->fa.size != (r->resok->obj_attributes.attributes)->size) {
+	assert(e->is_dirty() || e->is_flush());
+	(r->resok->obj_attributes.attributes)->size = e->fa.size;
+      }
+    }
+  }
+  else if (nc->proc () == NFSPROC3_GETATTR) {
+    nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
+    ex_getattr3res *r = static_cast<ex_getattr3res *> (res);
+    file_cache *e = file_cache_lookup(*a);
+    if (e && r->status) {
+      assert(!e->is_dirty() && !e->is_flush());
+      assert(e->fa.size == (r->attributes)->size);
+    }
+  }
   else if (nc->proc () == NFSPROC3_SETATTR) {
-    // if SETATTR ran while file is being flushed, take attributes
-    // from server as attribute in the file cache, but don't overwrite
-    // the size or the mtime fields. otherwise, run wcc checking. if
-    // successful, update attribute in file cache.
+    // on each SETATTR, copy attributes from server to file cache, but
+    // don't override the size and mtime fields if file is dirty or
+    // being flushed. we also perform wcc checking when file is not
+    // being flushed. the goal of doing this wcc checking is to end up
+    // with the same attribute as the server, so that on the next open
+    // we can avoid a fetch if only one client modified the file.
     setattr3args *a = nc->template getarg<setattr3args> ();
     ex_wccstat3 *sres = static_cast<ex_wccstat3 *> (res);
     file_cache *e = file_cache_lookup(a->object);
-    if (!sres->status && e &&
-	sres->wcc->before.present && sres->wcc->after.present) {
+    if (!sres->status && e && sres->wcc->after.present) {
       if (e->is_flush()) {
 	ex_fattr3 *f = sres->wcc->after.attributes;
 	uint64 s = e->fa.size;
@@ -307,7 +337,7 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 	e->fa.size = s;
 	e->fa.mtime = m;
       }
-      else {
+      else if (sres->wcc->before.present) {
         if ((sres->wcc->before.attributes)->size == e->osize &&
 	    (sres->wcc->before.attributes)->mtime == e->fa.mtime) {
 	  ex_fattr3 *f = sres->wcc->after.attributes;
@@ -324,10 +354,14 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 	       << (sres->wcc->before.attributes)->mtime.seconds << "\n";
         }
       }
+      // replace size attribute w/ up-to-date size from file cache
+      if (e->fa.size != (sres->wcc->after.attributes)->size) {
+	assert(e->is_dirty() || e->is_flush());
+	(sres->wcc->after.attributes)->size = e->fa.size;
+      }
     }
   }
 
-  getxattr (rqtime, nc->proc (), nc->getaid (), nc->getvoidarg (), res);
   nfs3_exp_disable (nc->proc (), res);
   nc->reply (res);
 }
@@ -429,27 +463,21 @@ server::dont_run_rpc (nfscall *nc)
   nfs_fh3 *fh = static_cast<nfs_fh3 *> (nc->getvoidarg ());
   file_cache *e = file_cache_lookup(*fh);
 
-  // can execute CLOSE if cache is not dirty
   if (nc->proc () == cl_NFSPROC3_CLOSE && (e->is_idle() || e->is_fetch()))
     return false;
 
   if (e) {
-    // if file is being flushed, block WRITE and SETATTR RPCs that set
-    // size of file
     if (e->is_flush() && nc->proc () != NFSPROC3_READ &&
 	nc->proc () != cl_NFSPROC3_CLOSE) {
+      // block WRITE and SETATTR RPCs that set size of file
+      if (nc->proc () == NFSPROC3_SETATTR) {
+        setattr3args *a = nc->template getarg<setattr3args> ();
+        if (!a->new_attributes.size.set)
+	  return false;
+      }
 #if DEBUG
       warn << "RPC " << nc->proc () << " blocked due to flush\n";
 #endif
-      if (nc->proc () == NFSPROC3_SETATTR) {
-        setattr3args *a = nc->template getarg<setattr3args> ();
-        if (!a->new_attributes.size.set) {
-#if DEBUG
-	  warn << "blocked SETATTR does not have size, unblock\n";
-#endif
-	  return false;
-	}
-      }
       e->rpcs.push_back(nc);
       return true;
     }

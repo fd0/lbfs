@@ -1,7 +1,7 @@
 /*
  *
- * Copyright (C) 1998 David Mazieres (dm@uun.org)
  * Copyright (C) 2002 Benjie Chen (benjie@lcs.mit.edu)
+ * Copyright (C) 1998 David Mazieres (dm@uun.org)
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -33,7 +33,6 @@
 
 #define LBFSCACHE "/var/tmp/lbfscache"
 
-// strips lbfs: or lbfsa: from the self certifying pathname
 static inline void
 strip_mountarg(sfs_connectarg &carg, str &proto, str &arg)
 {

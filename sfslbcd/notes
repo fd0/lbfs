@@ -4,10 +4,10 @@ Caching Client Implementation
 consistency:
 ------------
 
-close-to-open consistency is: on any close, nfs client flushes all
-changes to server; on any open, nfs client fetches latest attributes
-from server, and loads new data when the cache time is less than
-mtime.
+close-to-open consistency is: on any close (CLOSE rpc), nfs client
+flushes all changes to server; on any open (ACCESS rpc), nfs client
+fetches latest attributes from server, and loads new data when the
+cache time is less than mtime.
 
 consistency
  0) don't update cache if cached file is dirty or being flushed
@@ -44,69 +44,48 @@ FETCH   FETCH      X      FETCH/XX  XX      XX       FETCH       X
 detailed semantics:
 -------------------
 
-access/cache fetch
- - access RPCs are treated as file open signals. on each access, check
-   if cache needs to be updated, if so, mark cached file as being
-   fetched
- - if a file is being fetched, queue subsequent read/write/setattr RPCs
- - after each block received from server, check if any one of the RPC
-   can be executed. that is, if the RPC operates on a range of data
-   already received from the server
- - can fetch data out of order, in order to satisfy an out of order
-   read request immediately
- - when fetch is done, unqueue and execute each RPC
+fetch optimization: after each data block fetched from server, check
+if any one of the read or write RPC can be executed. a RPC can run if
+it operates on a range of the data already received from the server.
 
-attributes in attribute cache and file cache
- - attribute cache always reflects attributes on the server
- - if file is cached, and is dirty or being flushed
-   - return attribute from file cache on GETATTR
-   - what about ACCESS ???
+read optimization: can fetch data out of order, in order to satisfy an
+out of order read request immediately.
 
-write
- - don't update the mtime field of the attribute in file cache
- - mark cached file dirty on first write
- - update size in both attribute cache and file cache XXX
- - always return FILE_SYNC
- - what verf should we return ???
+attributes cache is shared code between sfslbcd and sfsrwcd. for
+sfslbcd we keep our own file cache, and each file cache entry has an
+attribute. attribute cache always reflects what the server knows about
+a file; whereas attributes from the file cache may reflect changes yet
+to be flushed to the server.
 
-close
- - change cache file into flush mode
- - send WRITE with UNSTABLE
- - send COMMIT
- - while in flush mode, block on setsize or write operation; allow
-   close, read, and non-setsize setattr operations to run
- - check wcc after each write/commit. after the last commit, use the
-   last wcc.after as the attribute for the cached file.
+when a file is dirty or being flushed, GETATTR uses attribute from
+file cache.
 
-commit
- - since we return FILE_SYNC on each WRITE RPC, we should not see any
-   COMMIT RPCs unless they are for dangling WRITEs. so we just pass
-   them onto the server.
+write: on each write, update the size in file cache. always return
+FILE_SYNC, because on CLOSE we commit everything on server.
 
-setattr
- - if size is changed, update size in both attribute cache and file cache
- - on a non-setsize setattr while a cached file is being flushed, send
-   the setattr to server, update local file cache w/ post-attribute
-   returned from server, but don't update the size and mtime fields
- - if file is not being flushed, perform wcc checking. if successful
-   update attribute in file cache
- - always forward setattr rpc onto the server
+close: send WRITE with UNSTABLE, then send COMMIT.
 
-wcc
- - wcc checking is done when we flush cached file to server (i.e.
-   on write and commit RPCs) and when processing setattr
- - the goal of doing wcc checking is to avoid doing a cache update
-   after file is written to server. w/o wcc checking, some other
-   client might have also written to the file, and we cannot simply
-   grab the latest mtime and pretend it is the mtime of the file
- - because changes in ctime will not trigger a cache update, we only
-   check that the before and after size and mtime are the same, but
-   not ctime
- - to make wcc work, "osize" field is kept for each cached object that
-   reflects the size of the object on server. as the size of the
-   object in cache changes, osize does not change. osize is updated
-   when the cached object is updated, flushed, or when setattr is
-   processed (since setattr is always forwarded to server)
+commit: since we return FILE_SYNC on each WRITE RPC, we should not see
+any COMMIT RPCs unless they are for dangling WRITEs. so we just pass
+them onto the server.
+
+setattr: if size is changed, update size in file cache. forwards
+setattr to server so other attributes are changed on server. we copy
+the attributes returned from server to the file cache, but w/o
+replacing the size and mtime fields.
+
+wcc: wcc checking is done whenever we modify a file on server, via
+WRITE, SETATTR, or COMMIT. the goal of doing wcc checking is to avoid
+doing a file fetch on the next open if only one client is modifying
+the file. because changes in ctime will not trigger a cache update, we
+only check that the before and after size and mtime are the same, but
+not ctime.
+
+to make wcc work, "osize" field is kept for each cached object that
+reflects the size of the object on server. as the size of the object
+in cache changes, osize does not change. osize is updated when the
+cached object is updated, flushed, or when setattr is processed (since
+setattr is always forwarded to server)
 
 
 misc:
