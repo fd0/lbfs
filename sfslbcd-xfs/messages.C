@@ -967,7 +967,6 @@ void lbfs_mktmpfile(int fd, struct xfs_message_putdata* h,
     sendcondwrite(cwa, chunker->chunk_vector()[i]);    
   }
   delete chunker;
-  delete v;
 }
 
 int xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size) {
