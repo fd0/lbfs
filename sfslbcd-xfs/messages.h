@@ -48,6 +48,7 @@ public:
       blocks_written(0), total_blocks(0), chunker(0), eof(false) {
     fname = New char[MAXPATHLEN];
     retries = 0;
+    commited = false;
   }
   ~condwrite3args() { 
     delete[] fname;
@@ -63,6 +64,7 @@ public:
   Chunker *chunker;
   bool eof;
   int retries;
+  bool commited;
 };
 
 class getfp_args {

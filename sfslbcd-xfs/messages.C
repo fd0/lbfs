@@ -195,7 +195,7 @@ nfs3_lookup (int fd, ref<struct xfs_message_getnode> h, uint32 seqnum,
   if (err || lres->status != NFS3_OK) {
     if (err) {
       warn << h->header.sequence_num << ":" << err << ":nfs3_lookup\n";
-      reply_err(fd, seqnum, ENOSYS);
+      reply_err(fd, seqnum, EIO);
     }
     else {
       warn << h->header.sequence_num << ":" 
@@ -453,7 +453,7 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
   else {
     if (err) {
       warn << "nfs3_read: " << err << "\n";
-      if (ga->retries < 2) {
+      if (ga->retries < 1) {
         normal_read (ga, offset, count);
 	ga->retries++;
       } 
@@ -1073,7 +1073,6 @@ committmp (ref<condwrite3args > cwa, ref<ex_commit3res > res,
 void 
 sendcommittmp (ref<condwrite3args > cwa)
 {
-  //signal the server to commit the tmp file
   lbfs_committmp3args ct;
   ct.commit_from = cwa->tmpfh;
   
@@ -1085,6 +1084,11 @@ sendcommittmp (ref<condwrite3args > cwa)
   }
   ct.commit_to = e->nh;
 
+  cwa->commited = true;
+  warn << "YYYY " << cwa->h->header.sequence_num << " COMMITTMP: "
+       << cwa->blocks_written << " blocks written " 
+       << cwa->total_blocks << " needed, eof? "
+       << cwa->eof << "\n";
   ref<ex_commit3res > cres = New refcounted < ex_commit3res >;
   nfsc->call (lbfs_COMMITTMP, &ct, cres,
 	      wrap (&committmp, cwa, cres, timenow));
@@ -1096,14 +1100,27 @@ nfs3_write (ref<condwrite3args > cwa, lbfs_chunk *chunk,
 {
 
   if (!err && res->status == NFS3_OK) {
-    cwa->blocks_written++;
+    warn << cwa->h->header.sequence_num << " nfs3_write: "
+         << res->resok->count << " total needed "
+	 << chunk->loc.count() << " had "
+	 << chunk->aux_count << "\n";
+    chunk->aux_count += res->resok->count;
+    assert(chunk->aux_count <= chunk->loc.count());
+    if (chunk->aux_count == chunk->loc.count()) 
+      cwa->blocks_written++;
+    warn << cwa->h->header.sequence_num << " nfs3_write: @"
+         << chunk->loc.pos() << " +"
+	 << chunk->loc.count() << " "
+         << cwa->blocks_written << " blocks written " 
+	 << cwa->total_blocks << " needed, eof? "
+	 << cwa->eof << "\n";
     if (cwa->blocks_written == cwa->total_blocks && cwa->eof)
       sendcommittmp (cwa);
   }
   else {
     if (err) {
       warn << "nfs3_write: " << err << "\n";
-      if (cwa->retries < 2) {
+      if (cwa->retries < 1) {
         sendwrite(cwa, chunk);
         cwa->retries++;
       } 
@@ -1112,6 +1129,10 @@ nfs3_write (ref<condwrite3args > cwa, lbfs_chunk *chunk,
     }
     else {
       warn << "nfs3_write: error: " << strerror (res->status) << "\n";
+      warn << "-> " << cwa->h->header.sequence_num << " nfs3_write: "
+           << cwa->blocks_written << " blocks written " 
+	   << cwa->total_blocks << " needed, eof? "
+	   << cwa->eof << "\n";
       reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
     }
   }
@@ -1124,6 +1145,11 @@ sendwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
   char iobuf[NFS_MAXDATA];
   uint64 offst = chunk->loc.pos ();
   uint32 count = chunk->loc.count ();
+
+  if (cwa->commited) {
+    warn << "weird: already commited, should not be sending more data!\n";
+    assert(0);
+  }
 
   int rfd = open (cwa->fname, O_RDONLY, 0666);
   if (rfd < 0) {
@@ -1138,13 +1164,13 @@ sendwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
       err = read (rfd, iobuf, count);
     else
       err = read (rfd, iobuf, NFS_MAXDATA);
-    count -= err;
-    offst += err;
     if (err < 0) {
       warn << "sendwrite: error: " << strerror (errno) << "(" << errno << ")\n";
       reply_err(cwa->fd, cwa->h->header.sequence_num, EIO);
       return;
     }
+    count -= err;
+    offst += err;
     write3args wa;
     wa.file = cwa->tmpfh;
     wa.offset = ost;
@@ -1170,22 +1196,33 @@ lbfs_sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk,
       sendwrite (cwa, chunk);
       return;
     }
+    chunk->aux_count += chunk->loc.count();
     cwa->blocks_written++;
+    warn << cwa->h->header.sequence_num << " condwrite: @"
+         << chunk->loc.pos() << " +"
+	 << chunk->loc.count() << " "
+         << cwa->blocks_written << " blocks written " 
+	 << cwa->total_blocks << " needed, eof? "
+	 << cwa->eof << "\n";
     if (cwa->blocks_written == cwa->total_blocks && cwa->eof)
       sendcommittmp (cwa);
   }
   else {
     if (err) {
       warn << "lbfs_sendcondwrite: " << err << "\n";
+      warn << "-> " << cwa->h->header.sequence_num << " condwrite: "
+           << cwa->blocks_written << " blocks written " 
+	   << cwa->total_blocks << " needed, eof? "
+	   << cwa->eof << "\n";
       sendwrite (cwa, chunk);
     }
     else {
-      if (res->status == NFS3ERR_FPRINTNOTFOUND)
-	sendwrite (cwa, chunk);
-      else {
+      if (res->status != NFS3ERR_FPRINTNOTFOUND) {
 	warn << "lbfs_sendcondwrite: " << strerror (res->status) << "\n";
-	reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
+        reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
       }
+      else 
+	sendwrite (cwa, chunk);
     }
   }
 }
@@ -1193,6 +1230,10 @@ lbfs_sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk,
 void 
 sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
 {
+  if (cwa->commited) {
+    warn << "weird: already commited, should not be sending more data!\n";
+    assert(0);
+  }
 
   lbfs_condwrite3args cw;
   cw.file = cwa->tmpfh;
@@ -1280,6 +1321,7 @@ lbfs_mktmpfile (int fd, ref<struct xfs_message_putdata> h,
       cwa->total_blocks = v_size;
       for (; index < v_size; index++) {
         warn << "chindex = " << index << " size = " << v_size << "\n";
+	cwa->chunker->chunk_vector()[index]->aux_count = 0;
         sendcondwrite(cwa, cwa->chunker->chunk_vector()[index]);
       }
     }
@@ -1290,6 +1332,7 @@ lbfs_mktmpfile (int fd, ref<struct xfs_message_putdata> h,
   cwa->total_blocks = cwa->chunker->chunk_vector().size();
   for (; index < v_size; index++) {
     warn << "chindex = " << index << " size = " <<  cwa->total_blocks<< "\n";
+    cwa->chunker->chunk_vector()[index]->aux_count = 0;
     sendcondwrite(cwa, cwa->chunker->chunk_vector()[index]);
   }
   cwa->total_blocks = v_size;
