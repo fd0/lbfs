@@ -61,6 +61,13 @@ struct write_obj {
     outstanding_writes--;
     if (!err) {
       srv->getxattr (rqtime, NFSPROC3_COMMIT, 0, arg, res);
+      if ((res->resok->file_wcc.before.attributes)->size == fa.size &&
+	  (res->resok->file_wcc.before.attributes)->mtime == fa.mtime) {
+	ex_fattr3 *f = res->resok->file_wcc.after.attributes;
+	fa = *reinterpret_cast<fattr3 *> (f);
+      }
+      else 
+	warn << "wcc check on committmp failed\n";
       if (!callback && res->status == NFS3_OK) {
         ok();
         return;
