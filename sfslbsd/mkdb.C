@@ -36,7 +36,11 @@ static int read_directory(const char *dpath, DIR *dirp = 0L);
 void done()
 {
   if (_requests == 0) {
+    extern unsigned min_size_chunks;
+    extern unsigned max_size_chunks;
     printf("%d files\n", _totalfns);
+    printf("%u min size chunks\n", min_size_chunks);
+    printf("%u max size chunks\n", max_size_chunks);
     exit(0);
   }
 }
@@ -62,7 +66,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
 	for(unsigned i=0; i<cv.size(); i++) { 
 	  cv[i]->loc.set_fh(*fhp);
 	  _fp_db.add_entry(cv[i]->fingerprint, &(cv[i]->loc));
-#if 1
+#if 0
 	  warn << fname << " " <<  cv[i]->fingerprint 
 	       << " @" << cv[i]->loc.pos()
 	       << " +" << cv[i]->loc.count() << "\n";
@@ -89,7 +93,6 @@ int
 read_directory(const char *dpath, DIR *dirp = 0L)
 {
   char fspath[PATH_MAX];
-
   if (dirp == 0L) {
     snprintf(fspath, PATH_MAX, "%s/%s", _mntp, dpath);
     if ((dirp = opendir (fspath)) == 0)
@@ -140,6 +143,8 @@ gotrootfh(const nfs_fh3 *fhp, str err)
     _fp_db.open(FP_DB); 
     read_directory("");
   }
+  else
+    warn << "get root fh: " << err << "\n";
   done();
 }
 

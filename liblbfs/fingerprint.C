@@ -7,6 +7,9 @@
 #include "rabinpoly.h"
 #include "fingerprint.h"
 
+unsigned min_size_chunks = 0;
+unsigned max_size_chunks = 0;
+
 int
 mapfile (const u_char **bufp, size_t *sizep, const char *path)
 {
@@ -117,8 +120,12 @@ Chunker::chunk(const unsigned char *data, size_t size)
   for (size_t i=0; i<size; i++, _cur_pos++) {
     f_break = _w.slide8 (data[i]);
     size_t cs = _cur_pos - _last_pos;
-    if (((f_break % _chunk_size) == BREAKMARK_VALUE && cs >= MIN_CHUNK_SIZE) ||
-	cs >= MAX_CHUNK_SIZE) {
+    if ((f_break % _chunk_size) == BREAKMARK_VALUE && cs < MIN_CHUNK_SIZE) 
+      min_size_chunks++;
+    else if (cs == MAX_CHUNK_SIZE)
+      max_size_chunks++;
+    if (((f_break % _chunk_size) == BREAKMARK_VALUE && cs >= MIN_CHUNK_SIZE) 
+	|| cs >= MAX_CHUNK_SIZE) {
       lbfs_chunk *c = New lbfs_chunk(_last_pos, cs, _fp);
       _w.reset();
       _fp = 0;
