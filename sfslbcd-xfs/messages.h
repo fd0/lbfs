@@ -46,11 +46,12 @@ class condwrite3args {
 public:
   condwrite3args(int filedesc, struct xfs_message_putdata* msg, nfs_fh3 tfh) :
     fd(filedesc), h(msg), tmpfh(tfh), blocks_written(0), total_blocks(0), 
-    done(false) { 
+    done(false), chunker(0) { 
     fname = New char[MAXPATHLEN];
   }
   ~condwrite3args() { 
-    delete[] fname; 
+    delete[] fname;
+    delete chunker; 
   }
   
   int fd;
@@ -61,6 +62,7 @@ public:
   uint blocks_written;
   uint total_blocks;
   bool done;
+  Chunker *chunker;
 };
 
 class getfp_args {

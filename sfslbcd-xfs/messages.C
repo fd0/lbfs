@@ -939,23 +939,23 @@ void lbfs_mktmpfile(int fd, struct xfs_message_putdata* h,
     warn << "lbfs_mktmpfile: " << strerror(errno) << "\n";
     return;
   }
-  Chunker *chunker = New Chunker(CHUNK_SIZES(0));
+  cwa->chunker = New Chunker(CHUNK_SIZES(0));
   uint count, index = 0, v_size = 0;
   unsigned char buf[4096];
   while ((count = read(data_fd, buf, 4096)) > 0) {
-    chunker->chunk(buf, count);
-    if (chunker->chunk_vector().size() > v_size) {
+    cwa->chunker->chunk(buf, count);
+    if (cwa->chunker->chunk_vector().size() > v_size) {
       //send condwrite request on last_index..size()
-      v_size = chunker->chunk_vector().size();
+      v_size = cwa->chunker->chunk_vector().size();
       cwa->total_blocks = v_size;
       warn << "chindex = " << index << " size = " << v_size << "\n";
-      sendcondwrite(cwa, chunker->chunk_vector()[index++]);
+      sendcondwrite(cwa, cwa->chunker->chunk_vector()[index++]);
     }
   }
-  chunker->stop();
+  cwa->chunker->stop();
   close(data_fd);
   cwa->done = true;
-  cwa->total_blocks = chunker->chunk_vector().size();
+  cwa->total_blocks = cwa->chunker->chunk_vector().size();
   warn << "blocks written = " << cwa->blocks_written
        << " total_blocks = " << cwa->total_blocks << "\n";
   if (index+1 != cwa->total_blocks) {
@@ -964,9 +964,8 @@ void lbfs_mktmpfile(int fd, struct xfs_message_putdata* h,
   }
   for (uint i=index; i<cwa->total_blocks; i++) {
     warn << "chindex = " << i << " size = " <<  cwa->total_blocks<< "\n";
-    sendcondwrite(cwa, chunker->chunk_vector()[i]);    
+    sendcondwrite(cwa, cwa->chunker->chunk_vector()[i]);    
   }
-  delete chunker;
 }
 
 int xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size) {
