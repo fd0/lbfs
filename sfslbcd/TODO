@@ -1,8 +1,8 @@
 
-fix permission problem with make-doc
+partial file write on CLOSE
 
-partial file caching - don't need to fetch entire file before
-returning
+partial file fetch - when should we fetch entire file, when should we
+wait for read before fetch
 
 optimize
  - setattr right after open
