@@ -32,12 +32,11 @@
 #include "qhash.h"
 
 template<class K, class V, class H = hashfn<K>, class E = equals<K>,
-  // XXX - We need to kludge this for both g++ and KCC
   class R = qhash_lookup_return<V>,
   ihash_entry<qhash_slot<K, V> > qhash_slot<K,V>::*kludge
 	= &qhash_slot<K,V>::link>
 class lrucache {
-  private:
+private:
   u_int maxsize;
   const H hash;
   callback<void, V>::ptr rcb;
@@ -53,7 +52,7 @@ class lrucache {
     entries;
   tailq<lrucache_entry, &lrucache_entry::lrulink> lrulist;
 
-  public:
+public:
   lrucache (u_int max = 0, callback<void, V>::ptr cb = 0 )
     : maxsize (max), rcb(cb) {}
 
@@ -103,6 +102,11 @@ class lrucache {
       if (rcb) (*rcb)(e->v);
       delete e;
     }
+  }
+
+  void clear () {
+    while (size() > 0)
+      remove_oldest();
   }
 };
 

@@ -178,9 +178,8 @@ public:
 
 };
 
-struct dir_cache {
+struct dir_nlc {
   ex_fattr3 attr;
-  qhash<filename3, nfs_fh3> lc;
   qhash<filename3, bool> nlc;
 };
 
@@ -192,12 +191,13 @@ protected:
   bool try_compress;
   attr_cache ac;
   lrucache<nfs_fh3, file_cache *> fc;
-  lrucache<nfs_fh3, dir_cache *> dc; 
+  lrucache<nfs_fh3, dir_nlc *> nlc; 
 
   void dispatch_dummy (svccb *sbp);
   void cbdispatch (svccb *sbp);
   void setfd (int fd);
   void getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
+  void fixnlc (nfscall *nc, void *res);
   bool dont_run_rpc (nfscall *nc);
 
   void flush_cache (nfscall *nc, file_cache *e);
@@ -222,8 +222,8 @@ protected:
   }
 
   void nlc_insert (nfs_fh3 dir, filename3 name) {
-    dir_cache *d;
-    dir_cache **dp = dc[dir];
+    dir_nlc *d;
+    dir_nlc **dp = nlc[dir];
     if (!dp)
       return;
     d = *dp;
@@ -233,7 +233,7 @@ protected:
   }
 
   bool nlc_lookup (nfs_fh3 dir, filename3 name) {
-    dir_cache **dp = dc[dir];
+    dir_nlc **dp = nlc[dir];
     if (dp) {
       if ((*dp)->nlc[name])
         return true;
@@ -242,50 +242,17 @@ protected:
   }
 
   void nlc_remove (nfs_fh3 dir, filename3 name) {
-    dir_cache **dp = dc[dir];
+    dir_nlc **dp = nlc[dir];
     if (dp)
       (*dp)->nlc.remove(name);
   }
 
   void nlc_remove (nfs_fh3 dir) {
-    dir_cache **dp = dc[dir];
-    if (dp)
-      (*dp)->nlc.clear();
-  }
-
-  void lc_insert (nfs_fh3 dir, filename3 name, nfs_fh3 fh) {
-    dir_cache *d;
-    dir_cache **dp = dc[dir];
-    if (!dp)
-      return;
-    d = *dp;
-    if (d->lc[name])
-      d->lc.remove(name);
-    d->lc.insert(name, fh);
-  }
-
-  bool lc_lookup (nfs_fh3 dir, filename3 name, nfs_fh3 &fh) {
-    dir_cache **dp = dc[dir];
+    dir_nlc **dp = nlc[dir];
     if (dp) {
-      nfs_fh3 *p = (*dp)->lc[name];
-      if (p) {
-	fh = *p;
-        return true;
-      }
+      (*dp)->nlc.clear();
+      nlc.remove(dir);
     }
-    return false;
-  }
-
-  void lc_remove (nfs_fh3 dir, filename3 name) {
-    dir_cache **dp = dc[dir];
-    if (dp)
-      (*dp)->lc.remove(name);
-  }
-
-  void lc_remove (nfs_fh3 dir) {
-    dir_cache **dp = dc[dir];
-    if (dp)
-      (*dp)->lc.clear();
   }
 
   void file_cache_insert (nfs_fh3 fh) {
@@ -303,7 +270,7 @@ protected:
   }
 
   void file_cache_gc_remove (file_cache *e);
-  void dir_cache_gc_remove (dir_cache *d);
+  void dir_nlc_gc_remove (dir_nlc *d);
 
 public:
   typedef sfsserver_auth super;
