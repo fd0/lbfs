@@ -38,8 +38,9 @@ server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
   assert(e && e->is_open());
   warn_debug << "checking cache for " << obj <<  "\n";
   if (fa.type == NF3REG) {
-    // update file cache if cache time < mtime
-    if (e->fa.mtime < fa.mtime) {
+    // update file cache if cache time != mtime
+    if (e->fa.mtime < fa.mtime ||
+	fa.mtime < e->fa.mtime) {
       e->fa = fa;
       e->osize = fa.size;
       str f = fh2fn (obj);
