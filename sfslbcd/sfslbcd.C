@@ -42,7 +42,7 @@ sfslbcd_connect(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
     vNew refcounted<server>(sfsserverargs (ns, tcpfd, prog, ma, cb));
   }
   else {
-    warn << s;
+    warn <<  s;
     (*cb)(NULL);
   }
 }
@@ -54,19 +54,15 @@ sfslbcd_alloc(sfsprog *prog, ref<nfsserv> ns, int tcpfd,
   if (!ma->cres ||
       (ma->carg.civers == 5 && !sfs_parsepath (ma->carg.ci5->sname))) {
     str path = ma->carg.ci5->sname;
-    warn << "request to mount " << path << "\n";
     const char *p = path;
     unsigned i;
     for (i=0; i<path.len(); i++) {
       if (p[i] == ':')
 	break;
     }
-    warn << "found : at " << i << "\n";
     if (i<path.len() && substr(path,0,i) == "lbfs") {
-      warn << "construct new arg\n";
       ma->carg.ci5->sname = substr(path,i+1);
       str newpath = ma->carg.ci5->sname;
-      warn << "request to mount " << newpath << "\n";
       sfs_connect(ma->carg, wrap(&sfslbcd_connect, prog, ns, tcpfd, ma, cb));
       return;
     }
