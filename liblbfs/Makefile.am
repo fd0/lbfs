@@ -3,10 +3,11 @@
 
 sfslib_LTLIBRARIES = liblbfs.la
 
-liblbfs_la_SOURCES = lbfs_prot.C rabinpoly.C lbfsdb.C fingerprint.C lbfsxattr.C
+liblbfs_la_SOURCES = \
+axprt_compress.C fingerprint.C lbfs_prot.C lbfsdb.C lbfsxattr.C rabinpoly.C
 
-sfsinclude_HEADERS = lbfs_prot.x lbfs_prot.h rabinpoly.h \
-			lbfsdb.h fingerprint.h lbfs.h
+sfsinclude_HEADERS = lbfs_prot.x \
+axprt_compress.h fingerprint.h lbfs.h lbfs_prot.h lbfsdb.h rabinpoly.h
 
 lbfs_prot.h: $(srcdir)/lbfs_prot.x
 	@rm -f $@
