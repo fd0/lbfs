@@ -84,7 +84,7 @@ xfs_getattr (ref<xfscall> xfsc)
   cache_entry *e = xfsindex[h->handle];
   if (!e)
     xfs_reply_err (xfsc->fd, h->header.sequence_num, ENOENT);
-  //else lbfs_getattr (xfsc->fd, *h, xfsc->getaid (), e->nh, nfsc);
+  else lbfs_attr (xfsc->fd, *(xfs_message_putattr *)h, xfsc->getaid (), e->nh, nfsc, NULL);
 }
 
 void 
@@ -351,7 +351,6 @@ cbdispatch(svccb *sbp)
 	}
 	e->nfs_attr = *a;
       }
-      //delete a; should we delete this?
       sbp->reply (NULL);
       break;
     }

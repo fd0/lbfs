@@ -108,8 +108,10 @@ compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
 void lbfs_getroot (int, xfs_message_getroot &, sfs_aid, 
 		   ref<aclnt> sc1, ref<aclnt> nc1);
 void lbfs_getnode (int, xfs_message_getnode &, sfs_aid, ref<aclnt>);
-void lbfs_getattr (int, xfs_message_getattr &, sfs_aid, const nfs_fh3 &, 
-		   ref<aclnt>); //, callback<void, const ex_getattr3res *, clnt_stat>);
+typedef callback<void, ptr<ex_getattr3res>, time_t, clnt_stat>::ptr attr_cb_t;
+void lbfs_attr (int, const xfs_message_putattr &, sfs_aid, const nfs_fh3 &, 
+		   ref<aclnt>, attr_cb_t);
+//callback<void, const ex_getattr3res *, clnt_stat> = NULL);
 void lbfs_open (int fd, const xfs_message_open &h, sfs_aid sa, 
 		ref<aclnt> c);
 void lbfs_readexist (int fd, const xfs_message_getdata &h, cache_entry *e);
