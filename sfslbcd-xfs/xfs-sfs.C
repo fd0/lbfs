@@ -231,6 +231,7 @@ sfsInit (const char* path)
   random_init_file (sfsdir << "/random_seed");
 
   lbfsdb.open_and_truncate(FP_DB);
+  //lbfsdb.open(FP_DB);
   delaycb(LBCD_GC_PERIOD, wrap(db_sync));
 
   if (open("cache", O_RDONLY, 0666) < 0) {

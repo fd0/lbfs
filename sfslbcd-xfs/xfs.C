@@ -294,7 +294,7 @@ xfs_send_message_vmultiple (int fd,
 }
 
 /*
- * Send multiple messages to the kernel (for performace reasons)
+ * Send multiple messages to the kernel (for performance reasons)
  */
 
 int
