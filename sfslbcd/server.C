@@ -325,7 +325,7 @@ server::flush_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok)
 {
   file_cache *e = file_cache_lookup(fh);
   assert(e && e->is_flush());
-  warn << "flush done " << e->fh << "\n";
+  // warn << "flush done " << e->fh << "\n";
   if (ok) {
     e->fa = fa;
     // update osize to reflect what the server knows
@@ -791,7 +791,11 @@ server::dont_run_rpc (nfscall *nc)
   else if (nc->proc () == cl_NFSPROC3_CLOSE)
     access = ACCESS3_READ | ACCESS3_LOOKUP;
   else
-    access = ACCESS3_MODIFY;
+    // apparently, on a copy of a file with mode 444, the new file is
+    // created with write bit turned off, then the ACCESS RPC, then
+    // the WRITE RPC. the ACCESS RPC is sent with all the access bits
+    // on, instead of just the MODIFY bit...
+    access = ACCESS3_READ | ACCESS3_LOOKUP | ACCESS3_MODIFY | ACCESS3_DELETE;
   int32_t perm = ac.access_lookup (*fh, nc->getaid (), access);
   if (perm == 0) {
     warn << "proc " << nc->proc () << ": no access information available\n";
@@ -878,6 +882,7 @@ server::dont_run_rpc (nfscall *nc)
 
     if (e->is_error()) {
       nc->reject (SYSTEM_ERR);
+      fc.remove (e->fh);
       return true;
     }
   }
@@ -972,7 +977,7 @@ server::dispatch (nfscall *nc)
         warn << "dangling close: " << *a << "\n";
 
       if (e && e->afh != 0 && !e->is_fetch ()) {
-	warn << "closing file " << e->fh << "\n";
+	// warn << "closing file " << e->fh << "\n";
 	e->afh->close (wrap (&server::file_closed));
 	e->afh = 0;
       }

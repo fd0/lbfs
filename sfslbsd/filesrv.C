@@ -26,7 +26,7 @@
 #include "lbfs.h"
 #include "sfslbsd.h"
 
-#define LBSD_GC_PERIOD 120
+#define LBSD_GC_PERIOD 600
 #define CHUNKS_PER_GC  1024
 
 extern int lbsd_trace;
@@ -435,10 +435,12 @@ end:
     fpdb.sync();
     db_is_dirty = false;
   }
+#if 0
   warn << sfs_trash.size() << " volume(s)\n";
   for(size_t i=0; i<sfs_trash.size(); i++)
     warn << "volume " << i << " has " 
          << sfs_trash[i].nactive << " active tmp files\n";
+#endif
   iter = 0;
   delaycb(LBSD_GC_PERIOD, wrap(this, &filesrv::db_gc, iter));
 }

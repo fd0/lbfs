@@ -34,6 +34,7 @@ struct read_state {
 struct read_obj {
   static const unsigned PARALLEL_READS = 8;
   static const unsigned LBFS_MAXDATA = 65536;
+  static const unsigned LBFS_MIN_BYTES_FOR_GETFP = 16384;
   typedef callback<void,bool,bool>::ref cb_t;
 
   cb_t cb;
@@ -44,6 +45,7 @@ struct read_obj {
   uint64 size;
   unsigned int outstanding_reads;
   bool errorcb;
+  bool use_lbfs;
   
   uint64 bytes_read;
 
@@ -120,7 +122,7 @@ struct read_obj {
     if (outstanding_reads >= PARALLEL_READS)
       return;
 
-    if (!srv->use_lbfs ()) { // NFS read
+    if (!use_lbfs) { // NFS read
       while (fe->pri.size()) {
         uint64 off = fe->pri.pop_front();
         if (off < size) {
@@ -185,7 +187,7 @@ struct read_obj {
       fe->afh->fsync (wrap (&read_obj::file_closed));
       str pfn = fe->prevfn;
       fe->prevfn = fe->fn;
-      warn << "remove " << pfn << "\n";
+      // warn << "remove " << pfn << "\n";
       file_cache::a->unlink(pfn.cstr(), wrap(&read_obj::file_closed));
       delete this;
     }
@@ -377,7 +379,12 @@ struct read_obj {
     fe->fn = fn;
     fe->afh = afh;
 
-    if (srv->use_lbfs ()) {
+    if (srv->use_lbfs () && size > LBFS_MIN_BYTES_FOR_GETFP)
+      use_lbfs = true;
+    else
+      use_lbfs = false;
+
+    if (use_lbfs) {
       lbfs_getfp3args arg;
       arg.file = fh;
       arg.offset = 0;
@@ -415,7 +422,7 @@ struct read_obj {
 
   ~read_obj()
   {
-    warn << "read_obj: read " << bytes_read << " bytes\n"; 
+    warn << "read_obj: read " << bytes_read << "/" << size << " bytes\n"; 
   }
 };
 

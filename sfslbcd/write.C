@@ -27,6 +27,7 @@ typedef callback<void, ptr<aiobuf>, ssize_t, int>::ref aiofh_cbrw;
 
 struct write_obj {
   static const unsigned int PARALLEL_WRITES = 16;
+  static const unsigned int LBFS_MIN_BYTES_FOR_CONDWRITE = 16384;
   typedef callback<void,fattr3,bool>::ref cb_t;
 
   cb_t cb;
@@ -40,6 +41,7 @@ struct write_obj {
   unsigned int outstanding_writes;
   bool callback;
   bool commit;
+  bool use_lbfs;
 
   unsigned tmpfd;
   unsigned chunkv_sz;
@@ -146,7 +148,7 @@ struct write_obj {
                         clnt_stat err)
   {
     if (!callback && !err && res->status == NFS3ERR_FPRINTNOTFOUND) {
-      warn << "hash not found\n";
+      // warn << "hash not found\n";
       while (cnt > 0) {
         unsigned s = cnt;
         s = s > srv->wtpref ? srv->wtpref : s;
@@ -336,7 +338,7 @@ struct write_obj {
     if (written < size && !callback) {
       unsigned s = size-written;
       s = s > srv->wtpref ? srv->wtpref : s;
-      if (srv->use_lbfs ())
+      if (use_lbfs)
 	aiod_read (written, s,
 	           wrap (this, &write_obj::lbfs_condwrite, written, s));
       else
@@ -344,7 +346,7 @@ struct write_obj {
 	           wrap (this, &write_obj::nfs3_write, written, s));
       written += s;
     }
-    if (!srv->use_lbfs () && written == size && !commit) {
+    if (!use_lbfs && written == size && !commit) {
       commit = true;
       nfs3_commit ();
     }
@@ -361,7 +363,7 @@ struct write_obj {
     }
     if (outstanding_writes == 0) {
       warn << "in fail(), outstanding write = 0\n";
-      if (srv->use_lbfs ()) {
+      if (use_lbfs) {
         lbfs_committmp3args arg;
         arg.commit_to = fh;
         arg.fd = tmpfd;
@@ -378,7 +380,7 @@ struct write_obj {
 
   void ok () {
     if (outstanding_writes == 0) {
-      if (srv->use_lbfs () && !commit) {
+      if (use_lbfs && !commit) {
         commit = true;
         outstanding_writes++;
     
@@ -393,14 +395,13 @@ struct write_obj {
       }
 
       if (!callback) {
-	warn << "close after flush\n";
+	// warn << "close after flush\n";
         fe->afh->close (wrap (&write_obj::file_closed));
         fe->afh = 0;
         callback = true;
 	cb(fa, true);
       }
 
-      warn << "in ok(), delete this\n";
       delete this;
     }
   }
@@ -426,7 +427,13 @@ struct write_obj {
     assert (fe->afh);
 
     bytes_wrote = 0;
-    if (srv->use_lbfs ()) {
+
+    if (srv->use_lbfs () && size > LBFS_MIN_BYTES_FOR_CONDWRITE)
+      use_lbfs = true;
+    else
+      use_lbfs = false;
+
+    if (use_lbfs) {
       lbfs_mktmpfile3args arg;
       arg.commit_to = fh;
       tmpfd = server::tmpfd;
@@ -460,7 +467,7 @@ struct write_obj {
 
   ~write_obj()
   {
-    warn << "write_obj: wrote " << bytes_wrote << " bytes\n";
+    warn << "write_obj: wrote " << bytes_wrote << "/" << size << " bytes\n";
   }
 };
 
