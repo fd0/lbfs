@@ -33,20 +33,16 @@
 extern bool xfs_fheq(xfs_handle, xfs_handle);
 extern bool nfs_fheq(nfs_fh3, nfs_fh3);
 
-typedef struct {
-  char* path_name;
+typedef struct fh_pair{
   xfs_handle xh;
   nfs_fh3 nh;
   ex_fattr3 nfs_attr;
   nfstime3 ltime;
-  union {
-    char *cache_name; //[MAXPATHLEN];
-    char *path_name;  //[MAXPATHLEN];
-  } cloc;
+  char *cache_name;
   bool opened;
 } fh_pair;
 
-class fh_map { //File handle map to cache_name
+class fh_map {
   fh_pair entry[MAX_FH];
   int max_fh, cur_fh;
 
@@ -60,10 +56,10 @@ class fh_map { //File handle map to cache_name
       entry[i].xh.b = 0;
       entry[i].xh.c = 0;
       entry[i].xh.d = 0;
-      //entry[i].cache_name = new char[MAXPATHLEN];
+      entry[i].cache_name = new char[MAXPATHLEN];
       entry[i].opened = false;
     }
-
+    //move this part to cache soon
     if (int fd = open("cache", O_RDONLY, 0666) < 0) {
       if (errno == ENOENT) {
 	warn << "Creating dir: cache\n";
@@ -81,21 +77,14 @@ class fh_map { //File handle map to cache_name
 
   int find(xfs_handle x) {
     for (int i=0; i<=max_fh; i++)
-      if (xfs_fheq(entry[i].xh, x))
-	return i;
-    return -1;
-  }
-  
-  int find(nfs_fh3 n) {
-    for (int i=0; i<=max_fh; i++) 
-      if (nfs_fheq(entry[i].nh, n)) 
+      if (/*entry[i].opened && */xfs_fheq(entry[i].xh, x))
 	return i;
     return -1;
   }
 
-  int find(char *pname) {
+  int find(nfs_fh3 n) {
     for (int i=0; i<=max_fh; i++) 
-      if (!strcmp(entry[i].path_name, pname)) 
+      if (/*entry[i].opened && */nfs_fheq(entry[i].nh, n)) 
 	return i;
     return -1;
   }
@@ -116,13 +105,9 @@ class fh_map { //File handle map to cache_name
     } else return -1;
   }
 
-  
   void setopened(bool b) { entry[cur_fh].opened = b; }
-  bool opened() { return entry[cur_fh].opened; }
+  //void setcache_name(const char* c) { strcpy(entry[cur_fh].cache_name, c); }
   
-  void setpath_name(char *pname) { strcpy(entry[cur_fh].path_name, pname); }
-  char *getpath_name() { return entry[cur_fh].path_name; }
-
   xfs_handle getxh(int i) { return entry[i].xh; }
   nfs_fh3 getnh(int i) { return entry[i].nh; }
   void set_nfsattr(ex_fattr3 nattr) { entry[cur_fh].nfs_attr = nattr; }
@@ -143,24 +128,39 @@ class fh_map { //File handle map to cache_name
   void set_ltime(nfstime3 a, nfstime3 b) { entry[cur_fh].ltime = max(a,b); }
   nfstime3 get_ltime() { return entry[cur_fh].ltime; }
 
-  char *getcache_loc(int index) {
-    if (index < 0 || index > max_fh)
-      return NULL;
-    if (entry[index].nfs_attr.type == NF3REG || entry[index].nfs_attr.type == NF3DIR)
-      return entry[index].cloc.cache_name; 
-    else 
-      if (entry[index].nfs_attr.type == NF3LNK)
-	return getcache_loc(find(entry[index].cloc.path_name));
-      else return NULL;
-  }
+  char *getcache_name() { return entry[cur_fh].cache_name; }
+  bool opened() { return entry[cur_fh].opened; }
 
-  char *getcache_loc() { 
-    if (entry[cur_fh].nfs_attr.type == NF3REG || entry[cur_fh].nfs_attr.type == NF3DIR)
-      return entry[cur_fh].cloc.cache_name; 
-    else 
-      if (entry[cur_fh].nfs_attr.type == NF3LNK)
-	return getcache_loc(find(entry[cur_fh].cloc.path_name));
-      else return NULL;
+  void remove(nfs_fh3 n) {
+    int i = find(n);
+    if (i > -1) {
+      entry[i].xh.a = 0;
+      entry[i].xh.b = 0;
+      entry[i].xh.c = 0;
+      entry[i].xh.d = 0;
+      //delete entry[i].nh;
+      delete entry[i].cache_name;
+      //delete cache file
+      entry[i].opened = false;
+    }
+  }
+  
+  void remove(xfs_handle x) {
+    int i = find(x);
+    if (i > -1) {
+      entry[i].xh.a = 0;
+      entry[i].xh.b = 0;
+      entry[i].xh.c = 0;
+      entry[i].xh.d = 0;
+      //delete entry[i].nh;
+      delete entry[i].cache_name;
+#if 0      
+      //delete cache file
+      if (unlink(entry[i].cache_name) < 0)
+	warn << strerror(errno) << "\n";
+#endif
+      entry[i].opened = false;
+    }
   }
 
   int assign_dirname(char *dname, int index) {
@@ -172,7 +172,7 @@ class fh_map { //File handle map to cache_name
 		    index / 0x100, index % 0x100);
   }
 
-  void setcache_name(char *fname, int index) { 
+  int setcache_name(char *fname, int index) { 
     
     int fd;
 
@@ -185,33 +185,24 @@ class fh_map { //File handle map to cache_name
 	warn << "Creating dir: " << dname << "\n";
 	if (mkdir(dname, 0777) < 0) {
 	  warn << strerror(errno) << "(" << errno << ") mkdir " << dname << "\n";
-	  return;
+	  return -1;
 	}
 	fd = open(fname, O_CREAT | O_RDWR | O_TRUNC, 0666); 
 	if (fd < 0) {
 	  warn << strerror(errno) << "(" << errno << ") on file =" << fname << "\n";
-	  return;
+	  return -1;
 	}
       } else {
 	warn << strerror(errno) << "(" << errno << ") on file =" << fname << "\n";
-	return;
+	return -1;
       }
     }
     
-    close(fd);
+    return fd;
   }
 
-  void setcache_loc(char *clname) {
-    if (entry[cur_fh].nfs_attr.type == NF3REG || entry[cur_fh].nfs_attr.type == NF3DIR)
-      setcache_name(entry[cur_fh].cloc.cache_name, cur_fh);
-    else 
-      if (entry[cur_fh].nfs_attr.type == NF3LNK)
-	strcpy(entry[cur_fh].cloc.path_name, clname);
-  }
-
-  xfs_handle gethandle(nfs_fh3 nfh, ex_fattr3 attr) { //, char *pname, char *clname) {
+  xfs_handle gethandle(nfs_fh3 nfh, ex_fattr3 attr) {
     // if reaching end of max_fh, need to signal invalid node to xfs
-    // This function also serves as a way to add new entries to the table.
     cur_fh = find(nfh);
     if (cur_fh > -1) {
       entry[cur_fh].nfs_attr = attr;
@@ -222,41 +213,16 @@ class fh_map { //File handle map to cache_name
       xfh.a = 0; xfh.b = 0; xfh.c = 0;
       xfh.d = entry[max_fh].xh.d + 1;
       max_fh = (++max_fh % MAX_FH);
-      cur_fh = max_fh;
       entry[max_fh].xh = xfh;
       entry[max_fh].nh = nfh;
       entry[max_fh].nfs_attr = attr;
       entry[max_fh].ltime = max(entry[max_fh].nfs_attr.mtime, entry[max_fh].nfs_attr.ctime);
-      //setpath_name(pname);
-      //setcache_loc(clname);
+      setcache_name(entry[max_fh].cache_name, max_fh);
+      cur_fh = max_fh;
       return xfh;
     }
   }
-
-  void remove(nfs_fh3 n) {
-    int i = find(n);
-    if (i > -1) {
-      entry[i].xh.a = 0;
-      entry[i].xh.b = 0;
-      entry[i].xh.c = 0;
-      entry[i].xh.d = 0;
-      entry[i].opened = false;
-    }
-  }
   
-  void remove(xfs_handle x) {
-    int i = find(x);
-    if (i > -1) {
-      entry[i].xh.a = 0;
-      entry[i].xh.b = 0;
-      entry[i].xh.c = 0;
-      entry[i].xh.d = 0;
-      entry[i].opened = false;
-    }
-  }
-
 };
-
-extern fh_map fht;
 
 #endif /* _FHMAP_H_ */

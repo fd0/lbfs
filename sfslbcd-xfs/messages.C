@@ -20,7 +20,6 @@
  */
 
 #include "messages.h"
-#include "fh_map.h"
 
 /* Non-volatile File System Info */
 ex_fsinfo3resok fsinfo;
@@ -93,13 +92,7 @@ void getrootattr(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, ex_geta
   warn << "uid = " << getuid() << "\n"; 
 
   nfsobj2xfsnode(h->cred, fsi->nfs->v3->root, *res->attributes, rqtime, &msg.node);
-  if (fht.setcur(fsi->nfs->v3->root)) {
-    warn << "getrootattr: Can't find root handle\n";
-    return;
-  }
-  fht.setpath_name("");
-  fht.setcache_loc(NULL);
-    
+  
   msg.header.opcode = XFS_MSG_INSTALLROOT;
   h0 = (struct xfs_message_header *)&msg;
   h0_len = sizeof(msg);
@@ -222,11 +215,7 @@ void nfs3_lookup(int fd, struct xfs_message_getnode *h,
   }
 
   nfsobj2xfsnode(h->cred, lres->resok->object, *a.attributes, rqtime, &msg.node);
-  if (!fht.opened()) {
-    setpath(h->parent_handle, h->name, lres->resok->object);
-    if ((*a.attributes).type == NF3REG || (*a.attributes).type == NF3DIR)
-      fht.setcache_loc(NULL);
-  }
+
   msg.header.opcode = XFS_MSG_INSTALLNODE;
   msg.parent_handle = h->parent_handle;
   strcpy(msg.name, h->name);
@@ -326,7 +315,7 @@ void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res, ti
     msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R;
 
     //fill in cache_name, cache_handle, flag
-    strcpy(msg.cache_name, fht.getcache_loc());
+    strcpy(msg.cache_name, fht.getcache_name());
     args.fd = open(msg.cache_name, O_CREAT | O_RDWR | O_TRUNC, 0666); 
 
     if (args.fd < 0) 
@@ -470,7 +459,7 @@ void compose_file(ref<getfp_args> ga) {
 	    return;
 	  }
 	  
-	  chfd = open(fht.getcache_loc(), O_RDONLY, 0666);
+	  chfd = open(fht.getcache_name(), O_RDONLY, 0666);
 	  if (chfd < 0) {
 	    warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
 	    return;
@@ -581,7 +570,7 @@ void nfs3_read_exist(int fd, struct xfs_message_getdata *h) {
   msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R 
                   | XFS_OPEN_NW | XFS_DATA_W; //This line is a hack...need to get read access 
 
-  strcpy(msg.cache_name, fht.getcache_loc());
+  strcpy(msg.cache_name, fht.getcache_name());
   fhandle_t cfh;
   if (getfh(msg.cache_name, &cfh)) {
     warn << "getfh failed\n";
@@ -617,7 +606,7 @@ void getfp(int fd, struct xfs_message_getdata *h) {
   msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R 
     | XFS_OPEN_NW | XFS_DATA_W; //This line is a hack...need to get read access 
 
-  strcpy(msg.cache_name, fht.getcache_loc());
+  strcpy(msg.cache_name, fht.getcache_name());
   int cfd = open(msg.cache_name, O_CREAT | O_WRONLY | O_TRUNC, 0666);
   if (cfd < 0) {
     warn << "xfs_message_getdata: " << strerror(errno) << "\n";
@@ -692,6 +681,53 @@ void comp_time(int fd, struct xfs_message_getdata *h, bool dirfile,
   } else nfs3_read_exist(fd, h);
 }
 
+void nfs3_readlink(int fd, struct xfs_message_getdata *h, ex_readlink3res *res,
+		   time_t rqtime, clnt_stat err) {
+
+  if (res->status == NFS3_OK) {
+    
+    struct xfs_message_installdata msg; 
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+
+    if (fht.setcur(h->handle)) {
+      warn << "nfs3_readlink: Can't find node handle\n";
+      return;
+    }
+
+    ex_fattr3 attr = *res->resok->symlink_attributes.attributes;    
+    nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
+		   attr, rqtime, &msg.node);
+    fht.set_ltime(attr.mtime, attr.ctime);
+    
+    msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R 
+      | XFS_OPEN_NW | XFS_DATA_W; //This line is a hack...need to get read access 
+    strcpy(msg.cache_name, fht.getcache_name());
+     
+    int lfd = open(msg.cache_name, O_CREAT | O_RDWR | O_TRUNC, 0666); 
+    if (lfd < 0) 
+      return;
+ 
+    fhandle_t cfh;
+    if (getfh(msg.cache_name, &cfh)) {
+      warn << "getfh failed\n";
+      return;
+    }
+
+    memmove(&msg.cache_handle, &cfh, sizeof(cfh));
+    write(lfd, res->resok->data.cstr(), res->resok->data.len());
+    close(lfd);
+    fht.setopened(true);
+
+    msg.header.opcode = XFS_MSG_INSTALLDATA;
+    h0 = (struct xfs_message_header *)&msg;
+    h0_len = sizeof(msg);
+    
+    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+				      h0, h0_len, NULL, 0);    
+  }
+}
+
 int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
 {
 
@@ -706,6 +742,16 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
     return -1;
   }
   
+  if (fht.get_nfsattr().type == NF3LNK) {
+    warn << "reading a symlink!!\n";
+    fh = new nfs_fh3;
+    *fh = fht.getnh(fht.getcur());
+    ex_readlink3res *rlres = new ex_readlink3res;
+    nfsc->call(lbfs_NFSPROC3_READLINK, fh, rlres,
+	       wrap(&nfs3_readlink, fd, h, rlres, timenow));
+    return -1;
+  }
+
   if (!fht.opened()) { 
     if (fht.get_nfsattr().type == NF3DIR) {
       rda = new readdir3args;
@@ -720,11 +766,17 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
     } else 
       if (fht.get_nfsattr().type == NF3REG) 
 	getfp(fd, h);
+#if 0
       else 
 	if (fht.get_nfsattr().type == NF3LNK) {
-	  warn << "unknown file type\n";
-	  
+	  warn << "reading a symlink!!\n";
+	  fh = new nfs_fh3;
+	  *fh = fht.getnh(fht.getcur());
+	  ex_readlink3res *rlres = new ex_readlink3res;
+	  nfsc->call(lbfs_NFSPROC3_READLINK, fh, rlres,
+		     wrap(&nfs3_readlink, fd, h, rlres, timenow));
 	}
+#endif
   } else {
     if (fht.get_nfsattr().expire < (uint32)timenow) {
       fh = new nfs_fh3; 
@@ -914,7 +966,7 @@ void lbfs_mktmpfile(int fd, struct xfs_message_putdata* h,
   } 
   
   char fname[MAXPATHLEN];
-  strcpy(fname, fht.getcache_loc());
+  strcpy(fname, fht.getcache_name());
 
   warn << "fname = " << fname << "\n";
 
@@ -1025,8 +1077,7 @@ int xfs_message_putattr (int fd, struct xfs_message_putattr *h, u_int size) {
   return 0;
 }
 
-void nfs3_create(int fd, struct xfs_message_create *h, ex_diropres3 *res, time_t rqtime,
-		 clnt_stat err) {
+void nfs3_create(int fd, struct xfs_message_create *h, ex_diropres3 *res, time_t rqtime, clnt_stat err) {
 
   if (res->status == NFS3_OK) {
 
@@ -1044,15 +1095,14 @@ void nfs3_create(int fd, struct xfs_message_create *h, ex_diropres3 *res, time_t
     //create new file
     nfsobj2xfsnode(h->cred, *(res->resok->obj.handle), 
 		   *(res->resok->obj_attributes.attributes), rqtime, &msg2.node);
-    setpath(h->parent_handle, h->name, *(res->resok->obj.handle));
-    fht.setcache_loc(NULL);
+    //int new_fd = assign_file(msg3.cache_name, fht.getcur());
 
     if (fht.setcur(*(res->resok->obj.handle))) {
       warn << "nfs3_create: Can't find node handle\n";
       return;
     }
 
-    strcpy(msg3.cache_name, fht.getcache_loc());
+    strcpy(msg3.cache_name, fht.getcache_name());
     int new_fd = open(msg3.cache_name, O_CREAT | O_RDWR | O_TRUNC, 0666); 
 
     if (new_fd < 0) {
@@ -1074,7 +1124,7 @@ void nfs3_create(int fd, struct xfs_message_create *h, ex_diropres3 *res, time_t
       return;
     }
 
-    strcpy(msg1.cache_name, fht.getcache_loc());
+    strcpy(msg1.cache_name, fht.getcache_name());
 #if 0
     int dir_fd = open(msg1.cache_name, O_CREAT | O_RDWR | O_APPEND, 0666);
     if (nfsdirent2xfsfile(dir_fd, h->name, (*res->resok->obj_attributes.attributes).fileid) < 0)
@@ -1167,7 +1217,7 @@ void nfs3_mkdir(int fd, struct xfs_message_mkdir *h, ex_diropres3 *res, time_t r
       return;
     }
 
-    strcpy(msg3.cache_name, fht.getcache_loc());
+    strcpy(msg3.cache_name, fht.getcache_name());
     int new_fd = open(msg3.cache_name, O_CREAT, 0666); 
 
     if (new_fd < 0) {
@@ -1189,7 +1239,7 @@ void nfs3_mkdir(int fd, struct xfs_message_mkdir *h, ex_diropres3 *res, time_t r
       return;
     }
 
-    strcpy(msg1.cache_name, fht.getcache_loc());
+    strcpy(msg1.cache_name, fht.getcache_name());
 #if 0    
     int dir_fd = open(msg1.cache_name, O_WRONLY | O_APPEND, 0666);
     if (nfsdirent2xfsfile(dir_fd, h->name, (*res->resok->obj_attributes.attributes).fileid) < 0) 
@@ -1271,17 +1321,17 @@ void nfs3_symlink(int fd, struct xfs_message_symlink *h, ex_diropres3 *res,
     
     assert(res->resok->obj.present && res->resok->obj_attributes.present);
     //create symlink
+    ex_fattr3 attr = *res->resok->obj_attributes.attributes;
     nfsobj2xfsnode(h->cred, *(res->resok->obj.handle), 
-		   *(res->resok->obj_attributes.attributes), rqtime, &msg2.node);
-    setpath(h->parent_handle, h->name, *(res->resok->obj.handle));
-    fht.setcache_loc(h->contents);
+		   attr, rqtime, &msg2.node);
+    fht.set_ltime(attr.mtime, attr.ctime);
 
     //write new direntry to parent dirfile (do a readdir or just append that entry?)
     if (fht.setcur(h->parent_handle)) {
       warn << "nfs3_symlink: Can't find parent handle\n";
       return;
     }
-    strcpy(msg1.cache_name, fht.getcache_loc());
+    strcpy(msg1.cache_name, fht.getcache_name());
 
     //add entry to parent dir (changing the mtime)
     assert(res->resok->dir_wcc.after.present);
@@ -1354,7 +1404,7 @@ void remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
       return;
     }
     
-    strcpy(msg1.cache_name, fht.getcache_loc());
+    strcpy(msg1.cache_name, fht.getcache_name());
     fhandle_t cfh;
     if (getfh(msg1.cache_name, &cfh)) {
       warn << "getfh failed\n";

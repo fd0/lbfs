@@ -32,12 +32,15 @@
 #include "sfslbcd.h"
 #include "xfs-sfs.h"
 #include "xfs-nfs.h"
+#include "fh_map.h"
 #include "xfs.h"
 #include "fingerprint.h"
 #include "sha1.h"
 
 #define NFS_MAXDATA 8192
 #define LBFS_MAXDATA 2097152
+
+extern fh_map fht;
 
 class condwrite3args {
 public:
