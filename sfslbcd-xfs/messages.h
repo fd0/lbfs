@@ -71,6 +71,18 @@ class getfp_args {
 
 };
 
+class rename_args {
+ public: 
+  rename_args(int f, struct xfs_message_rename *header) :
+    fd(f), h(header) {}
+  int fd;
+  struct xfs_message_rename *h;
+  ex_lookup3res *lres;
+  time_t rqtime1; //first attr time
+  ex_rename3res *rnres;
+  ex_getattr3res *gares;
+};
+
 // returns 0 if sha1 hash of data is equals to the given hash
 static inline int
 compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
@@ -115,9 +127,9 @@ int xfs_message_remove (int fd, struct xfs_message_remove *h, u_int size);
 
 int xfs_message_rmdir (int fd, struct xfs_message_rmdir *h, u_int size);
 
-#if 0
-
 int xfs_message_rename (int fd, struct xfs_message_rename *h, u_int size);
+
+#if 0
 
 int xfs_message_pioctl (int fd, struct xfs_message_pioctl *h, u_int size) ;
 

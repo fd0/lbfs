@@ -35,6 +35,7 @@ mkdir3args *ma;
 link3args *la;
 symlink3args *sla;
 setattr3args *sa;
+rename3args *rna;
 lbfs_mktmpfile3args *mt;
 lbfs_condwrite3args *cw;
 lbfs_committmp3args *ct;
@@ -66,8 +67,8 @@ NULL,						/* invalidnode */
 (xfs_message_function)xfs_message_symlink,      /* symlink */
 (xfs_message_function)xfs_message_remove,	/* remove */
 (xfs_message_function)xfs_message_rmdir,	/* rmdir */
-#if 0
 (xfs_message_function)xfs_message_rename,	/* rename */
+#if 0
 (xfs_message_function)xfs_message_pioctl,	/* pioctl */
 NULL,	                                        /* wakeup_data */
 NULL,						/* updatefid */
@@ -1028,7 +1029,7 @@ int xfs_message_inactivenode (int fd, struct xfs_message_inactivenode* h, u_int 
 void nfs3_setattr(int fd, struct xfs_message_putattr *h, ex_wccstat3 *res, time_t rqtime,
 		  clnt_stat err) {
   
-  if (res->status != -1) {
+  if (res->status == NFS3_OK) {
  
    assert(res->wcc->after.present);
 
@@ -1247,6 +1248,13 @@ void nfs3_mkdir(int fd, struct xfs_message_mkdir *h, ex_diropres3 *res, time_t r
       return;
     close(dir_fd);
 #endif
+    fhandle_t parent_fh;
+    if (getfh(msg1.cache_name, &parent_fh)) {
+      warn << "getfh failed\n";
+      return;
+    }
+    memmove(&msg1.cache_handle, &parent_fh, sizeof(parent_fh)); 
+
     //msg1.node.tokens = same as parent dir's
 
     assert(res->resok->dir_wcc.after.present);
@@ -1680,6 +1688,192 @@ int xfs_message_rmdir(int fd, struct xfs_message_rmdir *h, u_int size) {
   return 0;
 }
 
+void update_attr(ex_fattr3 attr1, ex_fattr3 attr2, time_t rqtime1, time_t rqtime2) {
+
+  nfstime3 cache_time = fht.get_ltime();
+  if (greater(attr1.mtime, cache_time) || greater(attr1.ctime, cache_time)) {
+    attr1.expire += rqtime1;
+    fht.set_nfsattr(attr1);
+  } else 
+    if (greater(attr2.mtime, attr1.mtime)) {
+      attr2.expire += rqtime2;
+      fht.set_nfsattr(attr2);
+    } else {
+      fht.set_ltime(attr2.mtime, attr2.ctime);
+      attr2.expire += rqtime2;
+      fht.set_nfsattr(attr2);
+    }
+}
+
+void nfs3_rename_getattr(ref<rename_args> rena, time_t rqtime2, clnt_stat err) {
+
+  
+  if (rena->gares->status != NFS3_OK) {
+    warn << "nfs3_rename_getattr: gares->status = " << rena->gares->status << "\n";
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+    
+    xfs_send_message_wakeup_multiple (rena->fd, rena->h->header.sequence_num, 
+				      rena->gares->status,
+				      h0, h0_len, NULL, 0);
+    return;
+  }
+
+  struct xfs_message_installnode msg1; //update attr of file renamed 
+  struct xfs_message_installdata msg2; //new parent dir content
+  struct xfs_message_installdata msg3; //old parent dir content
+  struct xfs_message_header *h0 = NULL;
+  size_t h0_len = 0;
+  struct xfs_message_header *h1 = NULL;
+  size_t h1_len = 0;
+  struct xfs_message_header *h2 = NULL;
+  size_t h2_len = 0;
+  nfs_fh3 file = rena->lres->resok->object;
+
+  if (fht.setcur(file)) {
+    warn << "nfs3_rename_getattr: Can't find file handle\n";
+    return;    
+  }
+
+  if (rena->lres->resok->obj_attributes.present) 
+    update_attr(*(rena->lres->resok->obj_attributes.attributes), 
+		*(rena->gares->attributes), rena->rqtime1, rqtime2);
+  else 
+    if (rena->lres->resok->dir_attributes.present) 
+      update_attr(*(rena->lres->resok->dir_attributes.attributes), 
+		  *(rena->gares->attributes), rena->rqtime1, rqtime2);
+
+  nfsobj2xfsnode(rena->h->cred, file, fht.get_nfsattr(), 0, &msg1.node);
+  
+  msg1.parent_handle = rena->h->new_parent_handle;
+  strlcpy (msg1.name, rena->h->new_name, sizeof(msg1.name));
+  
+  msg1.header.opcode = XFS_MSG_INSTALLNODE;
+  h0 = (struct xfs_message_header *)&msg1;
+  h0_len = sizeof(msg1);
+
+  if (fht.setcur(rena->h->new_parent_handle)) {
+    warn << "nfs3_rename_getattr: Can't find file new_parent_handle\n";
+    return;    
+  }
+  strcpy(msg2.cache_name, fht.getcache_name());
+  //change content of new parent dir (later)
+  fhandle_t parent_fh;
+  if (getfh(msg2.cache_name, &parent_fh)) {
+    warn << "getfh failed\n";
+    return;
+  }
+  memmove(&msg2.cache_handle, &parent_fh, sizeof(parent_fh)); 
+  assert(rena->rnres->res->todir_wcc.after.present);
+  nfsobj2xfsnode(rena->h->cred, fht.getnh(fht.getcur()), 
+		 *(rena->rnres->res->todir_wcc.after.attributes), 
+		 rqtime2, &msg2.node);
+
+  msg2.flag = 0;  
+  msg2.header.opcode = XFS_MSG_INSTALLDATA;
+  h1 = (struct xfs_message_header *)&msg2;
+  h1_len = sizeof(msg2);
+
+  if (!xfs_handle_eq(&rena->h->old_parent_handle, &rena->h->new_parent_handle)) {
+    if (fht.setcur(rena->h->old_parent_handle)) {
+      warn << "nfs3_rename_getattr: Can't find file old_parent_handle\n";
+      return;    
+    }
+    strcpy(msg3.cache_name, fht.getcache_name());
+    //change content of new parent dir (later)
+    if (getfh(msg3.cache_name, &parent_fh)) {
+      warn << "getfh failed\n";
+      return;
+    }
+    memmove(&msg3.cache_handle, &parent_fh, sizeof(parent_fh)); 
+    assert(rena->rnres->res->fromdir_wcc.after.present);
+    nfsobj2xfsnode(rena->h->cred, fht.getnh(fht.getcur()), 
+		   *(rena->rnres->res->fromdir_wcc.after.attributes), 
+		   rqtime2, &msg3.node);
+    
+    msg3.flag = 0;  
+    msg3.header.opcode = XFS_MSG_INSTALLDATA;
+    h2 = (struct xfs_message_header *)&msg3;
+    h2_len = sizeof(msg3);
+  }
+
+  xfs_send_message_wakeup_multiple (rena->fd, rena->h->header.sequence_num,
+				    0, h0, h0_len, h1, h1_len, h2, h2_len,
+				    NULL, 0);
+}
+
+void nfs3_rename_rename(ref<rename_args> rena, clnt_stat err) {
+
+  warn << "rename_rename !!\n";
+  
+  fh = new nfs_fh3;
+  *fh = rena->lres->resok->object;
+  rena->gares = new ex_getattr3res;
+
+  nfsc->call(lbfs_NFSPROC3_GETATTR, fh, rena->gares, 
+	     wrap (&nfs3_rename_getattr, rena, timenow));
+
+}
+
+void nfs3_rename_lookup(ref<rename_args> rena, time_t rqtime, clnt_stat err) {
+  
+  warn << "rename_lookup !!\n";
+  
+  if (rena->lres->status != NFS3_OK) {
+    warn << "nfs3_rename_lookup: lres->status = " << rena->lres->status << "\n";
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+    
+    xfs_send_message_wakeup_multiple (rena->fd, rena->h->header.sequence_num, 
+				      rena->lres->status,
+				      h0, h0_len, NULL, 0);
+    return;
+  }
+
+  if (fht.setcur(rena->h->old_parent_handle)) {
+    warn << "xfs_message_rename: Can't find old_parent_handle\n";
+    return;
+  }
+
+  rna = new rename3args;
+  rna->from.dir = fht.getnh(fht.getcur());
+  rna->from.name = rena->h->old_name;
+
+  if (fht.setcur(rena->h->new_parent_handle)) {
+    warn << "xfs_message_rename: Can't find new_parent_handle\n";
+    return;
+  }
+  
+  rna->to.dir = fht.getnh(fht.getcur());
+  rna->to.name = rena->h->new_name;
+  
+  rena->rqtime1 = rqtime;
+  rena->rnres = new ex_rename3res;
+
+  nfsc->call(lbfs_NFSPROC3_RENAME, rna, rena->rnres, 
+	     wrap (&nfs3_rename_rename, rena));
+}
+
+int xfs_message_rename(int fd, struct xfs_message_rename *h, u_int size) {
+  
+  warn << "rename !!\n";
+  
+  if (fht.setcur(h->old_parent_handle)) {
+    warn << "xfs_message_rename: Can't find old_parent_handle\n";
+    return -1;
+  }
+
+  doa = new diropargs3;
+  doa->dir = fht.getnh(fht.getcur());
+  doa->name = h->old_name;
+  
+  ref<rename_args> rena = new refcounted<rename_args> (fd, h);
+  rena->lres = new ex_lookup3res;
+  nfsc->call(lbfs_NFSPROC3_LOOKUP, doa, rena->lres, 
+	     wrap (&nfs3_rename_lookup, rena, timenow));
+  return 0;
+}
+
 void cbdispatch(svccb *sbp)
 {
   if (!sbp)
@@ -1696,13 +1890,13 @@ void cbdispatch(svccb *sbp)
       if (xa->attributes.present && xa->attributes.attributes->expire) {
 	a = xa->attributes.attributes.addr ();
 	a->expire += timenow;
+	//ac.attr_enter (xa->handle, a, NULL);
+	if (fht.setcur(xa->handle)) {
+	  warn << "cbdispatch: Can't find handle\n";
+	  return;
+	}      
+	fht.set_nfsattr(*a);
       }
-      //ac.attr_enter (xa->handle, a, NULL);
-      if (fht.setcur(xa->handle)) {
-	warn << "cbdispatch: Can't find handle\n";
-	return;
-      }      
-      fht.set_nfsattr(*a);
 
       sbp->reply (NULL);
       break;
