@@ -1953,7 +1953,6 @@ struct putdata_obj {
   void sendwrite (chunk *chunk)
   {
     int err, ost;
-    char iobuf[NFS_MAXDATA];
     uint64 offst = chunk->location().pos ();
     uint32 count = chunk->location().count ();
 
@@ -1966,6 +1965,19 @@ struct putdata_obj {
     }
 
     while (count > 0) {
+      write3args wa;
+      lbfs_tmpwrite3args twa;
+      char *iobuf;
+
+      if (lbfs_prot == 1) {
+	wa.data.setsize(NFS_MAXDATA);
+	iobuf = wa.data.base();
+      }
+      else {
+	twa.data.setsize(NFS_MAXDATA);
+	iobuf = twa.data.base();
+      }
+
       ost = lseek (rfd, offst, SEEK_SET);
       if (count < NFS_MAXDATA)
 	err = read (rfd, iobuf, count);
@@ -1977,24 +1989,20 @@ struct putdata_obj {
       }
       count -= err;
       offst += err;
-      write3args wa;
-      lbfs_tmpwrite3args twa;
       if (lbfs_prot == 1) {
+	wa.data.setsize(err);
 	wa.file = tmpfh;
 	wa.offset = ost;
 	wa.stable = UNSTABLE;
 	wa.count = err;
-	wa.data.setsize (err);
-	memcpy (wa.data.base (), iobuf, err);
 	bytes_sent += wa.count;
       } else {
+	twa.data.setsize(err);
 	twa.commit_to = e->nh;
 	twa.fd = tmpfd;
 	twa.offset = ost;
 	twa.stable = UNSTABLE;
 	twa.count = err;
-	twa.data.setsize (err);
-	memcpy (twa.data.base (), iobuf, err);      
 	bytes_sent += twa.count;
       }
       writes_sent++;
@@ -2002,10 +2010,12 @@ struct putdata_obj {
       outstanding_condwrites++;
       if (lbfs_prot == 1)
 	c->call (lbfs_NFSPROC3_WRITE, &wa, res,
-		 wrap (this, &putdata_obj::do_sendwrite, chunk, res), lbfs_authof (sa));
+		 wrap (this, &putdata_obj::do_sendwrite, chunk, res),
+		 lbfs_authof (sa));
       else
 	c->call (lbfs_TMPWRITE, &twa, res,
-		 wrap (this, &putdata_obj::do_sendwrite, chunk, res), lbfs_authof (sa));
+		 wrap (this, &putdata_obj::do_sendwrite, chunk, res),
+		 lbfs_authof (sa));
     }
     if (lbfs_prot > 1)
       blocks_written++;
@@ -2221,6 +2231,7 @@ struct putdata_obj {
 };
 
 struct write_obj {
+  static const int OUTSTANDING_WRITES = 16;
   int fd;
   ref<aclnt> c;
   
@@ -2228,46 +2239,96 @@ struct write_obj {
   xfs_message_putdata *h;
   sfs_aid sa;
   cache_entry *e;
-  write3args wa;
   int data_fd;
+  bool had_error;
+  int next_offset;
+  unsigned outstanding_writes;
 
-  void send_data (uint offset, ptr<ex_write3res> res, time_t rqt, clnt_stat err) 
+  void done()
   {
-    if (!res || (!err && res->status == NFS3_OK)) {    
-      if (lseek (data_fd, offset, SEEK_SET) < 0) {
-	xfs_reply_err(fd, h->header.sequence_num, errno);
-	delete this; return;      
-      }
-      char iobuf[NFS_MAXDATA];
-      int error = read (data_fd, iobuf, NFS_MAXDATA);
-      if (error < 0) {
-	xfs_reply_err(fd, h->header.sequence_num, errno);
-	delete this; return;      
-      }
-      
-      if (error > 0) {
-	wa.offset = offset;
-	wa.count = error;
-	wa.data.setsize (wa.count);
-	memcpy (wa.data.base (), iobuf, wa.count);
+    if (outstanding_writes == 0) delete this;
+  }
 
-	ref<ex_write3res> wres = New refcounted <ex_write3res>;
-	c->call (lbfs_NFSPROC3_WRITE, &wa, wres,
-		 wrap (this, &write_obj::send_data, offset+wa.count, wres, timenow), 
-		 lbfs_authof (sa));
-      } else {
-	assert (error == 0);
-	if (res) {
-	  e->nfs_attr = *(res->resok->file_wcc.after.attributes);
-	  e->set_exp (rqt, e->nfs_attr.type == NF3DIR);
-	  e->ltime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
-	}
-	xfs_send_message_wakeup (fd, h->header.sequence_num, 0); 
-	delete this;
+  void committed(ptr<ex_commit3res> res, time_t rqt, clnt_stat err)
+  {
+    outstanding_writes--;
+    assert(outstanding_writes==0);
+    if (!err && res->status == NFS3_OK) {
+      e->nfs_attr = *(res->resok->file_wcc.after.attributes);
+      e->set_exp (rqt, e->nfs_attr.type == NF3DIR);
+      e->ltime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
+      xfs_send_message_wakeup (fd, h->header.sequence_num, 0);
+    }
+    else
+      xfs_reply_err(fd, h->header.sequence_num, err ? err : res->status);
+    done();
+  }
+
+  void send_data (int n, ptr<ex_write3res> res, time_t rqt, clnt_stat err) 
+  {
+    if (res)
+      outstanding_writes--;
+
+    if (had_error) {
+      done();
+      return;
+    }
+
+    if (!res || (!err && res->status == NFS3_OK)) {
+      for (int i=0; i<n; i++) {
+        if (lseek (data_fd, next_offset, SEEK_SET) < 0) {
+	  had_error = true;
+	  xfs_reply_err(fd, h->header.sequence_num, errno);
+	  done();
+	  return;
+        }
+        write3args wa;
+        wa.data.setsize(NFS_MAXDATA);
+        int error = read (data_fd, wa.data.base(), NFS_MAXDATA);
+        if (error < 0) {
+	  had_error = true;
+	  xfs_reply_err(fd, h->header.sequence_num, errno);
+	  done();
+	  return;
+        }
+	wa.data.setsize(error);
+        if (error > 0) {
+          wa.file = e->nh;
+          wa.stable = UNSTABLE;
+	  wa.offset = next_offset;
+	  wa.count = error;
+	  next_offset += error;
+	  outstanding_writes++;
+	  ref<ex_write3res> wres = New refcounted <ex_write3res>;
+	  c->call (lbfs_NFSPROC3_WRITE, &wa, wres,
+		   wrap (this, &write_obj::send_data,
+		         1, wres, timenow), lbfs_authof (sa));
+        } else {
+	  if (outstanding_writes == 0) {
+	    if (next_offset > 0) {
+              commit3args ca; 
+	      ca.file = e->nh;
+	      ca.offset = 0;
+	      ca.count = next_offset;
+	      ref<ex_commit3res> cres = New refcounted <ex_commit3res>;
+	      outstanding_writes++;
+	      c->call (lbfs_NFSPROC3_COMMIT, &ca, cres,
+		       wrap (this, &write_obj::committed, cres, rqt),
+		       lbfs_authof (sa));
+	    }
+	    else {
+	      xfs_send_message_wakeup (fd, h->header.sequence_num, 0);
+	      done();
+	    }
+	  }
+	  return;
+        }
       }
     } else {
+      had_error = true;
       xfs_reply_err(fd, h->header.sequence_num, err ? err : res->status);
-      delete this;      
+      done();
+      return;
     }
   }
 
@@ -2277,7 +2338,8 @@ struct write_obj {
   }
 
   write_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
-    fd(fd1), c(c1), hh(h1), sa(sa1)
+    fd(fd1), c(c1), hh(h1), sa(sa1),
+    had_error(false), next_offset(0), outstanding_writes(0)
   {
     h = msgcast<xfs_message_putdata> (hh);
     e = xfsindex[h->handle];
@@ -2285,21 +2347,18 @@ struct write_obj {
       if (lbcd_trace > 1)
 	warn << "write_obj: Can't find node handle\n";
       xfs_reply_err (fd, h->header.sequence_num, ENOENT);
-      delete this; return;
+      done();
+      return;
     }
 
     data_fd = open (e->cache_name, O_RDWR, 0666);
     if (data_fd < 0) {
       xfs_reply_err (fd, h->header.sequence_num, errno);
-      delete this; return;
+      done();
+      return;
     }
-      
-    wa.file = e->nh;
-    wa.stable = UNSTABLE;
-
-    send_data (0, NULL, 0, clnt_stat (0));
+    send_data (OUTSTANDING_WRITES, NULL, 0, clnt_stat(0));
   }
-   
 };
 
 void
