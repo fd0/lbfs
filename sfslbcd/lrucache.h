@@ -80,8 +80,7 @@ class lrucache {
     if (e) {
       entries.remove(e);
       lrulist.remove(e);
-      if (rcb)
-	(*rcb)(e->v);
+      if (rcb) (*rcb)(e->v);
       delete e;
     }
   }
@@ -101,8 +100,7 @@ class lrucache {
     if (e) {
       lrulist.remove(e);
       entries.remove(e);
-      if (rcb)
-	(*rcb)(e->v);
+      if (rcb) (*rcb)(e->v);
       delete e;
     }
   }

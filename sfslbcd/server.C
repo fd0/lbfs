@@ -28,16 +28,56 @@
 
 int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 2);
 
+inline bool
+operator< (const nfstime3 &t1, const nfstime3 &t2) {
+  unsigned int ts1 = t1.seconds;
+  unsigned int tns1 = t1.nseconds;
+  unsigned int ts2 = t2.seconds;
+  unsigned int tns2 = t2.nseconds;
+  ts1 += (tns1/1000000000);
+  tns1 = (tns1%1000000000);
+  ts2 += (tns2/1000000000);
+  tns2 = (tns2%1000000000);
+  return (ts1 < ts2 || (ts1 == ts2 && tns1 < tns2));
+}
+
 void
-server::cache_file(time_t rqtime, nfscall *nc, void *res, clnt_stat err)
+server::access_reply_cached(nfscall *nc, int32_t perm, fattr3 fa, bool ok)
+{
+  if (ok) {
+    access3args *a = nc->template getarg<access3args> ();
+    fcache *e = fc[a->object];
+    if (!e) {
+      fcache_insert(a->object,fa);
+      e = fc[a->object];
+      assert(e);
+    }
+    e->fa = fa;
+    e->users++;
+    access3res res(NFS3_OK);
+    res.resok->obj_attributes.set_present (true);
+    *res.resok->obj_attributes.attributes = fa;
+    res.resok->access = perm;
+    nc->reply (&res);
+  }
+  else
+    nc->reject (SYSTEM_ERR);
+  return;
+}
+
+void
+server::access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 {
   ex_access3res *ares = static_cast<ex_access3res *> (res);
   if (!err && ares->status == NFS3_OK) {
     access3args *a = nc->template getarg<access3args> ();
     ex_fattr3 fa = *ares->resok->obj_attributes.attributes;
-    if (fa.type == NF3REG) {
-      warn << "access " << a->object << "\n";
-      lbfs_read(*this, a->object, fa.size, nfsc, authof(nc->getaid()),
+    fcache *e = fc[a->object];
+    // update cache if cache time < mtime and file is not open
+    if (fa.type == NF3REG &&
+	(!e || (e->fa.mtime < fa.mtime && e->users == 0))) {
+      str f = fh2fn(a->object);
+      lbfs_read(f, a->object, fa.size, nfsc, authof(nc->getaid()),
 	        wrap(mkref(this), &server::cache_file_reply, rqtime, nc, res));
       return;
     }
@@ -46,12 +86,62 @@ server::cache_file(time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 }
 
 void
-server::cache_file_reply(time_t rqtime, nfscall *nc, void *res, bool ok)
+server::cache_file_reply (time_t rqtime, nfscall *nc, void *res, bool ok)
 {
-  if (ok)
+  if (ok) {
+    access3args *a = nc->template getarg<access3args> ();
+    ex_access3res *ares = static_cast<ex_access3res *> (res);
+    ex_fattr3 *f = ares->resok->obj_attributes.attributes;
+    fattr3 fa = *reinterpret_cast<const fattr3 *> (f);
+    fcache *e = fc[a->object];
+    if (!e) {
+      fcache_insert(a->object,fa);
+      e = fc[a->object];
+      assert(e);
+    }
+    e->fa = fa;
+    e->users++;
     getreply(rqtime, nc, res, RPC_SUCCESS);
+  }
   else
     getreply(rqtime, nc, res, RPC_SYSTEMERROR);
+}
+
+void
+server::read_from_cache(nfscall *nc, fcache *e)
+{
+  read3args *a = nc->template getarg<read3args> ();
+  str fn = fh2fn(e->fh);
+  int fd = open (fn, O_RDONLY);
+  if (fd < 0) {
+    perror("open cache file");
+    nc->reject (SYSTEM_ERR);
+    return;
+  }
+  if (lseek(fd, a->offset, SEEK_SET) < 0) {
+    perror("lseek in cache file");
+    nc->reject (SYSTEM_ERR);
+    return;
+  }
+  char buf[a->count+1];
+  int n = read(fd, &buf[0], a->count+1);
+  if (n < 0) {
+    perror("reading cache file");
+    nc->reject (SYSTEM_ERR);
+    return;
+  }
+  close(fd);
+
+  int x = ((unsigned)n) > a->count ? a->count : n;
+  read3res res(NFS3_OK);
+  res.resok->count = x;
+  res.resok->data.setsize(x);
+  memcpy(res.resok->data.base(), buf, x);
+  res.resok->eof = (((unsigned)n) <= a->count);
+  res.resok->file_attributes.set_present (true);
+  *res.resok->file_attributes.attributes = e->fa;
+  warn << "read from cache, eof " << res.resok->eof << "\n";
+  nc->reply(&res);
 }
 
 void
@@ -131,13 +221,13 @@ server::authclear (sfs_aid aid)
 }
 
 void
-server::dispatch_dummy(svccb* sbp)
+server::dispatch_dummy (svccb* sbp)
 {
   sfsdispatch(sbp);
 }
 
 void
-server::setfd(int fd)
+server::setfd (int fd)
 {
   assert (fd >= 0);
   x = New refcounted<axprt_zcrypt>(fd, axprt_zcrypt::ps());
@@ -172,12 +262,18 @@ server::dispatch (nfscall *nc)
 {
   if (nc->proc() == cl_NFSPROC3_CLOSE) {
     nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
-    warn << "close " << *a << "\n";
+    fcache *e = fc[*a];
+    if (e) {
+      if (e->users > 0)
+	e->users--;
+      else
+	warn << "dangling close: " << *a << "\n";
+    }
     nc->error (NFS3_OK);
     return;
   }
 
-  if (nc->proc () == NFSPROC3_GETATTR) {
+  else if (nc->proc () == NFSPROC3_GETATTR) {
     const ex_fattr3 *f = ac.attr_lookup (*nc->template getarg<nfs_fh3> ());
     if (f) {
       getattr3res res (NFS3_OK);
@@ -186,24 +282,43 @@ server::dispatch (nfscall *nc)
       return;
     }
   }
+
   else if (nc->proc () == NFSPROC3_ACCESS) {
     access3args *a = nc->template getarg<access3args> ();
     int32_t perm = ac.access_lookup (a->object, nc->getaid (), a->access);
     if (perm > 0) {
-      access3res res (NFS3_OK);
-      res.resok->obj_attributes.set_present (true);
-      *res.resok->obj_attributes.attributes
-	= *reinterpret_cast<const fattr3 *> (ac.attr_lookup (a->object));
-      res.resok->access = perm;
-      nc->reply (&res);
+      fattr3 fa =
+	*reinterpret_cast<const fattr3 *> (ac.attr_lookup (a->object));
+      fcache *e = fc[a->object];
+      // update cache if cache time < mtime and file is not open
+      if (fa.type == NF3REG &&
+	  (!e || (e->fa.mtime < fa.mtime && e->users == 0))) {
+        str f = fh2fn(a->object);
+        lbfs_read
+	  (f, a->object, fa.size, nfsc, authof(nc->getaid()),
+	   wrap(mkref(this), &server::access_reply_cached, nc, perm, fa));
+        return;
+      }
+      access_reply_cached(nc, perm, fa, true);
       return;
     }
-  
+ 
     void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
     nfsc->call (nc->proc (), nc->getvoidarg (), res,
-	        wrap (mkref(this), &server::cache_file, timenow, nc, res),
+	        wrap (mkref(this), &server::access_reply, timenow, nc, res),
 	        authof (nc->getaid ()));
     return;
+  }
+
+  else if (nc->proc () == NFSPROC3_READ) {
+    read3args *a = nc->template getarg<read3args> ();
+    fcache *e = fc[a->file];
+    if (e && e->users > 0) {
+      read_from_cache(nc, e);
+      return;
+    }
+    else
+      warn << "dangling read: " << a->file << "\n";
   }
 
   void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
@@ -213,7 +328,7 @@ server::dispatch (nfscall *nc)
 }
 
 void
-server::remove_cache(server::fcache e)
+server::remove_cache (server::fcache e)
 {
   str fn = fh2fn(e.fh);
   warn << "remove " << fn << "\n";

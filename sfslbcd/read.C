@@ -29,7 +29,6 @@ struct read_obj {
   static const int READ_SIZE = 8192;
   typedef callback<void,bool>::ref cb_t;
 
-  server &srv;
   cb_t cb;
   ref<aclnt> c;
   nfs_fh3 fh;
@@ -107,7 +106,6 @@ struct read_obj {
   void ok() {
     if (outstanding_reads == 0) {
       if (!callback) {
-	srv.fcache_insert(fh,mtime);
 	close(fd);
         callback = true;
 	cb(true);
@@ -116,13 +114,12 @@ struct read_obj {
     }
   }
 
-  read_obj (server &srv, nfs_fh3 fh, size_t size, ref<aclnt> c,
-            AUTH *a, read_obj::cb_t cb)
-    : srv(srv), cb(cb), c(c), fh(fh), auth(a), size(size), requested(0),
+  read_obj (str fn, nfs_fh3 fh, size_t size,
+            ref<aclnt> c, AUTH *a, read_obj::cb_t cb)
+    : cb(cb), c(c), fh(fh), auth(a), size(size), requested(0),
       outstanding_reads(0), callback(false), mtime_valid(false)
   {
-    str f = srv.fh2fn(fh);
-    fd = open (f, O_CREAT | O_TRUNC | O_WRONLY, 0666);
+    fd = open (fn, O_CREAT | O_TRUNC | O_WRONLY, 0666);
     if (fd < 0) {
       warn << "cannot open file for caching\n";
       fail();
@@ -140,9 +137,9 @@ struct read_obj {
 };
 
 void
-lbfs_read(server &srv, nfs_fh3 fh, size_t size,
-          ref<aclnt> c, AUTH *a, read_obj::cb_t cb)
+lbfs_read(str fn, nfs_fh3 fh, size_t size, ref<aclnt> c,
+          AUTH *a, read_obj::cb_t cb)
 {
-  vNew read_obj (srv, fh, size, c, a, cb);
+  vNew read_obj (fn, fh, size, c, a, cb);
 }
 

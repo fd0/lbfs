@@ -1,0 +1,26 @@
+
+XXX read from cached file
+XXX call getreply on all NFS replies, even those in helper functions
+XXX write to cached file, remember STABLE flag
+XXX on CLOSE, send stuff to server, reflect STABLE flag
+XXX remember COMMIT
+
+consistency
+ 0) don't update cache if the file is open; ideally, we don't update
+    the cache if file is open for writing, so we don't clobber
+    someone's write. but we can't tell if a file is open for reading
+    or writing.
+ 1) if lease has not expired, and cache time matches mtime, use cache
+ 2) if lease has expired, fetch attribute; if cache time matches
+    mtime, use cache
+ 3) if lease has expired, fetch attribute; if cache time does not
+    match mtime, update cache
+
+can we depend on nfs client to always send an ACCESS rpc before any
+read? we don't do access control upon seeing a READ rpc: we just
+return data from the cached file. if an user cannot access a file, the
+ACCESS rpc will fail, and therefore no READ rpcs will be sent.
+
+is it bad to evict from lrucache a file with an user count greater
+than zero?
+
