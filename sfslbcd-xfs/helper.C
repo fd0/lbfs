@@ -718,9 +718,10 @@ struct getfp_obj {
 	}
 	for (uint i = 0; i < cvp.size (); i++) {
 	  if (lbcd_trace > 1)
-	    warn << "adding fp = " << cvp[i]->index() << " to lbfsdb\n";
+	    warn << "adding fp = " << cvp[i]->hashidx() << " to lbfsdb\n";
 	  cvp[i]->location().set_fh (e->nh);
-	  lbfsdb.add_entry (cvp[i]->index(), &(cvp[i]->location()));
+	  lbfsdb.add_entry(cvp[i]->hashidx(), 
+	                   &(cvp[i]->location()), cvp[i]->location().size());
 	  delete cvp[i];
 	}
 	delete this;
@@ -2101,14 +2102,16 @@ struct putdata_obj {
 	  if (lbcd_trace > 1) {
 	    warn << "chindex = " << index << " size = " << v_size << "\n";
 	    warn << "adding fp = " 
-	         << chunker->chunk_vector()[index]->index()
+	         << chunker->chunk_vector()[index]->hashidx()
 		 << " to lbfsdb \n";
 	  }
 	  outstanding_condwrites++;
 	  sendcondwrite(chunker->chunk_vector()[index]);
 	  chunker->chunk_vector()[index]->location().set_fh (e->nh);
-	  lbfsdb.add_entry (chunker->chunk_vector()[index]->index(),
-			    &(chunker->chunk_vector()[index]->location()));
+	  lbfsdb.add_entry
+	    (chunker->chunk_vector()[index]->hashidx(),
+	     &(chunker->chunk_vector()[index]->location()),
+	     chunker->chunk_vector()[index]->location().size());
 	}
       if (outstanding_condwrites >= OUTSTANDING_CONDWRITES) 
 	break;
@@ -2124,13 +2127,15 @@ struct putdata_obj {
 	if (lbcd_trace > 1) {
 	  warn << "chindex = " << index << " size = " <<  total_blocks<< "\n";
 	  warn << "adding fp = "
-	       << chunker->chunk_vector()[index]->index()
+	       << chunker->chunk_vector()[index]->hashidx()
 	       << " to lbfsdb \n";
 	}
 	sendcondwrite(chunker->chunk_vector()[index]);
 	chunker->chunk_vector()[index]->location().set_fh (e->nh);
-	lbfsdb.add_entry (chunker->chunk_vector()[index]->index(),
-			  &(chunker->chunk_vector()[index]->location()));
+	lbfsdb.add_entry
+	  (chunker->chunk_vector()[index]->hashidx(),
+	   &(chunker->chunk_vector()[index]->location()),
+	   chunker->chunk_vector()[index]->location().size());
       }
       eof = true;
     }

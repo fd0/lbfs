@@ -26,10 +26,10 @@
 
 class chunk_location {
 private:
-  unsigned char _fh[NFS3_FHSIZE];
-  unsigned _fhsize;
   off_t _pos;
   size_t _count;
+  unsigned _fhsize;
+  unsigned char _fh[NFS3_FHSIZE];
  
 public:
   chunk_location() {
@@ -72,6 +72,10 @@ public:
   
   size_t count() const 		{ return _count; }
   void set_count(size_t c) 	{ _count = c; }
+
+  size_t size() const { 
+    return sizeof(off_t)+sizeof(size_t)+sizeof(unsigned)+_fhsize;
+  }
 };
 
 class chunk {
@@ -110,7 +114,7 @@ public:
 
   sfs_hash hash() const { return _hash; }
 
-  u_int64_t index() const {
+  u_int64_t hashidx() const {
     u_int64_t n;
     memmove(&n, _hash.base(), sizeof(n));
     return n;

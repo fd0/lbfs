@@ -415,13 +415,17 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
     for (unsigned i=0; i<u->chunks.size(); i++) {
       chunk *c = u->chunks[i];
       c->location().set_fh(u->fh);
-      fsrv->fpdb.add_entry(c->index(), &(c->location()));
+      fsrv->fpdb.add_entry(c->hashidx(),
+	                   &(c->location()), c->location().size());
       c->location().set_fh(fh);
-      fsrv->fpdb.add_entry(c->index(), &(c->location()));
-      if (lbsd_trace > 2) {
-        warn << "COMMITTMP: adding " << c->index() << " @"
+      fsrv->fpdb.add_entry(c->hashidx(), 
+	                   &(c->location()), c->location().size());
+      if (lbsd_trace > 2) 
+      {
+        warn << "COMMITTMP: adding " << c->hashidx() << " @"
 	     << c->location().pos() << " " 
-	     << c->location().count() << " to database\n";
+	     << c->location().count() << " to database "
+	     << c->location().size() << " bytes\n";
       }
     }
     u->name[u->len] = '\0';
@@ -466,9 +470,10 @@ client::aborttmp (svccb *sbp, filesrv::reqstate rqs)
       for (unsigned i=0; i<u->chunks.size(); i++) {
         chunk *c = u->chunks[i];
         c->location().set_fh(u->fh);
-        fsrv->fpdb.add_entry(c->index(), &(c->location()));
+        fsrv->fpdb.add_entry
+	  (c->hashidx(), &(c->location()), c->location().size());
         if (lbsd_trace > 2) {
-          warn << "ABORTTMP: adding " << c->index() << " @"
+          warn << "ABORTTMP: adding " << c->hashidx() << " @"
 	       << c->location().pos() << " " 
 	       << c->location().count() << " to database\n";
         }
@@ -510,7 +515,7 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       x.count = cv[i]->location().count();
       res->resok->fprints[i] = x;
       if (lbsd_trace > 3)
-        warn << "GETFP: " << cv[i]->index() << " " 
+        warn << "GETFP: " << cv[i]->hashidx() << " " 
 	     << armor32(x.hash.base(), sha1::hashsize) << "\n";
     }
     res->resok->eof=rres->resok->eof;
