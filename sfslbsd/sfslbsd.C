@@ -106,7 +106,7 @@ start_server (filesrv *fsrv, bool ok)
   if (!ok)
     fatal ("file server initialization failed\n");
   warn ("version %s, pid %d\n", VERSION, getpid ());
-  warn << "serving " << sfsroot << "/"
+  warn << "serving " << sfsroot << "/lbfs:"
        << sfs_hostinfo2path (fsrv->servinfo.host) << "\n";
   if (opt_dumphandles) {
     for (size_t i = 0; i < fsrv->fstab.size (); i++) {
