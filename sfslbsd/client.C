@@ -376,22 +376,23 @@ client::nfs3dispatch (svccb *sbp)
     return;
 
   if (sbp->proc () == lbfs_MKTMPFILE) {
-    warn << "server: got MKTMPFILE\n";
     mktmpfile(sbp, rqs);
+    warn ("server: MKTMPFILE (%lu %lu)\n", x->bytes_sent, x->bytes_recv);
   }
   else if (sbp->proc () == lbfs_COMMITTMP) {
-    warn << "server: got COMMITTMP\n";
+    warn ("server: COMMITTMP (%lu %lu)\n", x->bytes_sent, x->bytes_recv);
     committmp(sbp, rqs);
   }
   else if (sbp->proc () == lbfs_CONDWRITE) {
-    warn << "server: got CONDWRITE\n";
+    warn ("server: CONDWRITE (%lu %lu)\n", x->bytes_sent, x->bytes_recv);
     condwrite(sbp, rqs);
   }
   else if (sbp->proc () == lbfs_GETFP) {
-    warn << "server: got GETFP\n";
+    warn ("server: GETFP (%lu %lu)\n", x->bytes_sent, x->bytes_recv);
     getfp(sbp, rqs);
   }
   else {
+    warn ("server: %d (%lu %lu)\n", sbp->proc(), x->bytes_sent, x->bytes_recv);
     void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
     if (sbp->proc () == NFSPROC3_RENAME)
       fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
