@@ -73,12 +73,14 @@ struct hashfh3 {
 struct tmpfh_record {
 #define TMPFN_MAX 1024
   nfs_fh3 fh;
+  nfs_fh3 dir;
   char name[TMPFN_MAX];
   int len;
   vec<chunk*> chunks;
   ihash_entry<tmpfh_record> hlink;
 
-  tmpfh_record (const nfs_fh3 &f, const char *s, unsigned l);
+  tmpfh_record (const nfs_fh3 &f, const nfs_fh3 &dir, 
+                const char *s, unsigned l);
   ~tmpfh_record ();
 };
 
@@ -110,8 +112,8 @@ struct filesys {
   inotab_t *inotab;
 };
 
-#define SFS_TRASH_DIR_BUCKETS   100 // number of buckets
-#define SFS_TRASH_DIR_SIZE    10000 // total number of trash files
+#define SFS_TRASH_DIR_BUCKETS   256 // number of buckets
+#define SFS_TRASH_DIR_SIZE    50000 // total number of trash files
 #define SFS_TRASH_WIN_SIZE      100 // empty slots to nfs3_link to
 
 struct trash_dir {
@@ -287,12 +289,13 @@ class client : public virtual refcount, public sfsserv {
                           const unsigned char *, size_t, off_t);
   void condwrite (svccb *sbp, filesrv::reqstate rqs);
 
-  void mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, char *path,
-                     void *_cres, clnt_stat err);
+  void mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 dir, 
+                     char *path, void *_cres, clnt_stat err);
   void mktmpfile (svccb *sbp, filesrv::reqstate rqs);
   
   void chunk_data (Chunker *, const unsigned char *data, 
                    size_t count, off_t pos);
+  void movetmp_cb (rename3res *res, clnt_stat err);
   void removetmp_cb (wccstat3 *, clnt_stat err);
   void committmp_cb (svccb *sbp, filesrv::reqstate rqs,
                      commit3res *res, str err);

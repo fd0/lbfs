@@ -35,9 +35,11 @@ static str configfile;
 
 filesrv *defsrv;
 
-tmpfh_record::tmpfh_record(const nfs_fh3 &f, const char *s, unsigned l)
+tmpfh_record::tmpfh_record(const nfs_fh3 &f, const nfs_fh3 &d,
+                           const char *s, unsigned l)
 {
   fh = f;
+  dir = d;
   assert (l <= TMPFN_MAX-1);
   memmove(&name[0], s, l);
   name[l] = '\0';

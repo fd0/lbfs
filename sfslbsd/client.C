@@ -33,6 +33,7 @@
 #include "lbfs.h"
 
 #define DEBUG 1
+#define KEEP_TMP_VERSIONS 1
 
 struct timeval t0;
 struct timeval t1;
@@ -239,8 +240,9 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 }
 
 void
-client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, char *path,
-                      void *_cres, clnt_stat err)
+client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, 
+                      nfs_fh3 dir, char *path,
+		      void *_cres, clnt_stat err)
 {
   diropres3 *cres = static_cast<diropres3 *>(_cres);
   if (err) {
@@ -250,14 +252,15 @@ client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, char *path,
   else {
     switch(cres->status) {
       case NFS3ERR_EXIST:
-	delete cres;
         delete[] path;
+	delete cres;
 	mktmpfile(sbp, rqs);
 	break;
       default:
 	if (!cres->status) 
 	  fhtab.tab.insert 
-	    (New tmpfh_record(*(cres->resok->obj.handle),path,strlen(path)));
+	    (New tmpfh_record
+	     (*(cres->resok->obj.handle),dir,path,strlen(path)));
 	delete[] path;
 	nfs3reply (sbp, _cres, rqs, RPC_SUCCESS);
     }
@@ -269,18 +272,17 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_mktmpfile3args *mta = sbp->template getarg<lbfs_mktmpfile3args> ();
 
-  str fhstr = armor32(mta->commit_to.data.base(), mta->commit_to.data.size());
-  int r = rnd.getword();
-  str rstr = armor32((void*)&r, sizeof(int));
-  char *tmpfile = New char[5+fhstr.len()+1+rstr.len()+1];
-  sprintf(tmpfile, "sfs.%s.%s", fhstr.cstr(), rstr.cstr());
+  unsigned r = fsrv->get_oscar(rqs.fsno);
+  str rstr = armor32((void*)&r, sizeof(r));
+  char *tmpfile = New char[7+rstr.len()+1];
+  sprintf(tmpfile, "oscar.%s", rstr.cstr());
 #if DEBUG > 1
   warn << "MKTMPFILE: " << tmpfile << "\n";
 #endif
   
   u_int32_t authno = sbp->getaui ();
   create3args c3arg;
-  c3arg.where.dir = fsrv->sfs_trash[rqs.fsno].topdir;
+  c3arg.where.dir = fsrv->sfs_trash[rqs.fsno].subdirs[r%SFS_TRASH_DIR_BUCKETS];
   c3arg.where.name = tmpfile;
   c3arg.how.set_mode(GUARDED);
   *(c3arg.how.obj_attributes) = mta->obj_attributes;
@@ -289,9 +291,10 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
 
   void *cres = nfs_program_3.tbl[NFSPROC3_CREATE].alloc_res ();
   fsrv->c->call (NFSPROC3_CREATE, &c3arg, cres,
-		 wrap (mkref (this),
-		       &client::mktmpfile_cb, sbp, rqs, tmpfile, cres),
+		 wrap (mkref (this), &client::mktmpfile_cb, 
+		       sbp, rqs, c3arg.where.dir, tmpfile, cres),
 		 authtab[authno]);
+  fsrv->update_oscar(rqs.fsno);
 }
 
 void
@@ -323,6 +326,10 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
   if (tfh_rec) {
     for (unsigned i=0; i<tfh_rec->chunks.size(); i++) {
       chunk *c = tfh_rec->chunks[i];
+#if KEEP_TMP_VERSIONS
+      c->location().set_fh(tmpfh);
+      fpdb.add_entry(c->fingerprint(), &(c->location()));
+#endif
       c->location().set_fh(fh);
       fpdb.add_entry(c->fingerprint(), &(c->location()));
 #if DEBUG > 1
@@ -333,19 +340,29 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
     }
     fpdb.sync();
     tfh_rec->name[tfh_rec->len] = '\0';
-#if DEBUG > 1
+
+#if KEEP_TMP_VERSIONS == 0
     warn ("COMMITTMP: remove %s\n", tfh_rec->name);
-#endif
     wccstat3 *rres = New wccstat3;
     diropargs3 rarg;
-    rarg.dir = fsrv->sfs_trash[fsno].topdir;
+    rarg.dir = tfh_rec->dir;
     rarg.name = tfh_rec->name;
     fsrv->c->call (NFSPROC3_REMOVE, &rarg, rres,
 	           wrap (mkref (this), &client::removetmp_cb, rres),
 		   authtab[authno]);
+#endif
+
     fhtab.tab.remove(tfh_rec);
     delete tfh_rec;
   }
+}
+
+void
+client::movetmp_cb (rename3res *res, clnt_stat err)
+{
+  if (err || res->status)
+    warn << "movetmp_cb error\n";
+  delete res;
 }
 
 void
@@ -529,6 +546,7 @@ client::nfs3dispatch (svccb *sbp)
 #endif
     getfp(sbp, rqs);
   }
+  // keep removed files, so we can use their chunks
   else if (sbp->proc () == NFSPROC3_REMOVE) {
     diropargs3 *arg = sbp->template getarg<diropargs3> ();
     diropargs3 larg;
@@ -539,6 +557,7 @@ client::nfs3dispatch (svccb *sbp)
 	           wrap (mkref(this), &client::oscar_lookup_cb, sbp, rqs, res),
 	           authtab[authno]);
   }
+  // why do we do this again?
   else if (sbp->proc () == NFSPROC3_RENAME) {
     rename3args *arg = sbp->template getarg<rename3args> ();
     diropargs3 larg;

@@ -52,6 +52,7 @@ public:
   }
   
   void set_fh(const nfs_fh3 &f) {
+    bzero(_fh, NFS3_FHSIZE);
     memmove(_fh, f.data.base(), f.data.size());
     _fhsize = f.data.size();
   }
