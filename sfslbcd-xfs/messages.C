@@ -1667,7 +1667,7 @@ nfs3_symlink (int fd, ref<struct xfs_message_symlink> h, cache_entry *e,
     ex_fattr3 attr = *res->resok->obj_attributes.attributes;
     nfsobj2xfsnode (h->cred, *(res->resok->obj.handle),
 		    attr, rqtime, &msg2.node);
-    e->ltime = max(attr.mtime, attr.ctime);
+    //e->ltime = max(attr.mtime, attr.ctime);
 
     //write new direntry to parent dirfile (do a readdir or just append that entry?)
     cache_entry *e = xfsindex[h->parent_handle];
@@ -1688,6 +1688,11 @@ nfs3_symlink (int fd, ref<struct xfs_message_symlink> h, cache_entry *e,
     h0 = (struct xfs_message_header *) &msg1;
     h0_len = sizeof (msg1);
 
+    warn << "symlink !!(" 
+         << h->parent_handle.a << ","
+         << h->parent_handle.b << ","
+         << h->parent_handle.c << ","
+         << h->parent_handle.d << ")\n";
     msg2.node.tokens = XFS_ATTR_R;
     msg2.parent_handle = h->parent_handle;
     strlcpy (msg2.name, h->name, sizeof (msg2.name));
@@ -1988,11 +1993,16 @@ void
 update_attr (cache_entry *e, ex_fattr3 attr1, ex_fattr3 attr2, 
 	     time_t rqtime1, time_t rqtime2)
 {
-
   nfstime3 cache_time = e->ltime;
+  attr2.expire += rqtime2;
+  e->nfs_attr = attr2;
+
+  if (!greater(attr2.mtime, attr1.mtime) && !greater(attr1.mtime, cache_time))
+    e->ltime = attr2.mtime;
+#if 0
   if (greater (attr1.mtime, cache_time) || greater (attr1.ctime, cache_time)) {
-    attr1.expire += rqtime1;
-    e->nfs_attr = attr1;
+    attr2.expire += rqtime1;
+    e->nfs_attr = attr2;
   }
   else if (greater (attr2.mtime, attr1.mtime)) {
     attr2.expire += rqtime2;
@@ -2003,6 +2013,7 @@ update_attr (cache_entry *e, ex_fattr3 attr1, ex_fattr3 attr2,
     attr2.expire += rqtime2;
     e->nfs_attr = attr2;
   }
+#endif
 }
 
 void 
@@ -2025,13 +2036,13 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
   struct xfs_message_installdata msg2;	//new parent dir content
 
   struct xfs_message_installdata msg3;	//old parent dir content
-
-  struct xfs_message_header *h0 = NULL;
-  size_t h0_len = 0;
+  
   struct xfs_message_header *h1 = NULL;
   size_t h1_len = 0;
   struct xfs_message_header *h2 = NULL;
   size_t h2_len = 0;
+  struct xfs_message_header *h3 = NULL;
+  size_t h3_len = 0;
   nfs_fh3 file = rena->lres->resok->object;
 
   cache_entry *e1 = nfsindex[file];
@@ -2053,8 +2064,8 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
   strlcpy (msg1.name, rena->h->new_name, sizeof (msg1.name));
 
   msg1.header.opcode = XFS_MSG_INSTALLNODE;
-  h0 = (struct xfs_message_header *) &msg1;
-  h0_len = sizeof (msg1);
+  h1 = (struct xfs_message_header *) &msg1;
+  h1_len = sizeof (msg1);
 
   cache_entry *e2 = xfsindex[rena->h->new_parent_handle];
   if (!e2) {
@@ -2078,10 +2089,10 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
 		  *(rena->rnres->res->todir_wcc.after.attributes),
 		  rqtime2, &msg2.node);
 
-  msg2.flag = 0;
+  msg2.flag = XFS_ID_INVALID_DNLC;
   msg2.header.opcode = XFS_MSG_INSTALLDATA;
-  h1 = (struct xfs_message_header *) &msg2;
-  h1_len = sizeof (msg2);
+  h2 = (struct xfs_message_header *) &msg2;
+  h2_len = sizeof (msg2);
 
   if (!xfs_handle_eq (&rena->h->old_parent_handle, &rena->h->new_parent_handle)) {
     cache_entry *e3 = xfsindex[rena->h->old_parent_handle];
@@ -2101,15 +2112,15 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
 		    *(rena->rnres->res->fromdir_wcc.after.attributes),
 		    rqtime2, &msg3.node);
 
-    msg3.flag = 0;
+    msg3.flag = XFS_ID_INVALID_DNLC;
     msg3.header.opcode = XFS_MSG_INSTALLDATA;
-    h2 = (struct xfs_message_header *) &msg3;
-    h2_len = sizeof (msg3);
+    h3 = (struct xfs_message_header *) &msg3;
+    h3_len = sizeof (msg3);
   }
-
+  
   xfs_send_message_wakeup_multiple (rena->fd, rena->h->header.sequence_num,
-				    0, h0, h0_len, h1, h1_len, h2, h2_len,
-				    NULL, 0);
+				    0, h1, h1_len, h2, h2_len,
+                                    h3, h3_len, NULL, 0);
 }
 
 void 
