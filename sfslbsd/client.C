@@ -410,22 +410,22 @@ client::nfs3dispatch (svccb *sbp)
 
   if (sbp->proc () == lbfs_MKTMPFILE) {
     mktmpfile(sbp, rqs);
-    warn ("server: MKTMPFILE (%lu %lu)\n", x->bytes_sent, x->bytes_recv);
+    warn ("server: MKTMPFILE (%lu %lu)\n", xc->bytes_sent, xc->bytes_recv);
   }
   else if (sbp->proc () == lbfs_COMMITTMP) {
-    warn ("server: COMMITTMP (%lu %lu)\n", x->bytes_sent, x->bytes_recv);
+    warn ("server: COMMITTMP (%lu %lu)\n", xc->bytes_sent, xc->bytes_recv);
     committmp(sbp, rqs);
   }
   else if (sbp->proc () == lbfs_CONDWRITE) {
-    warn ("server: CONDWRITE (%lu %lu)\n", x->bytes_sent, x->bytes_recv);
+    warn ("server: CONDWRITE (%lu %lu)\n", xc->bytes_sent, xc->bytes_recv);
     condwrite(sbp, rqs);
   }
   else if (sbp->proc () == lbfs_GETFP) {
-    warn ("server: GETFP (%lu %lu)\n", x->bytes_sent, x->bytes_recv);
+    warn ("server: GETFP (%lu %lu)\n", xc->bytes_sent, xc->bytes_recv);
     getfp(sbp, rqs);
   }
   else {
-    warn ("server: %d (%lu %lu)\n", sbp->proc(), x->bytes_sent, x->bytes_recv);
+    warn ("server: %d (%lu %lu)\n", sbp->proc(), xc->bytes_sent, xc->bytes_recv);
     void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
     if (sbp->proc () == NFSPROC3_RENAME)
       fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
@@ -465,29 +465,15 @@ client::~client ()
   clienttab.remove (this);
 }
 
-#if 0
-static void
-xon_kludge (ref<axprt> xx)
-{
-  xhinfo::xon (xx);
-}
-#endif
-
 void
 client::sfs_getfsinfo (svccb *sbp)
 {
   if (fsrv) {
     sbp->replyref (fsrv->fsinfo);
-#if 0
-    ref<axprt> xx = axprt_compress::alloc(x);
-    sfssrv = asrv::alloc (xx, sfs_program_1, 
-	                  wrap (implicit_cast<sfsserv*>(this), 
-			        &sfsserv::dispatch));
-    nfssrv = asrv::alloc (xx, lbfs_program_3, 
-	                  wrap (mkref (this), &client::nfs3dispatch));
-    nfscbc = aclnt::alloc (xx, lbfscb_program_3);
-    delaycb (0, wrap (&xon_kludge, xx)); // XXX
-#endif
+    if (typeid (*x) != typeid (axprt_compress))
+      panic ("client::sfs_getfsinfo %s != %s\n",
+	     typeid (*x).name (), typeid (axprt_compress).name ());
+    static_cast<axprt_compress *> (x.get ())->compress ();
   }
   else
     sbp->reject (PROC_UNAVAIL);

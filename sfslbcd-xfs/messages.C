@@ -119,13 +119,7 @@ void nfs3_fsinfo(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi,
 void sfs_getfsinfo(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, clnt_stat err) {
 
   assert(fsi->prog == ex_NFS_PROGRAM && fsi->nfs->vers == ex_NFS_V3);
-#if 0
-  ref<axprt> xx = axprt_compress::alloc(*x);
-  sfsc = aclnt::alloc (xx, sfs_program_1);
-  nfsc = aclnt::alloc (xx, lbfs_program_3);
-  nfscbs = asrv::alloc (xx, lbfscb_program_3,
-			wrap (&cbdispatch));
-#endif
+  x->compress ();
   ex_fsinfo3res *res = new ex_fsinfo3res;
 
   nfsc->call(lbfs_NFSPROC3_FSINFO, &fsi->nfs->v3->root, res,

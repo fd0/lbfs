@@ -280,7 +280,7 @@ protected:
   client (ref<axprt_crypt> x);
   ~client ();
   ptr<rabin_priv> doconnect (const sfs_connectarg *, sfs_servinfo *);
-  ref<axprt> getx (ref<axprt_crypt> x x) { return axprt_compress::alloc (xx); }
+  ref<axprt> getx (ref<axprt_crypt> xx) { return axprt_compress::alloc (xx); }
 
 public:
   ptr<aclnt> nfscbc;

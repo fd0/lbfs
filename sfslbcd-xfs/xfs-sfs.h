@@ -27,7 +27,8 @@
 #include "arpc.h"
 #include "sfsmisc.h"
 #include "lbfs_prot.h"
-#include <sys/types.h>
+#include "axprt_crypt.h"
+#include "axprt_compress.h"
 
 #if LBFS_READ
 #include "lbfsdb.h"
@@ -38,7 +39,8 @@ extern int server_fd;
 extern ptr<aclnt> sfsc;
 extern ptr<aclnt> nfsc;
 extern ptr<asrv> nfscbs;
-extern ref<axprt> *x;
+extern ptr<axprt_compress> x;
+extern ptr<axprt_crypt> xc;
 
 
 void sfsInit(const char* hostpath);
