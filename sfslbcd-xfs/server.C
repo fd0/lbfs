@@ -44,7 +44,7 @@ void
 xfs_getroot (ref<xfscall> xfsc) 
 {
 #if DEBUG > 0
-  warn << "Received XFS_getroot\n";
+  warn << "Received xfs_getroot\n";
 #endif
   
   lbfs_getroot (xfsc->fd, (xfs_message_getroot *) xfsc->argp, 
@@ -57,15 +57,15 @@ xfs_getnode (ref<xfscall> xfsc)
 {
   xfs_message_getnode *h = (xfs_message_getnode *) xfsc->argp;
 #if DEBUG > 0
-  warn << "Received XFS_getnode\n";
-  warn << h->header.sequence_num << ":" <<" msg.parent_handle ("
+  warn << "Received xfs_getnode\n";
+  warn << h->header.sequence_num << ":" <<" xfs_parent_handle ("
     << (int) h->parent_handle.a << ","
     << (int) h->parent_handle.b << ","
     << (int) h->parent_handle.c << ","
     << (int) h->parent_handle.d << ")\n";
 #endif
   
-  lbfs_getnode (xfsc->fd, h, nfsc);
+  lbfs_getnode (xfsc->fd, h, xfsc->getaid (), nfsc);
 }
 
 void 
@@ -91,8 +91,17 @@ xfs_inactivenode (ref<xfscall> xfsc)
 void 
 xfs_open (ref<xfscall> xfsc) 
 {
-
+  xfs_message_open *h = (xfs_message_open *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_open\n";
+  warn << h->header.sequence_num << ":" <<" xfs_handle ("
+    << (int) h->handle.a << ","
+    << (int) h->handle.b << ","
+    << (int) h->handle.c << ","
+    << (int) h->handle.d << ")\n";
+#endif
   
+  lbfs_open (xfsc->fd, h, xfsc->getaid (), nfsc);
 }
 
 void 
