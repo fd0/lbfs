@@ -492,9 +492,11 @@ struct readdir_obj {
       nfsobj2xfsnode (h.cred, e, &msg.node);
       msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R;
       
-      warn << "installdir: seq_num = " << h.header.sequence_num << "\n";
       args.fd = assign_cachefile (fd, h.header.sequence_num, e, 
 				  msg.cache_name, &msg.cache_handle);
+      int error = truncate (msg.cache_name, 0);
+      if (error < 0)
+	delete this;
       write_dirfile (args, msg, clnt_stat (0));
     } else {
       xfs_reply_err (fd, h.header.sequence_num, err ? err : rdres->status);      
@@ -616,7 +618,7 @@ struct getfp_obj {
     close (cfd);
 
     nfsobj2xfsnode (h.cred, e, &msg.node);
-    msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R; // | XFS_OPEN_NW | XFS_DATA_W;
+    msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R | XFS_OPEN_NW | XFS_DATA_W;
     msg.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &msg;
     h0_len = sizeof (msg);
@@ -868,7 +870,6 @@ struct getfp_obj {
   ~getfp_obj () 
   { 
     if (out_fd) close(out_fd);
-    warn << "Closed out_fd\n";
     (*cb) ();
   }
 
@@ -1154,7 +1155,7 @@ struct create_obj {
 #if DEBUG > 0
       warn << "create_obj: Can't find parent_handle\n";
 #endif
-      xfs_reply_err(fd, h.header.sequence_num, ENOENT);
+      xfs_reply_err (fd, h.header.sequence_num, ENOENT);
       delete this;
     }
 
@@ -1239,7 +1240,7 @@ struct link_obj {
 #if DEBUG > 0
       warn << "link_obj: Can't find from_handle\n";
 #endif
-      xfs_reply_err (fd, h.header.sequence_num, ENOENT);
+     xfs_reply_err (fd, h.header.sequence_num, ENOENT);
       delete this;
     }
     link3args la;
@@ -1353,56 +1354,6 @@ lbfs_symlink (int fd, const xfs_message_symlink &h, sfs_aid sa, ref<aclnt> c)
 {
   vNew symlink_obj (fd, h, sa, c);
 }
-#if 0
-struct setattr_obj {
-  int fd;
-  ref<aclnt> c;
-  
-  const struct xfs_message_putattr h;
-  sfs_aid sa;
-  cache_entry *e;
-  ptr<ex_wccstat3> res;
-
-  setattr_obj (int fd1, const xfs_message_putattr &h1, sfs_aid sa1, ref<aclnt> c1) :
-    fd(fd1), c(c1), h(h1), sa(sa1) 
-  {
-    e = xfsindex[h.handle];
-    if (!e) {
-#if DEBUG > 0
-      warn << "putattr_obj: Can't find node handle\n";
-#endif
-      xfs_reply_err(fd, h.header.sequence_num, ENOENT);
-      delete this;
-    }
-
-    setattr3args sa;
-    sa.object = e->nh;
-    xfsattr2nfsattr (h.header.opcode, h.attr, &sa.new_attributes);
-    sa.guard.set_check (false);
-
-    if (sa.new_attributes.size.set) {
-#if DEBUG > 0
-      warn << "setting size to " 
-	   << (uint32) *(sa.new_attributes.size.val) << "\n";
-#endif
-      // can't depend on client set time to expire cache data
-      truncate(e->cache_name, *(sa.new_attributes.size.val));
-    }
-    res = New refcounted <ex_wccstat3>;
-#if 0
-    c->call (lbfs_NFSPROC3_SETATTR, &sa, res,
-	     wrap (this, &installattr, fd, h.header.sequence_num, h.cred, e->nh, 
-		   res->wcc.after***, timenow), lbfs_authof (sa));  
-#endif
-  }
-};
-
-void 
-lbfs_setattr (int fd, const xfs_message_putattr &h, sfs_aid sa, ref<aclnt> c)
-{
-  vNew setattr_obj (fd, h, sa, c);
-}
-#endif
 
 struct remove_obj {
   int fd;
@@ -1709,7 +1660,7 @@ struct putdata_obj {
   sfs_aid sa;
   cache_entry *e;
   nfs_fh3 tmpfh;
-  char *fname;
+  //  char *fname;
   uint blocks_written;
   uint total_blocks;
   Chunker *chunker;
@@ -1794,7 +1745,7 @@ struct putdata_obj {
   {
     int err, ost;
     char iobuf[NFS_MAXDATA];
-    uint64 offst = chunk->location().pos ();
+   uint64 offst = chunk->location().pos ();
     uint32 count = chunk->location().count ();
 
     assert (!committed);
@@ -1986,14 +1937,12 @@ struct putdata_obj {
   {
     if (!err && mtres->status == NFS3_OK) {
       assert (mtres->resok->obj.present);
-      
+      tmpfh = *mtres->resok->obj.handle;
+      condwrite_chunk ();
     } else {
       xfs_reply_err (fd, h.header.sequence_num, err ? err : mtres->status);
       delete this;
     }
-    tmpfh = *mtres->resok->obj.handle;
-      //    strcpy (cwa->fname, e->cache_name);
-    condwrite_chunk();
   }
 
   ~putdata_obj () 
@@ -2016,6 +1965,7 @@ struct putdata_obj {
       delete this;
     }
 
+    //    strcpy (fname, e->cache_name);
     lbfs_mktmpfile3args mt;
     mt.commit_to = e->nh;
     xfsattr2nfsattr (h.header.opcode, h.attr, &mt.obj_attributes);
