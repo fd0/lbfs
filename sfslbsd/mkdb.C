@@ -19,13 +19,16 @@
 #include "lbfsdb.h"
 #include "sfsrwsd.h"
 
+#define MAKE_FH_DB 0
+
 ptr<aclnt> _mountc;
 ptr<aclnt> _c;
 
 static const char *_host;
 static const char *_mntp;
 
-static fp_db _db;
+static fp_db _fp_db;
+static fh_db _fh_db;
 static nfs_fh3 _rootfh;
 
 static int _totalfns = 0;
@@ -49,20 +52,53 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
     char fspath[PATH_MAX];
     sprintf(fspath, "%s/%s/%s", _mntp, dpath, fname);
 
+#if MAKE_FH_DB
+    fh_rep fh0(*fhp);
+    fh_db::iterator *iter0 = 0;
+    _fh_db.get_iterator(fh0, &iter0);
+    lbfs_chunk c;
+    if (!iter0) 
+      warn << armor32(fhp->data.base(), fhp->data.size()) << "\n";
+    while (iter0 && !iter0->get(&c)) {
+      nfs_fh3 fh;
+      c.loc.get_fh(fh);
+#if 0
+      warn << armor32(fh.data.base(), fh.data.size()) << " @"
+	   << c.loc.pos() << " " << c.loc.count() << " "
+	   << c.fingerprint << "\n";
+#endif
+      iter0->del();
+      iter0->next(&c);
+    }
+    delete iter0;
+#endif
+
     const u_char *fp;
     size_t fl; 
     if (mapfile (&fp, &fl, fspath) == 0) {
+#if 0
       for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
+#endif
+      for (unsigned j = 0; j < 1; j++) {
         vec<lbfs_chunk *> cv;
         chunk_data(CHUNK_SIZES(j), &cv, fp, fl);
 	for(unsigned i=0; i<cv.size(); i++) { 
 	  cv[i]->loc.set_fh(*fhp);
-	  _db.add_entry(cv[i]->fingerprint, &(cv[i]->loc)); 
+	  _fp_db.add_entry(cv[i]->fingerprint, &(cv[i]->loc));
+#if MAKE_FH_DB
+	  fh_rep fh(*fhp);
+	  cv[i]->mtime = attr->mtime;
+	  _fh_db.add_entry(fh, cv[i]);
+#endif
 	  delete cv[i];
 	}
         if (cv.size()==1) break;
       }
       munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
+#if MAKE_FH_DB
+      _fh_db.sync();
+#endif
+      _fp_db.sync();
     }
   }
   else 
@@ -124,7 +160,10 @@ gotrootfh(const nfs_fh3 *fhp, str err)
 {
   if (!err) {
     _rootfh = *fhp;
-    _db.open(FP_DB); 
+    _fp_db.open(FP_DB); 
+#if MAKE_FH_DB
+    _fh_db.open(FH_DB); 
+#endif
     read_directory("");
   }
   done();

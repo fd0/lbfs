@@ -19,20 +19,22 @@ public:
     iterator(DBC *c) {
       _cursor = c;
     }
-
-  public:
-    ~iterator() {
+    void done() {
       if (_cursor) 
         _cursor->c_close(_cursor);
       _cursor = 0L;
     }
-    
+
+  public:
+    ~iterator() { done(); }
+
     operator bool() const { return _cursor != 0; }
     int del() { return _cursor->c_del(_cursor, 0); }
 
     // get current entry
     int get(V *c) {
-      assert(_cursor);
+      if (!_cursor) 
+	return 1;
       DBT key;
       DBT data;
       memset(&key, 0, sizeof(key));
@@ -40,22 +42,23 @@ public:
       int ret = _cursor->c_get(_cursor, &key, &data, DB_CURRENT);
       if (ret == 0 && data.data)
         *c = *(reinterpret_cast<V*>(data.data));
+      else done();
       return ret;
     }
     
-    // increment iterator, return entry
+    // increment iterator, get that entry
     int next(V *c) {
-      assert(_cursor);
+      if (!_cursor) 
+	return 1;
       DBT key;
       DBT data;
       memset(&key, 0, sizeof(key));
       memset(&data, 0, sizeof(data));
       int ret = _cursor->c_get(_cursor, &key, &data, DB_NEXT_DUP);
       if (ret == 0) {
-        if (data.data) 
-          *c = *(reinterpret_cast<V*>(data.data));
-        else assert(0);
-      }
+        if (c) *c = *(reinterpret_cast<V*>(data.data));
+      } else
+	done();
       return ret;
     }
   };
@@ -112,7 +115,7 @@ db_base<K,V>::open(char *name, u_int32_t db3_flags)
     fprintf(stderr, "db_create: %s\n", db_strerror(ret)); 
     exit (1); 
   } 
-  _dbp->set_flags(_dbp, DB_DUP | DB_DUPSORT);
+  _dbp->set_flags(_dbp, DB_DUP);
 
   if ((ret = _dbp->open
 	(_dbp, name, NULL, DB_BTREE, db3_flags, 0664)) != 0) { 
@@ -165,9 +168,13 @@ db_base<K,V>::add_entry(K k, V *v, int size)
   return _dbp->put(_dbp, NULL, &key, &data, 0);
 }
 
-#define FP_DB "fp.db"
 #include "chunk.h"
+
+#define FP_DB "fp.db"
 typedef db_base<u_int64_t, lbfs_chunk_loc> fp_db;
+
+#define FH_DB "fh.db"
+typedef db_base<fh_rep, lbfs_chunk> fh_db;
 
 #endif _LBFS_DB_
 

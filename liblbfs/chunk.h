@@ -59,9 +59,43 @@ public:
 
 struct lbfs_chunk {
   lbfs_chunk_loc loc;
-  sfs_hash hash;
   u_int64_t fingerprint;
+  char hash[sha1::hashsize];
+  nfstime3 mtime;
+ 
+  lbfs_chunk() {}
   lbfs_chunk(off_t p, size_t s, u_int64_t fp) : loc(p, s), fingerprint(fp) {}
+  void get_hash(sfs_hash &h) const { memmove(h.base(),hash,sha1::hashsize); }
+
+  lbfs_chunk& operator= (const lbfs_chunk& c) {
+    loc = c.loc;
+    fingerprint = c.fingerprint;
+    memmove(hash, c.hash, sha1::hashsize);
+    mtime = c.mtime;
+    return *this;
+  }
+};
+
+struct fh_rep {
+  char fh[NFS3_FHSIZE];
+  int size;
+
+  fh_rep() {
+    memset(fh, 0, NFS3_FHSIZE);
+    size = 0;
+  }
+  
+  fh_rep(nfs_fh3 nfsfh) {
+    memset(fh, 0, NFS3_FHSIZE);
+    memmove(fh, nfsfh.data.base(), nfsfh.data.size());
+    size = nfsfh.data.size();
+  }
+
+  fh_rep& operator= (const fh_rep& f) {
+    memmove(fh, f.fh, NFS3_FHSIZE);
+    size = f.size;
+    return *this;
+  }
 };
 
 #endif

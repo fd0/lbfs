@@ -237,7 +237,7 @@ class client : public virtual refcount, public sfsserv {
 
   ptr<asrv> nfssrv;
 
-  fp_db lbfsdb;
+  fp_db fpdb;
   tmpfh_table fhtab;
 
   static u_int64_t nextgen ();

@@ -101,7 +101,7 @@ Chunker::stop()
 {
   lbfs_chunk *c = New lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
   if (_hash) { 
-    sha1_hash(c->hash.base(), _hbuf, _hbuf_cursor); 
+    sha1_hash(c->hash, _hbuf, _hbuf_cursor); 
     _hbuf_cursor = 0; 
   }
   _cv.push_back(c);
@@ -123,7 +123,7 @@ Chunker::chunk(const unsigned char *data, size_t size)
       if (_hash) {
 	if (i-start_i > 0) 
 	  handle_hash(data+start_i, i-start_i);
-	sha1_hash(c->hash.base(), _hbuf, _hbuf_cursor);
+	sha1_hash(c->hash, _hbuf, _hbuf_cursor);
 	_hbuf_cursor = 0;
       }
       _cv.push_back(c);

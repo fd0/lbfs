@@ -194,7 +194,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
   fp_db::iterator *iter = 0;
-  if (lbfsdb.get_iterator(cwa->fingerprint, &iter) == 0) {
+  if (fpdb.get_iterator(cwa->fingerprint, &iter) == 0) {
     if (iter) { 
       lbfs_chunk_loc c; 
       if (!iter->get(&c)) { 
@@ -292,12 +292,12 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   if (!err) {
     for (unsigned i=0; i<cv.size(); i++) {
       cv[i]->loc.set_fh(fh);
-      lbfsdb.add_entry(cv[i]->fingerprint, &(cv[i]->loc)); 
+      fpdb.add_entry(cv[i]->fingerprint, &(cv[i]->loc)); 
 #if DEBUG > 2
       warn << "COMMITTMP: adding " << cv[i]->fingerprint << " to database\n";
 #endif
     }
-    lbfsdb.sync();
+    fpdb.sync();
   }
   delete chunker;
 
@@ -360,7 +360,7 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       struct lbfs_fp3 x;
       x.count = cv[i]->loc.count();
       x.fingerprint = cv[i]->fingerprint;
-      x.hash = cv[i]->hash;
+      cv[i]->get_hash(x.hash);
       res->resok->fprints[i] = x;
 #if DEBUG > 2
       warn << "GETFP: " << off+arg->offset << " " << cv[i]->fingerprint 
@@ -476,7 +476,7 @@ client::client (ref<axprt_crypt> x)
 				(gid_t) -1, 0, NULL);
   clienttab.insert (this);
 
-  lbfsdb.open (FP_DB);
+  fpdb.open (FP_DB);
 }
 
 client::~client ()
