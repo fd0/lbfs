@@ -2,6 +2,7 @@
 #ifndef _CHUNKING_H_
 #define _CHUNKING_H_
 
+#include "sfs_prot.h"
 #include "lbfsdb.h"
 #include "rabinpoly.h"
 
@@ -22,11 +23,19 @@ private:
   size_t _last_pos;
   size_t _cur_pos;
   u_int64_t _fp;
+  
+  unsigned char *_hbuf; 
+  unsigned int _hbuf_size;
+  unsigned int _hbuf_cursor;
+  bool _hash;
+
+  void handle_hash(const unsigned char *data, size_t size);
 
 public:
   vec<lbfs_chunk *> *cvp;
+  vec<sfs_hash *> hv;
 
-  Chunker(unsigned s, vec<lbfs_chunk *> *cvp); 
+  Chunker(unsigned s, vec<lbfs_chunk *> *cvp, bool hash=false); 
   ~Chunker();
 
   void stop();

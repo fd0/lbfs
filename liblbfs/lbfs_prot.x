@@ -140,7 +140,7 @@ program LBFS_PROGRAM {
 		lbfs_NFSPROC3_COMMITTMP (lbfs_committmp3args) = 24;
 
 		lbfs_getfp3res
-		lbfs_NFSPROC3_GETFP (nfs_fh3) = 25;
+		lbfs_NFSPROC3_GETFP (lbfs_getfp3args) = 25;
 
 	} = 3;
 } = 344444;

@@ -23,8 +23,8 @@ extern void lbfs_nfs3exp_err (svccb *sbp, nfsstat3 status);
 // requests are finished, call cb and pass the total number of bytes read.
 
 void nfs3_read (ref<aclnt> c, const nfs_fh3 &fh,
-                callback<void, unsigned char *, size_t, off_t>::ref rcb,
-                callback<void, size_t, str>::ref cb,
+                callback<void, const unsigned char *, size_t, off_t>::ref rcb,
+                callback<void, size_t, read3res *, str>::ref cb,
                 off_t pos, size_t count);
 
 // make nfs directory

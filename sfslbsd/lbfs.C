@@ -6,8 +6,8 @@ void lookupfh3 (ref<aclnt> c, const nfs_fh3 &start, str path,
 		callback<void, const nfs_fh3 *, const FATTR3 *, str>::ref cb);
 
 struct read_obj {
-  typedef callback<void, unsigned char *, size_t, off_t>::ref read_cb_t;
-  typedef callback<void, size_t, str>::ref cb_t;
+  typedef callback<void, const unsigned char *, size_t, off_t>::ref read_cb_t;
+  typedef callback<void, size_t, read3res *, str>::ref cb_t;
   read_cb_t read_cb;
   cb_t cb;
   ref<aclnt> c;
@@ -22,7 +22,7 @@ struct read_obj {
   void gotdata (clnt_stat stat) {
     
     if (stat || res.status) {
-      (*cb) (count, stat2str (res.status, stat));
+      (*cb) (count, &res, stat2str (res.status, stat));
       delete this;
     }
     else {
@@ -36,7 +36,7 @@ struct read_obj {
       else
 	want = 0;
       if (want == 0 || res.resok->eof) {
-        (*cb) (count, NULL);
+        (*cb) (count, &res, NULL);
         delete this;
       }
       else

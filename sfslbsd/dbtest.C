@@ -60,7 +60,7 @@ lbfs_search_reusable_chunks(vec<lbfs_chunk *> &new_chunks,
 
 
 void 
-gotdata(u_int64_t fp, unsigned char *data, size_t count, str err)
+gotdata(u_int64_t fp, unsigned char *data, size_t count, read3res*, str err)
 {
   if (!err && count > 0) {
     vec<lbfs_chunk *> chunks;
@@ -79,7 +79,7 @@ gotdata(u_int64_t fp, unsigned char *data, size_t count, str err)
 
 void
 gotdata0(unsigned char *buf, off_t pos0,
-         unsigned char *data, size_t count, off_t pos)
+         const unsigned char *data, size_t count, off_t pos)
 {
   memmove(buf+(pos-pos0), data, count);
 }

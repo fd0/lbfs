@@ -109,7 +109,8 @@ compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
 void
 client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
                              lbfs_db::chunk_iterator *iter,
-			     unsigned char *data, size_t count, str err)
+			     unsigned char *data, 
+			     size_t count, read3res *, str err)
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
   lbfs_chunk_loc c;
@@ -169,7 +170,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
 
 void
 client::condwrite_read_cb(unsigned char *buf, off_t pos0,
-                          unsigned char *data, size_t count, off_t pos)
+                          const unsigned char *data, size_t count, off_t pos)
 {
   memmove(buf+(pos-pos0), data, count);
 }
@@ -250,22 +251,24 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
                       const FATTR3 *attr, commit3res *res, str err)
 {
   nfs3reply (sbp, res, rqs, RPC_SUCCESS);
-  lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
   chunker->stop();
   vec<lbfs_chunk *> *cv = chunker->cvp;
-  for (unsigned i=0; i<cv->size(); i++) {
-    (*cv)[i]->loc.set_fh(cta->commit_to);
-    (*cv)[i]->loc.set_mtime(attr->mtime);
-    lbfsdb.add_chunk((*cv)[i]->fingerprint, &((*cv)[i]->loc)); 
-    warn << "COMMITTMP: adding " << (*cv)[i]->fingerprint << " to database\n";
-    delete (*cv)[i];
+  if (!err) {
+    lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
+    for (unsigned i=0; i<cv->size(); i++) {
+      (*cv)[i]->loc.set_fh(cta->commit_to);
+      (*cv)[i]->loc.set_mtime(attr->mtime);
+      lbfsdb.add_chunk((*cv)[i]->fingerprint, &((*cv)[i]->loc)); 
+      warn << "COMMITTMP: adding " << (*cv)[i]->fingerprint << " to database\n";
+    }
   }
+  for (unsigned i=0; i<cv->size(); i++) delete (*cv)[i];
   delete cv;
   delete chunker;
 }
 
 void
-client::committmp_chunk 
+client::chunk_data 
   (Chunker *chunker, const unsigned char *data, size_t count, off_t)
 {
   chunker->chunk(data, count);
@@ -278,8 +281,58 @@ client::committmp (svccb *sbp, filesrv::reqstate rqs)
   vec<lbfs_chunk *> *v = new vec<lbfs_chunk*>;
   Chunker *chunker = new Chunker(CHUNK_SIZES(0), v);
   nfs3_copy (fsrv->c, cta->commit_from, cta->commit_to,
-             wrap(mkref(this), &client::committmp_chunk, chunker),
+             wrap(mkref(this), &client::chunk_data, chunker),
              wrap(mkref(this), &client::committmp_cb, sbp, rqs, chunker));
+}
+
+void 
+client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
+                  size_t count, read3res *rres, str err)
+{
+  chunker->stop();
+  vec<lbfs_chunk *> *cv = chunker->cvp;
+  lbfs_getfp3res *res = New lbfs_getfp3res;
+  if (!err) {
+    unsigned i = 0;
+    unsigned n = cv->size() < 1024 ? cv->size() : 1024;
+    res->resok->fprints.setsize(n);
+    for (; i<n; i++) {
+      struct lbfs_fp3 x;
+      x.count = (*cv)[i]->loc.count();
+      x.fingerprint = (*cv)[i]->fingerprint;
+      x.hash = *(chunker->hv[i]);
+      res->resok->fprints[i] = x;
+      warn << "GETFP: returning " << (*cv)[i]->fingerprint << "\n";
+    }
+    if (i < cv->size())
+      res->resok->eof=false;
+    else
+      res->resok->eof=true;
+    res->resok->file_attributes = rres->resok->file_attributes;
+  }
+  else {
+    res->set_status(rres->status);
+    res->resfail = 
+      *(union_entry<ex_post_op_attr>*)(&rres->resfail);
+    // XXX
+  }
+  nfs3reply (sbp, res, rqs, RPC_SUCCESS);
+  for (unsigned i=0; i<cv->size(); i++) delete (*cv)[i];
+  delete cv;
+  delete chunker;
+}
+
+void
+client::getfp (svccb *sbp, filesrv::reqstate rqs)
+{
+  lbfs_getfp3args *arg = sbp->template getarg<lbfs_getfp3args> ();
+  vec<lbfs_chunk *> *v = new vec<lbfs_chunk*>;
+  Chunker *chunker = new Chunker(CHUNK_SIZES(0), v, true);
+  nfs3_read 
+    (fsrv->c, arg->file, 
+     wrap(mkref(this), &client::chunk_data, chunker),
+     wrap(mkref(this), &client::getfp_cb, sbp, rqs, chunker),
+     arg->offset, arg->count);
 }
 
 void
@@ -314,6 +367,8 @@ client::nfs3dispatch (svccb *sbp)
     committmp(sbp, rqs);
   else if (sbp->proc () == lbfs_NFSPROC3_CONDWRITE)
     condwrite(sbp, rqs);
+  else if (sbp->proc () == lbfs_NFSPROC3_GETFP)
+    getfp(sbp, rqs);
   else {
     void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
     if (sbp->proc () == NFSPROC3_RENAME)
