@@ -101,7 +101,12 @@ public:
   int32_t access_lookup (const nfs_fh3 &, sfs_aid, u_int32_t mask);
 };
 
+class ranges;
+
 class server : public sfsserver_auth {
+  friend class read_obj;
+  friend class write_obj;
+protected:
   str cdir;
   struct fcache {
     static const int fcache_ok = 0;
@@ -114,8 +119,9 @@ class server : public sfsserver_auth {
     uint64 osize;
     int fd;
     vec<nfscall *> rpcs;
+    ranges *r;
     fcache(nfs_fh3 fh)
-      : fh(fh), status(fcache_block), fd(-1) {}
+      : fh(fh), status(fcache_block), fd(-1), r(0) {}
     bool ok() const { return status == fcache_ok; }
     bool dirty() const { return status == fcache_dirty; }
     bool block() const { return status == fcache_block; }
@@ -139,7 +145,7 @@ class server : public sfsserver_auth {
 
   void close_reply (nfscall *nc, fattr3 fa, bool ok);
   void access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
-  void file_cached (fcache *e, bool ok);
+  void file_cached (fcache *e, bool done, bool ok);
 
   void remove_cache (fcache e);
   str fh2fn(nfs_fh3 fh) {
@@ -176,7 +182,7 @@ public:
 };
 
 void lbfs_read (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
-                AUTH *a, callback<void, bool>::ref cb);
+                AUTH *a, callback<void, bool, bool>::ref cb);
 void lbfs_write (str fn, nfs_fh3 fh, size_t size, fattr3 fa, ref<server> srv,
                  AUTH *a, callback<void, fattr3, bool>::ref cb);
 

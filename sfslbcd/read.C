@@ -19,12 +19,13 @@
  *
  */
 
+#include "ranges.h"
 #include "sfslbcd.h"
 #include "lbfs_prot.h"
 
 struct read_obj {
   static const int PARALLEL_READS = 8;
-  typedef callback<void,bool>::ref cb_t;
+  typedef callback<void,bool,bool>::ref cb_t;
 
   cb_t cb;
   ref<server> srv;
@@ -34,7 +35,8 @@ struct read_obj {
   size_t size;
   size_t requested;
   unsigned int outstanding_reads;
-  bool callback;
+  bool errorcb;
+  server::fcache *fe;
 
   void
   read_reply(time_t rqtime, uint64 off, size_t size,
@@ -43,7 +45,7 @@ struct read_obj {
     outstanding_reads--;
     if (!err)
       srv->getxattr (rqtime, NFSPROC3_READ, 0, arg, res);
-    if (!callback && !err && res->status == NFS3_OK) {
+    if (!errorcb && !err && res->status == NFS3_OK) {
       if (lseek(fd, off, SEEK_SET) < 0) {
 	fail();
 	return;
@@ -52,11 +54,12 @@ struct read_obj {
 	fail();
 	return;
       }
+      if (fe->r)
+        fe->r->add (off, size);
       do_read();
       ok();
       return;
     }
-    warn << "READ RPC failed: " << err << ":" << res->status << "\n";
     fail();
   }
 
@@ -87,23 +90,21 @@ struct read_obj {
   }
 
   void fail() {
-    if (!callback) {
-      ftruncate(fd, 0);
-      close(fd);
-      callback = true;
-      cb(false);
+    if (!errorcb) {
+      ftruncate (fd, 0);
+      close (fd);
+      errorcb = true;
+      cb (true,false);
     }
     if (outstanding_reads == 0)
       delete this;
   }
 
   void ok() {
+    if (!errorcb)
+      cb (outstanding_reads == 0,true);
     if (outstanding_reads == 0) {
-      if (!callback) {
-	close(fd);
-        callback = true;
-	cb(true);
-      }
+      close (fd);
       delete this;
     }
   }
@@ -111,7 +112,7 @@ struct read_obj {
   read_obj (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
             AUTH *a, read_obj::cb_t cb)
     : cb(cb), srv(srv), fh(fh), auth(a), size(size), requested(0),
-      outstanding_reads(0), callback(false)
+      outstanding_reads(0), errorcb(false)
   {
     fd = open (fn, O_CREAT | O_TRUNC | O_WRONLY, 0666);
     if (fd < 0) {
@@ -119,6 +120,8 @@ struct read_obj {
       fail();
     }
     else {
+      fe = srv->fc[fh];
+      assert(fe);
       bool eof = false;
       for (int i=0; i<PARALLEL_READS && !eof; i++)
         eof = do_read();

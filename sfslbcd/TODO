@@ -1,5 +1,9 @@
 
-make large read (e.g. calling emacs) faster
+support non-sequential read in lbfs_read
+
+optimize
+ - setattr right after open
+ - write right after open
 
 partial file caching - don't need to fetch entire file before
 returning

@@ -14,6 +14,16 @@ consistency
  3) if lease has expired, fetch attribute; if cache time does not
     match mtime, update cache
 
+access
+ - on each access, check if cache needs to be updated, if so, mark
+   cached file as blocked
+ - on any subsequent read/write/setattr RPC to the file, if cached
+   file is blocked, RPC is queued
+ - after each block received from server, check if any one of the RPC
+   can be executed. that is, if the RPC operates on a range of data
+   already received from the server
+ - when cached file is updated, unqueue and execute each RPC
+
 attributes in attribute cache and file cache
  - if file is cached and dirty
    - return attribute from file cache on GETATTR

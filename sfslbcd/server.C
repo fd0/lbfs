@@ -25,6 +25,7 @@
 #include "axprt_crypt.h"
 #include "axprt_compress.h"
 #include "lbfs_prot.h"
+#include "ranges.h"
 
 int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 2);
 
@@ -44,6 +45,7 @@ server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
     e->fa = fa;
     e->osize = fa.size;
     e->status = fcache::fcache_block;
+    e->r = New ranges(0, fa.size);
     str f = fh2fn (obj);
     lbfs_read (f, obj, fa.size, mkref(this), authof(aid),
 	       wrap(mkref(this), &server::file_cached, e));
@@ -65,18 +67,26 @@ server::access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 }
 
 void
-server::file_cached (fcache *e, bool ok)
+server::file_cached (fcache *e, bool done, bool ok)
 {
-  if (ok)
-    e->status = fcache::fcache_ok;
-  else
-    e->status = fcache::fcache_error;
+  if (done) {
+    if (ok)
+      e->status = fcache::fcache_ok;
+    else
+      e->status = fcache::fcache_error;
+    delete e->r;
+    e->r = 0;
+  }
   vec<nfscall *> rpcs;
   for (unsigned i=0; i<e->rpcs.size(); i++)
     rpcs.push_back(e->rpcs[i]);
   e->rpcs.clear();
-  for (unsigned i=0; i<rpcs.size(); i++)
+  for (unsigned i=0; i<rpcs.size(); i++) {
+#if 0
+    warn << "RPC " << rpcs[i]->proc () << " runs\n";
+#endif
     dispatch(rpcs[i]);
+  }
 }
 
 void
@@ -387,11 +397,45 @@ server::setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_cb)
 
 bool
 server::dont_run_rpc (nfscall *nc)
-{ 
+{
+  if (nc->proc () != NFSPROC3_SETATTR &&
+      nc->proc () != NFSPROC3_READ &&
+      nc->proc () != NFSPROC3_WRITE &&
+      nc->proc () != cl_NFSPROC3_CLOSE)
+    return false;
+
   nfs_fh3 *fh = static_cast<nfs_fh3 *> (nc->getvoidarg ());
   fcache *e = fc[*fh];
+
+  // can execute CLOSE if cache is not dirty
+  if (nc->proc () == cl_NFSPROC3_CLOSE && (e->ok() || e->block()))
+    return false;
+
   if (e) {
     if (e->block()) {
+      // can execute READ or WRITE if range requested in those RPC has
+      // already been fetched
+      if (e->r &&
+	  (nc->proc () == NFSPROC3_READ || nc->proc () == NFSPROC3_WRITE)) {
+	uint64 offset;
+	uint64 size;
+	if (nc->proc () == NFSPROC3_READ) {
+          read3args *a = nc->template getarg<read3args> ();
+	  offset = a->offset;
+	  size = a->count;
+	}
+	else {
+          write3args *a = nc->template getarg<write3args> ();
+	  offset = a->offset;
+	  size = a->count;
+	}
+	if (e->r->filled(offset, size))
+	  return false;
+#if 0
+        warn << "RPC " << nc->proc () << " blocked: "
+	     << offset << ":" << size << "\n";
+#endif
+      }
       e->rpcs.push_back(nc);
       return true;
     }
