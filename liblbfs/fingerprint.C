@@ -5,6 +5,7 @@
 
 #include "lbfsdb.h"
 #include "rabinpoly.h"
+#include "fingerprint.h"
 
 int
 mapfile (const u_char **bufp, size_t *sizep, const char *path)
@@ -36,47 +37,6 @@ mapfile (const u_char **bufp, size_t *sizep, const char *path)
   return 0;
 }
 
-int
-chunk_data(unsigned chunk_size, const unsigned char *data, size_t size, 
-	   vec<lbfs_chunk *> *cvp)
-{
-  u_int64_t poly = FINGERPRINT_PT;
-  u_int64_t f_break = 0;
-  u_int64_t f_chunk = 0;
-  window w (poly);
-  w.reset();
- 
-  size_t last_i = 0;
-  size_t i = 0;
-  for (i = 0; i < size; i++) {
-    f_break = w.slide8 (data[i]);
-    if ((f_break % chunk_size) == BREAKMARK_VALUE) {
-      lbfs_chunk *c = new lbfs_chunk(last_i, i-last_i, f_chunk);
-      cvp->push_back(c);
-      w.reset();
-      f_chunk = 0;
-      last_i = i;
-    }
-    f_chunk = w.append8 (f_chunk, data[i]);
-  }
-  lbfs_chunk *c = new lbfs_chunk(last_i, i-last_i, f_chunk); 
-  cvp->push_back(c);
-
-  return 0;
-}
-
-int
-chunk_file(const char *path, unsigned chunk_size, vec<lbfs_chunk *> *cvp)
-{
-  const u_char *fp;
-  size_t fl;
-  if (mapfile (&fp, &fl, path) != 0)
-    return -1;
-  int ret = chunk_data(chunk_size, fp, fl, cvp);
-  munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
-  return ret;
-}
-
 u_int64_t 
 fingerprint(const unsigned char *data, size_t count)
 {
@@ -87,5 +47,54 @@ fingerprint(const unsigned char *data, size_t count)
   for (size_t i = 0; i < count; i++)
     fp = w.append8 (fp, data[i]);
   return fp;
+}
+
+Chunker::Chunker(unsigned s, vec<lbfs_chunk *> *cvp)
+  : _w(FINGERPRINT_PT), _chunk_size(s), _cvp(cvp)
+{
+  _last_pos = 0;
+  _cur_pos = 0;
+  _fp = 0;
+  _w.reset();
+}
+
+Chunker::~Chunker()
+{
+}
+
+void
+Chunker::stop()
+{
+  lbfs_chunk *c = new lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
+  _cvp->push_back(c);
+}
+
+void
+Chunker::chunk_data(const unsigned char *data, size_t size)
+{
+  u_int64_t f_break = 0;
+  for (size_t i=0; i<size; i++, _cur_pos++) {
+    f_break = _w.slide8 (data[i]);
+    if ((f_break % _chunk_size) == BREAKMARK_VALUE) {
+      lbfs_chunk *c = new lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
+      _cvp->push_back(c);
+      _w.reset();
+      _fp = 0;
+      _last_pos = _cur_pos;
+    }
+    _fp = _w.append8 (_fp, data[i]);
+  }
+}
+
+int
+Chunker::chunk_file(const char *path)
+{
+  const u_char *fp;
+  size_t fl;
+  if (mapfile (&fp, &fl, path) != 0)
+    return -1;
+  chunk_data(fp, fl);
+  munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
+  return 0;
 }
 
