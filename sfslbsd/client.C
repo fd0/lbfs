@@ -244,8 +244,9 @@ client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, char *path,
 	mktmpfile(sbp, rqs);
 	break;
       default:
-	fhtab.tab.insert
-	  (New tmpfh_record(*(cres->resok->obj.handle),path,strlen(path)));
+	if (!cres->status) 
+	  fhtab.tab.insert 
+	    (New tmpfh_record(*(cres->resok->obj.handle),path,strlen(path)));
 	delete[] path;
 	nfs3reply (sbp, _cres, rqs, RPC_SUCCESS);
     }
@@ -359,11 +360,11 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
                   size_t count, read3res *rres, str err)
 {
   lbfs_getfp3args *arg = sbp->template getarg<lbfs_getfp3args> ();
-  if (!err && rres->resok->eof) 
+  if (!err && !rres->status && rres->resok->eof) 
     chunker->stop();
   const vec<lbfs_chunk *>& cv = chunker->chunk_vector();
   lbfs_getfp3res *res = New lbfs_getfp3res;
-  if (!err) {
+  if (!err && !rres->status) {
     unsigned i = 0;
     unsigned n = cv.size() < 1024 ? cv.size() : 1024;
     res->resok->fprints.setsize(n);
