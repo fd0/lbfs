@@ -875,14 +875,16 @@ struct getfp_obj {
 	uint64 want_pos = cur_offst;
 	while(want > 0) {
 	  int get = want > NFS_MAXDATA ? NFS_MAXDATA : want;
-	  warn << "reading " << want_pos << "+" << get << "\n";
+	  if (lbcd_trace > 1)
+	    warn << "reading " << want_pos << "+" << get << "\n";
 	  nfs3_read (want_pos, get);
 	  want_pos += get;
 	  want -= get;
 	}
 #else
-	warn << "reading " << cur_offst << "+"
-	     << fpres->resok->fprints[i].count << "\n";
+	if (lbcd_trace > 1)
+	  warn << "reading " << cur_offst << "+"
+	       << fpres->resok->fprints[i].count << "\n";
 	nfs3_read(cur_offst, fpres->resok->fprints[i].count);
 #endif
       }
