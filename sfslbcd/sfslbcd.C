@@ -53,6 +53,7 @@ sfslbcd_connect (sfsprog*prog, ref<nfsserv> ns, int tcpfd,
                  sfscd_mountarg *ma, sfsserver::fhcb cb, ptr<sfscon> c, str s)
 {
   if (c) {
+    warn << "sfs_connect_withx came back\n";
     rpc_ptr<sfs_connectok> cres;
     cres.alloc();
     sfs_connectok *p = cres;
@@ -62,7 +63,7 @@ sfslbcd_connect (sfsprog*prog, ref<nfsserv> ns, int tcpfd,
   }
   else {
     warn <<  s;
-    (*cb)(NULL);
+    (*cb) (NULL);
   }
 }
 
@@ -73,6 +74,7 @@ sfslbcd_getfd(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
   if (!isunixsocket (fd))
     tcp_nodelay (fd);
   ptr<axprt> x = New refcounted<axprt_zcrypt>(fd, axprt_zcrypt::ps());
+  warn << "calling sfs_connect_withx\n";
   sfs_connect_withx
     (ma->carg, wrap(&sfslbcd_connect, prog, ns, tcpfd, ma, cb), x);
 }

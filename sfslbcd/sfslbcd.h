@@ -69,7 +69,7 @@ operator< (const nfstime3 &t1, const nfstime3 &t2) {
   return (ts1 < ts2 || (ts1 == ts2 && tns1 < tns2));
 }
 
-class attr_cache {
+class lbfs_attr_cache {
   struct access_dat {
     u_int32_t mask;
     u_int32_t perm;
@@ -79,7 +79,7 @@ class attr_cache {
 
 public:
   struct attr_dat {
-    attr_cache *const cache;
+    lbfs_attr_cache *const cache;
     const nfs_fh3 fh;
     ex_fattr3 attr;
     qhash<sfs_aid, access_dat> access;
@@ -87,7 +87,7 @@ public:
     ihash_entry<attr_dat> fhlink;
     tailq_entry<attr_dat> lrulink;
 
-    attr_dat (attr_cache *c, const nfs_fh3 &f, const ex_fattr3 *a);
+    attr_dat (lbfs_attr_cache *c, const nfs_fh3 &f, const ex_fattr3 *a);
     ~attr_dat ();
     void touch ();
     void set (const ex_fattr3 *a, const wcc_attr *w);
@@ -102,7 +102,7 @@ private:
     { ad->access.remove (aid); }
 
 public:
-  ~attr_cache () { attrs.deleteall (); }
+  ~lbfs_attr_cache () { attrs.deleteall (); }
   void flush_attr () { attrs.deleteall (); }
   void flush_access (sfs_aid aid) { attrs.traverse (wrap (remove_aid, aid)); }
   void flush_access (const nfs_fh3 &fh, sfs_aid);
@@ -193,7 +193,7 @@ class server : public sfsserver_auth {
 protected:
   str cdir;
   bool try_compress;
-  attr_cache ac;
+  lbfs_attr_cache ac;
   lrucache<nfs_fh3, file_cache *> fc;
   lrucache<nfs_fh3, dir_lc *> lc; 
 

@@ -25,21 +25,19 @@ enum { max_attr_dat = 1024 };
 
 struct attr_dat_compare {
   attr_dat_compare () {}
-  int operator() (const attr_cache::attr_dat &a,
-		  const attr_cache::attr_dat &b) const {
+  int operator() (const lbfs_attr_cache::attr_dat &a,
+		  const lbfs_attr_cache::attr_dat &b) const {
     return a.attr.expire < b.attr.expire ? -1 
       : a.attr.expire != b.attr.expire;
   }
 };
 
-//static itree_core<attr_cache::attr_dat,
-//  &attr_cache::attr_dat::explink, attr_dat_compare> expirelist;
-
-static tailq<attr_cache::attr_dat, &attr_cache::attr_dat::lrulink> lrulist;
+static tailq<lbfs_attr_cache::attr_dat,
+             &lbfs_attr_cache::attr_dat::lrulink> lrulist;
 static u_int num_attr_dat;
 
-attr_cache::attr_dat::attr_dat (attr_cache *c, const nfs_fh3 &f,
-				const ex_fattr3 *a)
+lbfs_attr_cache::attr_dat::attr_dat (lbfs_attr_cache *c, const nfs_fh3 &f,
+				     const ex_fattr3 *a)
   : cache (c), fh (f)
 {
   attr = *a;
@@ -51,7 +49,7 @@ attr_cache::attr_dat::attr_dat (attr_cache *c, const nfs_fh3 &f,
     delete lrulist.first;
 }
 
-attr_cache::attr_dat::~attr_dat ()
+lbfs_attr_cache::attr_dat::~attr_dat ()
 {
   lrulist.remove (this);
   //expirelist.remove (this);
@@ -60,14 +58,14 @@ attr_cache::attr_dat::~attr_dat ()
 }
 
 void
-attr_cache::attr_dat::touch ()
+lbfs_attr_cache::attr_dat::touch ()
 {
   lrulist.remove (this);
   lrulist.insert_tail (this);
 }
 
 void
-attr_cache::attr_dat::set (const ex_fattr3 *a, const wcc_attr *w)
+lbfs_attr_cache::attr_dat::set (const ex_fattr3 *a, const wcc_attr *w)
 {
   //expirelist.remove (this);
 
@@ -85,15 +83,15 @@ attr_cache::attr_dat::set (const ex_fattr3 *a, const wcc_attr *w)
 }
 
 void
-attr_cache::flush_access (const nfs_fh3 &fh, sfs_aid aid)
+lbfs_attr_cache::flush_access (const nfs_fh3 &fh, sfs_aid aid)
 {
   if (attr_dat *ad = attrs[fh])
     ad->access.remove (aid);
 }
 
 void
-attr_cache::attr_enter (const nfs_fh3 &fh, const ex_fattr3 *a,
-			const wcc_attr *w)
+lbfs_attr_cache::attr_enter (const nfs_fh3 &fh, const ex_fattr3 *a,
+			     const wcc_attr *w)
 {
   attr_dat *ad = attrs[fh];
   if (!a) {
@@ -109,7 +107,7 @@ attr_cache::attr_enter (const nfs_fh3 &fh, const ex_fattr3 *a,
 }
 
 const ex_fattr3 *
-attr_cache::attr_lookup (const nfs_fh3 &fh)
+lbfs_attr_cache::attr_lookup (const nfs_fh3 &fh)
 {
   attr_dat *ad = attrs[fh];
   if (ad && ad->valid ()) {
@@ -120,8 +118,8 @@ attr_cache::attr_lookup (const nfs_fh3 &fh)
 }
 
 void
-attr_cache::access_enter (const nfs_fh3 &fh, sfs_aid aid,
-			  u_int32_t mask, u_int32_t perm)
+lbfs_attr_cache::access_enter (const nfs_fh3 &fh, sfs_aid aid,
+			       u_int32_t mask, u_int32_t perm)
 {
   if (attr_dat *ad = attrs[fh]) {
     ad->touch ();
@@ -136,7 +134,7 @@ attr_cache::access_enter (const nfs_fh3 &fh, sfs_aid aid,
 }
 
 int32_t
-attr_cache::access_lookup (const nfs_fh3 &fh, sfs_aid aid, u_int32_t mask)
+lbfs_attr_cache::access_lookup (const nfs_fh3 &fh, sfs_aid aid, u_int32_t mask)
 {
   if (attr_dat *ad = attrs[fh])
     if (ad->valid ())
