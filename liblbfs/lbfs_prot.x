@@ -4,6 +4,8 @@
  * This file contains the NFS3 protocol with a single change: The
  * ex_fattr3 contains an extra field called expire.  Any data structures
  * that do not depend on ex_fattr3 are omitted.
+ *
+ * 2/2/2001 - benjie: added conditional write instruction
  */
 
 #ifndef RFC_SYNTAX
@@ -17,6 +19,21 @@
 #endif
 
 %#include "nfs3exp_prot.h"
+
+struct lbfs_condwrite3args {
+  nfs_fh3 file; 
+  uint64 offset; 
+  uint32 count; 
+  stable_how stable; 
+  uint64 fprint; 
+};
+
+union lbfs_condwrite3res switch (nfsstat3 status) {
+case NFS3_OK:
+  write3resok resok;
+default:
+  wcc_data resfail;
+};
 
 program LBFS_PROGRAM {
 	version LBFS_V3 {
@@ -85,6 +102,10 @@ program LBFS_PROGRAM {
 		
 		ex_commit3res
 		lbfs_NFSPROC3_COMMIT (commit3args) = 21;
+		
+		lbfs_condwrite3res
+		lbfs_NFSPROC3_CONDWRITE (lbfs_condwrite3args) = 22;
+		
 	} = 3;
 } = 344444;
 
