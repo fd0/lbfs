@@ -17,6 +17,7 @@
 #include "fingerprint.h"
 #include "lbfsdb.h"
 #include "sfsrwsd.h"
+#include "ihash.h"
 
 ptr<aclnt> _mountc;
 ptr<aclnt> _c;
@@ -33,6 +34,25 @@ static int _requests = 0;
 
 static int read_directory(const char *dpath, DIR *dirp = 0L);
 
+#define NO_DUP_HL 1
+
+typedef struct file_entry {
+  ino_t inode;
+  ihash_entry<file_entry> flink;
+  
+  file_entry (ino_t ino);
+  ~file_entry ();
+} file_entry;
+
+ihash<ino_t, file_entry, &file_entry::inode, &file_entry::flink> file_table;
+
+file_entry::file_entry (ino_t ino) : inode (ino)
+{
+  file_table.insert (this);
+}
+
+file_entry::~file_entry () { file_table.remove (this); } 
+
 void done()
 {
   if (_requests == 0) {
@@ -48,7 +68,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
 {
   if (!err) {
     char fspath[PATH_MAX];
-    sprintf(fspath, "%s/%s/%s", _mntp, dpath, fname);
+    sprintf(fspath, "%s%s/%s", _mntp, dpath, fname);
 
     int fd = open(fspath, O_RDONLY);
     unsigned char buf[4096];
@@ -60,6 +80,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
     for (unsigned i=0; i<chunker.chunk_vector().size(); i++) {
       chunk *c = chunker.chunk_vector()[i];
       c->location().set_fh(*fhp);
+      c->location().set_path(fspath);
       _fp_db.add_entry(c->fingerprint(), &(c->location()));
     }
     close(fd);
@@ -97,16 +118,34 @@ read_directory(const char *dpath, DIR *dirp = 0L)
     lstat(fspath, &sb);
     if (S_ISDIR(sb.st_mode))
       read_directory(newpath);
-    else if (S_ISREG(sb.st_mode) && !S_ISLNK(sb.st_mode)) {
-      _requests++;
-      _totalfns++;
-      char *dpath2 = New char[PATH_MAX];
-      strncpy(dpath2, dpath, PATH_MAX);
-      char *fname = New char[PATH_MAX];
-      strncpy(fname, de->d_name, PATH_MAX);
-      lookupfh3(_c, _rootfh, newpath, wrap(gotattr, dpath2, fname, dirp));
-      _requests--;
-      return 0;
+    else {
+#if NO_DUP_HL 
+      file_entry *fe = file_table[sb.st_ino];
+      if (!fe && S_ISREG(sb.st_mode) && !S_ISLNK(sb.st_mode)) {
+	fe = New file_entry (sb.st_ino);
+	_requests++;
+	_totalfns++;
+	char *dpath2 = New char[PATH_MAX];
+	strncpy(dpath2, dpath, PATH_MAX);
+	char *fname = New char[PATH_MAX];
+	strncpy(fname, de->d_name, PATH_MAX);
+	lookupfh3(_c, _rootfh, newpath, wrap(gotattr, dpath2, fname, dirp));
+	_requests--;
+	return 0;
+      }
+#else
+      if (S_ISREG(sb.st_mode) && !S_ISLNK(sb.st_mode)) {
+	_requests++;
+	_totalfns++;
+	char *dpath2 = New char[PATH_MAX];
+	strncpy(dpath2, dpath, PATH_MAX);
+	char *fname = New char[PATH_MAX];
+	strncpy(fname, de->d_name, PATH_MAX);
+	lookupfh3(_c, _rootfh, newpath, wrap(gotattr, dpath2, fname, dirp));
+	_requests--;
+	return 0;
+      }
+#endif
     }
   }
   _requests--;
