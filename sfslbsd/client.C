@@ -303,6 +303,7 @@ client::tmpwrite (svccb *sbp, filesrv::reqstate rqs)
       warg.count = fwa->count;
       warg.stable = fwa->stable;
       warg.data = fwa->data;
+      u->writes++;
       write3res *res = New write3res;
       fsrv->c->call(NFSPROC3_WRITE, &warg, res,
 		    wrap (mkref (this), &client::tmpwrite_cb, sbp, rqs, res),
