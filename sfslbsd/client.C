@@ -356,6 +356,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   lbfs_mktmpfile3args *mta = sbp->template getarg<lbfs_mktmpfile3args> ();
   ufd_rec *u = ufdtab.tab[mta->fd];
   if (u) {
+    warn << "MKTMPFILE: reject dup file descriptor\n";
     lbfs_nfs3exp_err (sbp, NFS3ERR_EXIST);
     return;
   }
