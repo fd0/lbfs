@@ -40,7 +40,6 @@ class lbfs_chunk_loc {
 private:
   unsigned char _fh[NFS3_FHSIZE];
   unsigned _fhsize;
-  nfstime3 _mtime;
   off_t _pos;
   size_t _count;
  
@@ -58,7 +57,6 @@ public:
   lbfs_chunk_loc& operator= (const lbfs_chunk_loc &l) {
     _fhsize = l._fhsize;
     if (_fhsize > 0) memmove(_fh, l._fh, _fhsize);
-    _mtime = l._mtime;
     _pos = l._pos;
     _count = l._count;
     return *this;
@@ -85,9 +83,6 @@ public:
   
   size_t count() const 		{ return _count; }
   void set_count(size_t c) 	{ _count = c; }
-
-  nfstime3 mtime() const 	{ return _mtime; }
-  void set_mtime(const nfstime3 &t) 	{ _mtime = t; }
 };
 
 struct lbfs_chunk {

@@ -269,7 +269,6 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
     for (unsigned i=0; i<cv->size(); i++) {
       (*cv)[i]->loc.set_fh(cta->commit_to);
-      (*cv)[i]->loc.set_mtime(attr->mtime);
       lbfsdb.add_chunk((*cv)[i]->fingerprint, &((*cv)[i]->loc)); 
       warn << "COMMITTMP: adding " << (*cv)[i]->fingerprint << " to database\n";
     }

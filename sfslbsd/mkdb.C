@@ -57,7 +57,6 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
         chunk_data(CHUNK_SIZES(j), &cv, fp, fl);
 	for(unsigned i=0; i<cv.size(); i++) { 
 	  cv[i]->loc.set_fh(*fhp);
-	  cv[i]->loc.set_mtime(attr->mtime);
 	  _db.add_chunk(cv[i]->fingerprint, &(cv[i]->loc)); 
 	  delete cv[i];
 	}
