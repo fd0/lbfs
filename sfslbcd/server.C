@@ -50,10 +50,10 @@ server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
 	fa.mtime < e->fa.mtime) {
       e->fa = fa;
       e->osize = fa.size;
-      str f = fh2fn (obj);
+      str f = e->fn;
       e->fetch(fa.size);
       warn_debug << "fetch cache file " << obj << "\n";
-      lbfs_read (f, obj, fa.size, mkref(this), authof(aid),
+      lbfs_read (e, fa.size, mkref(this), authof(aid),
 	         wrap(mkref(this), &server::fetch_done, e));
     }
     else {
@@ -82,6 +82,8 @@ server::access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
         file_cache_insert (a->object);
         e = file_cache_lookup(a->object);
         assert(e);
+	e->fn = gen_fn_from_fh (a->object);
+	e->prevfn = e->fn;
 	e->fa.mtime.seconds = 0;
 	e->fa.mtime.nseconds = 0;
         e->open();
@@ -115,7 +117,7 @@ void
 server::read_from_cache (nfscall *nc, file_cache *e)
 {
   if (e->afh == 0) {
-    str fn = fh2fn(e->fh);
+    str fn = e->fn;
     file_cache::a->open (fn, O_RDWR, 0666,
                          wrap (this, &server::read_from_cache_open, nc, e));
   }
@@ -173,7 +175,7 @@ server::write_to_cache (nfscall *sbp, file_cache *e)
   e->outstanding_op ();
   
   if (e->afh == 0) {
-    str fn = fh2fn(e->fh);
+    str fn = e->fn;
     file_cache::a->open (fn, O_RDWR, 0666,
                          wrap (this, &server::write_to_cache_open, sbp, e));
   }
@@ -271,7 +273,7 @@ void
 server::truncate_cache (nfscall *sbp, file_cache *e, uint64 size)
 {
   if (e->afh == 0) {
-    str fn = fh2fn(e->fh);
+    str fn = e->fn;
     file_cache::a->open (fn, O_RDWR | O_CREAT, 0666,
                          wrap (this, &server::truncate_cache_open,
 			       sbp, e, size));
@@ -398,7 +400,6 @@ server::flush_cache (nfscall *nc, file_cache *e)
   // the attribute cache.
   assert(e->is_dirty());
   e->flush();
-  str fn = fh2fn(e->fh);
   // set size to the size of the file when it was first cached, so wcc
   // checking will work
   fattr3 fa = e->fa;
@@ -426,7 +427,7 @@ server::flush_cache (nfscall *nc, file_cache *e)
 #endif
 
   lbfs_write
-    (fn, e, e->fh, size, fa, mkref(this), authof(aid),
+    (e, size, fa, mkref(this), authof(aid),
      wrap(mkref(this), &server::flush_done, nc, e->fh));
 }
 
@@ -1065,7 +1066,7 @@ server::dispatch (nfscall *nc)
 void
 server::file_cache_gc_remove (file_cache *e)
 {
-  str fn = fh2fn(e->fh);
+  str fn = e->fn;
   warn << "remove " << fn << "\n";
   if (unlink(fn.cstr()) < 0)
     perror("removing cache file");

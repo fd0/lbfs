@@ -79,6 +79,8 @@ class file_cache {
 public:
   sfs_aid aid;
   nfs_fh3 fh;
+  str fn;
+  str prevfn;
   int status;
   fattr3 fa;
   uint64 osize;
@@ -216,14 +218,16 @@ protected:
 
   static void file_closed (int) {}
 
-  str fh2fn(nfs_fh3 fh) {
+  str gen_fn_from_fh (nfs_fh3 fh) {
     strbuf n;
     unsigned char x = 0;
     char *c = fh.data.base();
     for (unsigned i=0; i<fh.data.size(); i++)
       x = x ^ ((unsigned char)(*(c+i)));
+    int r = rnd.getword();
+    str rstr = armor32((void*)&r, sizeof(int)); 
     n << cdir << "/" << (((unsigned int)x)%254) << "/"
-      << armor32(fh.data.base(), fh.data.size());
+      << armor32(fh.data.base(), fh.data.size()) << rstr;
     return n;
   }
 
@@ -340,11 +344,9 @@ public:
   static void db_sync ();
 };
 
-void lbfs_read (str fn, nfs_fh3 fh, uint64 size, ref<server> srv,
+void lbfs_read (file_cache *fe, uint64 size, ref<server> srv,
                 AUTH *a, callback<void, bool, bool>::ref cb);
-void lbfs_write (str fn, file_cache *fe,
-                 nfs_fh3 fh, uint64 size, fattr3 fa,
-		 ref<server> srv,
+void lbfs_write (file_cache *fe, uint64 size, fattr3 fa, ref<server> srv,
                  AUTH *a, callback<void, fattr3, bool>::ref cb);
 
 #endif

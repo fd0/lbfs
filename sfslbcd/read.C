@@ -23,6 +23,8 @@
 #include "sfslbcd.h"
 #include "lbfs_prot.h"
 
+typedef callback<void, ptr<aiobuf>, ssize_t, int>::ref aiofh_cbrw;
+
 struct read_state {
   time_t rqtime;
   uint64 off;
@@ -30,19 +32,24 @@ struct read_state {
 };
 
 struct read_obj {
-  static const int PARALLEL_READS = 4;
-  static const int LBFS_MAXDATA = 65536;
+  static const unsigned PARALLEL_READS = 8;
+  static const unsigned LBFS_MAXDATA = 65536;
   typedef callback<void,bool,bool>::ref cb_t;
 
   cb_t cb;
   ref<server> srv;
+  file_cache *fe;
   nfs_fh3 fh;
   AUTH *auth;
   uint64 size;
   unsigned int outstanding_reads;
   bool errorcb;
-  file_cache *fe;
+  
+  uint64 bytes_read;
 
+  vec<uint64> rq_off;
+  vec<uint64> rq_cnt;
+  
   void
   read_reply(ref<read_state> rs, ref<read3args> arg,
              ref<ex_read3res> res, clnt_stat err) 
@@ -102,35 +109,58 @@ struct read_obj {
     rs->rqtime = timenow;
     rs->off = off;
     rs->cnt = cnt;
+    bytes_read += cnt;
     srv->nfsc->call (lbfs_NFSPROC3_READ, a, res,
 	             wrap (this, &read_obj::read_reply, rs, a, res),
 		     auth);
   }
 
-  bool do_read() 
+  void do_read () 
   {
-    while (fe->pri.size()) {
-      uint64 off = fe->pri.pop_front();
-      if (off < size) {
-        unsigned s = size-off;
-        s = s > srv->rtpref ? srv->rtpref : s;
-	if (!fe->req->filled(off, s)) {
-          nfs3_read (off, s);
-	  return false;
+    if (outstanding_reads >= PARALLEL_READS)
+      return;
+
+    if (!srv->use_lbfs ()) { // NFS read
+      while (fe->pri.size()) {
+        uint64 off = fe->pri.pop_front();
+        if (off < size) {
+          unsigned s = size-off;
+          s = s > srv->rtpref ? srv->rtpref : s;
+	  if (!fe->req->filled(off, s)) {
+            nfs3_read (off, s);
+	    return;
+	  }
+        }
+      }
+      uint64 off;
+      uint64 cnt;
+      if (fe->req->has_next_gap(0, off, cnt)) {
+        assert(off < size);
+        cnt = cnt > srv->rtpref ? srv->rtpref : cnt;
+        if (!fe->req->filled(off, cnt)) {
+	  nfs3_read (off, cnt);
+	  return;
+        }
+      }
+    }
+    else { // LBFS read
+      while (rq_off.size () > 0 && outstanding_reads < PARALLEL_READS) {
+	uint64 cnt = rq_cnt [0];
+	uint64 off;
+	if (cnt > srv->rtpref) {
+          off = rq_off [0];
+	  cnt = srv->rtpref;
+	  rq_off [0] = rq_off [0] + srv->rtpref;
+	  rq_cnt [0] = rq_cnt [0] - srv->rtpref;
 	}
+	else {
+          off = rq_off.pop_front ();
+          cnt = rq_cnt.pop_front ();
+	}
+	if (!fe->req->filled (off, cnt))
+          nfs3_read (off, cnt);
       }
     }
-    uint64 off;
-    uint64 cnt;
-    if (fe->req->has_next_gap(0, off, cnt)) {
-      assert(off < size);
-      cnt = cnt > srv->rtpref ? srv->rtpref : cnt;
-      if (!fe->req->filled(off, cnt)) {
-	nfs3_read (off, cnt);
-	return false;
-      }
-    }
-    return true;
   }
 
   static void file_closed (int) {}
@@ -151,15 +181,151 @@ struct read_obj {
   {
     if (!errorcb)
       cb (outstanding_reads == 0,true);
-    if (outstanding_reads == 0)
+    if (outstanding_reads == 0) {
+      fe->prevfn = fe->fn;
       delete this;
+    }
+  }
+
+  void aiod_read (chunk_location *c, ptr<aiofh> afh, aiofh_cbrw cb)
+  {
+    ptr<aiobuf> buf = file_cache::a->bufalloc (c->count ());
+    if (!buf) {
+      file_cache::a->bufwait
+        (wrap (this, &read_obj::aiod_read, c, afh, cb));
+      return;
+    }
+    afh->read (c->pos (), buf, cb);
+  }
+
+  struct rdstate {
+    fp_db::iterator *ci;
+    uint64 offset;
+    uint64 cnt;
+    sfs_hash hash;
+  };
+
+  void
+  check_chunk_read (rdstate *rds, chunk_location *c, ptr<aiofh> afh,
+		    ptr<aiobuf> buf, ssize_t sz, int err)
+  {
+    afh->close (wrap (&read_obj::file_closed));
+
+    if (!err) {
+      Chunker chunker;
+      chunker.chunk_data ((unsigned char *)buf->base (), sz);
+      chunker.stop ();
+      const vec<chunk *>& cv = chunker.chunk_vector();
+      if (cv.size () == 1 && cv[0]->hash_eq (rds->hash) &&
+	  (unsigned)sz == rds->cnt) {
+        // got a matching chunk
+	warn << "matching chunk found\n";
+        fe->afh->write (rds->offset, buf,
+	                wrap (this, &read_obj::read_reply_write,
+			      rds->offset, rds->cnt));
+	delete c;
+	delete rds->ci;
+	delete rds;
+	return;
+      }
+    }
+
+    outstanding_reads--;
+    delete c;
+    rds->ci->del ();
+    if (!next_chunk (false, rds)) {
+      rq_off.push_back (rds->offset);
+      rq_cnt.push_back (rds->cnt);
+      delete rds->ci;
+      delete rds;
+    }
+    do_read ();
+  }
+    
+  void
+  check_chunk_open (rdstate *rds, chunk_location *c,
+		    ptr<aiofh> afh, int err) 
+  {
+    if (!err) {
+      aiod_read (c, afh,
+	         wrap (this, &read_obj::check_chunk_read, rds, c, afh));
+      return;
+    }
+
+    outstanding_reads--;
+    delete c;
+    rds->ci->del ();
+    if (!next_chunk (false, rds)) {
+      rq_off.push_back (rds->offset);
+      rq_cnt.push_back (rds->cnt);
+      delete rds->ci;
+      delete rds;
+    }
+    do_read ();
+  }
+
+  bool
+  next_chunk (bool first, rdstate *rds)
+  {
+    chunk_location *c = New chunk_location;
+    int r;
+    if (first)
+      r = rds->ci->get (c);
+    else
+      r = rds->ci->next (c);
+    while (!r) {
+      nfs_fh3 f;
+      c->get_fh(f);
+      file_cache *e = srv->file_cache_lookup (f);
+      if (e) {
+	outstanding_reads++;
+	file_cache::a->open
+	  (e->prevfn, O_RDONLY, 0,
+	   wrap (this, &read_obj::check_chunk_open, rds, c));
+	return true;
+      }
+      rds->ci->del ();
+      r = rds->ci->next (c);
+    }
+    delete c;
+    return false;
   }
 
   void compose (uint64 offset, ref<lbfs_getfp3res> res)
   {
     for (unsigned i=0; i<res->resok->fprints.size(); i++) {
       warn << "get_fp +" << res->resok->fprints[i].count << "\n";
+      bool checking = false;
+      fp_db::iterator *ci = 0;
+      u_int64_t index;
+      memmove(&index, res->resok->fprints[i].hash.base(), sizeof(index));
+      if (!server::fpdb.get_iterator (index, &ci)) {
+	if (ci) {
+          rdstate *rds = New rdstate;
+          rds->ci = ci;
+          rds->offset = offset;
+          rds->cnt = res->resok->fprints[i].count;
+          rds->hash = res->resok->fprints[i].hash;
+	  if (next_chunk(true, rds))
+	    checking = true;
+	  else {
+	    delete rds;
+	    delete ci;
+	  }
+	}
+      }
+      if (!checking) { // chunk not found locally
+        rq_off.push_back (offset);
+	rq_cnt.push_back (res->resok->fprints[i].count);
+      }
+      chunk c
+	(offset, res->resok->fprints[i].count, res->resok->fprints[i].hash);
+      c.location ().set_fh (fh);
+      server::fpdb.add_entry
+	(c.hashidx(), &(c.location ()), c.location().size());
+      offset += res->resok->fprints[i].count;
     }
+    do_read ();
   }
 
   void getfp_reply (uint64 offset, ref<lbfs_getfp3res> res, clnt_stat err) 
@@ -182,21 +348,23 @@ struct read_obj {
 			       next_offset, new_res), auth);
       }
       compose (offset, res);
-      if (offset == 0)
-	start_read ();
     }
-    else
-      start_read ();
-    ok ();
+    else if (offset == 0)
+      start_nfs_read ();
+    if (outstanding_reads == 0)
+      ok ();
   }
 
-  void file_open (ptr<aiofh> afh, int err) 
+  void file_open (str fn, ptr<aiofh> afh, int err) 
   {
     if (err) {
       warn << "fill_cache: open failed: " << err << "\n";
       fail ();
       return;
     }
+    if (fe->afh)
+      fe->afh->close (wrap (&read_obj::file_closed));
+    fe->fn = fn;
     fe->afh = afh;
 
     if (srv->use_lbfs ()) {
@@ -211,43 +379,40 @@ struct read_obj {
 		       auth);
     }
     else
-      start_read ();
+      start_nfs_read ();
   }
 
-  void start_read () 
+  void start_nfs_read () 
   {
-    bool eof = false;
-    for (int i=0; i<PARALLEL_READS && !eof; i++)
-      eof = do_read();
+    for (unsigned i=0; i<PARALLEL_READS; i++)
+      do_read ();
     if (!outstanding_reads) // nothing to do
       ok();
   }
 
-  read_obj (str fn, nfs_fh3 fh, uint64 size, ref<server> srv,
+  read_obj (file_cache *fe, uint64 size, ref<server> srv,
             AUTH *a, read_obj::cb_t cb)
-    : cb(cb), srv(srv), fh(fh), auth(a), size(size),
+    : cb(cb), srv(srv), fe(fe), fh(fe->fh), auth(a), size(size),
       outstanding_reads(0), errorcb(false)
   {
-    fe = srv->file_cache_lookup(fh);
     assert(fe);
 
-    if (fe->afh == 0) {
-      file_cache::a->open (fn, O_CREAT | O_RDWR, 0666,
-                           wrap (this, &read_obj::file_open));
-      return;
-    }
-    else
-      file_open (fe->afh, 0);
+    bytes_read = 0;
+    str fn = srv->gen_fn_from_fh (fh);
+    file_cache::a->open (fn, O_CREAT | O_TRUNC | O_RDWR, 0666,
+	                 wrap (this, &read_obj::file_open, fn));
   }
 
-
-  ~read_obj() {}
+  ~read_obj()
+  {
+    warn << "read_obj: read " << bytes_read << " bytes\n"; 
+  }
 };
 
 void
-lbfs_read (str fn, nfs_fh3 fh, uint64 size, ref<server> srv,
+lbfs_read (file_cache *fe, uint64 size, ref<server> srv,
            AUTH *a, read_obj::cb_t cb)
 {
-  vNew read_obj (fn, fh, size, srv, a, cb);
+  vNew read_obj (fe, size, srv, a, cb);
 }
 

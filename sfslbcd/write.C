@@ -31,9 +31,9 @@ struct write_obj {
 
   cb_t cb;
   ref<server> srv;
+  file_cache *fe;
   nfs_fh3 fh;
   fattr3 fa;
-  file_cache *fe;
   AUTH *auth;
   uint64 size;
   uint64 written;
@@ -44,6 +44,8 @@ struct write_obj {
   unsigned tmpfd;
   unsigned chunkv_sz;
   Chunker chunker;
+
+  uint64 bytes_wrote;
   
   void
   aborttmp_reply(void *res, clnt_stat err) {
@@ -52,11 +54,15 @@ struct write_obj {
   }
   
   void
-  committmp_reply(ref<ex_commit3res> res, clnt_stat err) {
+  committmp_reply(time_t rqtime, ref<lbfs_committmp3args> arg, 
+                  ref<ex_commit3res> res, clnt_stat err) {
     outstanding_writes--;
-    if (!callback && !err && res->status == NFS3_OK) {
-      ok();
-      return;
+    if (!err) {
+      srv->getxattr (rqtime, NFSPROC3_COMMIT, 0, arg, res);
+      if (!callback && res->status == NFS3_OK) {
+        ok();
+        return;
+      }
     }
     fail();
   }
@@ -144,7 +150,7 @@ struct write_obj {
       while (cnt > 0) {
         unsigned s = cnt;
         s = s > srv->wtpref ? srv->wtpref : s;
-        nfs3_read (off, s, wrap (this, &write_obj::lbfs_tmpwrite, off, s));
+        aiod_read (off, s, wrap (this, &write_obj::lbfs_tmpwrite, off, s));
         off += s;
 	cnt -= s;
       }
@@ -163,19 +169,19 @@ struct write_obj {
     fail();
   }
   
-  void nfs3_read (uint64 off, uint32 cnt, aiofh_cbrw cb)
+  void aiod_read (uint64 off, uint32 cnt, aiofh_cbrw cb)
   {
     outstanding_writes++;
     ptr<aiobuf> buf = file_cache::a->bufalloc (cnt);
     if (!buf) {
       file_cache::a->bufwait
-        (wrap (this, &write_obj::nfs3_read_again, off, cnt, cb));
+        (wrap (this, &write_obj::aiod_read_again, off, cnt, cb));
       return;
     }
     fe->afh->read (off, buf, cb);
   }
 
-  void nfs3_read_again (uint64 off, uint32 cnt, aiofh_cbrw cb)
+  void aiod_read_again (uint64 off, uint32 cnt, aiofh_cbrw cb)
   {
     if (callback) {
       outstanding_writes--;
@@ -185,7 +191,7 @@ struct write_obj {
     ptr<aiobuf> buf = file_cache::a->bufalloc (cnt);
     if (!buf) {
       file_cache::a->bufwait
-        (wrap (this, &write_obj::nfs3_read_again, off, cnt, cb));
+        (wrap (this, &write_obj::aiod_read_again, off, cnt, cb));
       return;
     }
     fe->afh->read (off, buf, cb);
@@ -212,13 +218,15 @@ struct write_obj {
     }
 
     chunker.chunk_data ((unsigned char*) buf->base (), off, (unsigned)sz);
+    if (chunker.cur_pos () == size)
+      chunker.stop ();
     const vec<chunk *>& cv = chunker.chunk_vector ();
     if (chunkv_sz < cv.size ()) {
       for (unsigned i=chunkv_sz; i < cv.size (); i++) {
         chunk *c = cv[i];
         uint64 off = c->location ().pos ();
         uint64 cnt = c->location ().count ();
-        // warn << c->hashidx () << ": " << off << "+" << cnt << "\n";
+        warn << c->hashidx () << ": " << off << "+" << cnt << "\n";
 
 	lbfs_condwrite3args arg;
         arg.commit_to = fh;
@@ -231,6 +239,7 @@ struct write_obj {
         srv->nfsc->call (lbfs_CONDWRITE, &arg, res,
 	                 wrap (this, &write_obj::condwrite_reply,
 			       off, cnt, res), auth);
+	// XXX add chunk into local db
       }
       chunkv_sz = cv.size ();
     }
@@ -266,6 +275,7 @@ struct write_obj {
     arg.data.setsize(sz);
     memmove (arg.data.base (), buf->base (), sz);
     
+    bytes_wrote += sz;
     ref<ex_write3res> res = New refcounted <ex_write3res>;
     srv->nfsc->call (lbfs_TMPWRITE, &arg, res,
 	             wrap (this, &write_obj::tmpwrite_reply, res), auth);
@@ -298,7 +308,8 @@ struct write_obj {
     a->stable = UNSTABLE;
     a->data.setsize(sz);
     memmove (a->data.base (), buf->base (), sz);
-    
+   
+    bytes_wrote += sz;
     ref<ex_write3res> res = New refcounted <ex_write3res>;
     srv->nfsc->call (lbfs_NFSPROC3_WRITE, a, res,
 	             wrap (this, &write_obj::write_reply, timenow, a, res),
@@ -324,10 +335,10 @@ struct write_obj {
       unsigned s = size-written;
       s = s > srv->wtpref ? srv->wtpref : s;
       if (srv->use_lbfs ())
-	nfs3_read (written, s,
+	aiod_read (written, s,
 	           wrap (this, &write_obj::lbfs_condwrite, written, s));
       else
-	nfs3_read (written, s,
+	aiod_read (written, s,
 	           wrap (this, &write_obj::nfs3_write, written, s));
       written += s;
     }
@@ -369,12 +380,13 @@ struct write_obj {
         commit = true;
         outstanding_writes++;
     
-	lbfs_committmp3args arg;
-        arg.commit_to = fh;
-        arg.fd = tmpfd;
+	ref<lbfs_committmp3args> arg = New refcounted<lbfs_committmp3args>;
+        arg->commit_to = fh;
+        arg->fd = tmpfd;
         ref<ex_commit3res> res = New refcounted <ex_commit3res>;
-        srv->nfsc->call (lbfs_COMMITTMP, &arg, res,
-	                 wrap (this, &write_obj::committmp_reply, res), auth);
+        srv->nfsc->call (lbfs_COMMITTMP, arg, res,
+	                 wrap (this, &write_obj::committmp_reply,
+			       timenow, arg, res), auth);
 	return;
       }
 
@@ -403,15 +415,15 @@ struct write_obj {
       fail ();
   }
 
-  write_obj (str fn, file_cache *fe, nfs_fh3 fh,
-             uint64 size, fattr3 fa, ref<server> srv,
+  write_obj (file_cache *fe, uint64 size, fattr3 fa, ref<server> srv,
              AUTH *a, write_obj::cb_t cb)
-    : cb(cb), srv(srv), fh(fh), fa(fa), fe(fe), auth(a),
+    : cb(cb), srv(srv), fe(fe), fh(fe->fh), fa(fa), auth(a),
       size(size), written(0), outstanding_writes(0),
       callback(false), commit(false)
   {
     assert (fe->afh);
 
+    bytes_wrote = 0;
     if (srv->use_lbfs ()) {
       lbfs_mktmpfile3args arg;
       arg.commit_to = fh;
@@ -444,14 +456,16 @@ struct write_obj {
     start_write ();
   }
 
-  ~write_obj() {}
+  ~write_obj()
+  {
+    warn << "write_obj: wrote " << bytes_wrote << " bytes\n";
+  }
 };
 
 void
-lbfs_write (str fn, file_cache *fe, nfs_fh3 fh,
-            uint64 size, fattr3 fa, ref<server> srv,
+lbfs_write (file_cache *fe, uint64 size, fattr3 fa, ref<server> srv,
             AUTH *a, write_obj::cb_t cb)
 {
-  vNew write_obj (fn, fe, fh, size, fa, srv, a, cb);
+  vNew write_obj (fe, size, fa, srv, a, cb);
 }
 
