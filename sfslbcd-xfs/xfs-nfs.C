@@ -67,10 +67,11 @@ u_char nfs_rights2xfs_rights(u_int32_t access, ftype3 ftype, u_int32_t mode) {
 }
 
 void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr, time_t rqtime,
-		   xfs_msg_node *node) {
+		    xfs_msg_node *node, bool update_dir_expire) {
 
-  //change expire to rpc_time + expire
-  attr.expire += rqtime;
+  // change expire to rpc_time + expire
+  if (attr.type != NF3DIR || update_dir_expire)
+    attr.expire += rqtime;
 
   cache_entry *e = nfsindex[obj];
   if (!e) {
@@ -169,7 +170,7 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
   
   assert(res->status == NFS3_OK);
   entry3 *nfs_dirent = res->resok->reply.entries;
-  xfs_dirent *xde = NULL; //(xfs_dirent *)malloc(sizeof(*xde)); //NULL;
+  xfs_dirent *xde = NULL;
   int reclen = sizeof(*xde);
 
   while (nfs_dirent != NULL) {
@@ -179,7 +180,7 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
 	return -1;
     }
 #endif
-    xde = (xfs_dirent *)args->ptr; //(xfs_dirent *)malloc(reclen);
+    xde = (xfs_dirent *)args->ptr;
     bzero(xde, sizeof(*xde));
     xde->d_namlen = nfs_dirent->name.len();
     warn << "xde->namlen = " << xde->d_namlen 

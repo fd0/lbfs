@@ -135,7 +135,8 @@ getrootattr (int fd, ref<struct xfs_message_getroot> h, ref<sfs_fsinfo> fsi,
 
   warn << "uid = " << getuid () << "\n";
 
-  nfsobj2xfsnode (h->cred, fsi->nfs->v3->root, *res->attributes, rqtime, &msg.node);
+  nfsobj2xfsnode 
+    (h->cred, fsi->nfs->v3->root, *res->attributes, rqtime, &msg.node);
 
   msg.header.opcode = XFS_MSG_INSTALLROOT;
   h0 = (struct xfs_message_header *) &msg;
@@ -200,7 +201,8 @@ nfs3_lookup (int fd, ref<struct xfs_message_getnode> h, uint32 seqnum,
     if (err)
       warn << h->header.sequence_num << ":" << err << ":nfs3_lookup\n";
     else {
-      warn << h->header.sequence_num << ":" <<strerror(lres->status) << ":nfs3_lookup\n";
+      warn << h->header.sequence_num << ":" 
+	<< strerror(lres->status) << ":nfs3_lookup\n";
       reply_err(fd, seqnum, lres->status);
     }
     return;
@@ -216,7 +218,8 @@ nfs3_lookup (int fd, ref<struct xfs_message_getnode> h, uint32 seqnum,
     }
   }
 
-  nfsobj2xfsnode (h->cred, lres->resok->object, *a.attributes, rqtime, &msg.node);
+  nfsobj2xfsnode 
+    (h->cred, lres->resok->object, *a.attributes, rqtime, &msg.node);
 
   msg.header.opcode = XFS_MSG_INSTALLNODE;
   msg.parent_handle = h->parent_handle;
@@ -240,14 +243,16 @@ xfs_message_getnode (int fd, ref<struct xfs_message_getnode> h, u_int size)
 
   cache_entry *e = xfsindex[h->parent_handle];
   if (!e) {
-    warn << h->header.sequence_num << ":" << "xfs_message_getnode: Can't find parent_handle\n";
+    warn << h->header.sequence_num 
+         << ":" << "xfs_message_getnode: Can't find parent_handle\n";
     return -1;
   }
 
   diropargs3 doa;
   doa.dir = e->nh;
   doa.name = h->name;
-  warn << h->header.sequence_num << ":" << "requesting file name " << doa.name << "\n";
+  warn << h->header.sequence_num 
+       << ":" << "requesting file name " << doa.name << "\n";
   ref<ex_lookup3res> res = New refcounted<ex_lookup3res>;
 
   nfsc->call (lbfs_NFSPROC3_LOOKUP, &doa, res,
@@ -334,7 +339,7 @@ nfs3_readdir (int fd, ref<struct xfs_message_open> h, cache_entry *e,
     }
 #endif
     ex_fattr3 attr = *res->resok->dir_attributes.attributes;
-    nfsobj2xfsnode (h->cred, e->nh, attr, (uint32)timenow, &msg.node);
+    nfsobj2xfsnode (h->cred, e->nh, attr, (uint32)timenow, &msg.node, true);
     e->ltime = max(attr.mtime, attr.ctime);
 
     msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R;
@@ -419,7 +424,8 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
 
       //add chunk to the database
       vec < lbfs_chunk * >cvp;
-      if (chunk_file (CHUNK_SIZES (0), cvp, (char const *) ga->msg.cache_name) < 0) {
+      if (chunk_file(CHUNK_SIZES (0), cvp, (char const *) ga->msg.cache_name) 
+	  < 0) {
 	warn << strerror (errno) << "(" << errno << "): nfs3_read(chunkfile)\n";
 	return;
       }
@@ -624,14 +630,12 @@ lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
     compose_file (ga, res);
 
     if (!res->resok->eof) {
-      //ga->offset += gfp->count; //ga->res->resok->count;
       lbfs_getfp3args gfp;
       gfp.file = e->nh;
       gfp.offset = ga->offset;
       gfp.count = LBFS_MAXDATA;
 
       ref<lbfs_getfp3res > fpres = New refcounted < lbfs_getfp3res >;
-      //ga->res = fpres;
       nfsc->call (lbfs_GETFP, &gfp, fpres,
 		  wrap (&lbfs_getfp, ga, fpres, timenow));
     }
@@ -691,13 +695,9 @@ getfp (int fd, ref<struct xfs_message_open> h, cache_entry *e)
   str fhstr = armor32(e->nh.data.base(), e->nh.data.size());
   int r = rnd.getword(); //rand();
   str rstr = armor32((void*)&r, sizeof(int));
-  //char *newcache = New char[5+fhstr.len()+1+rstr.len()+1];
   str newcache = strbuf("cache/%02X/sfslbcd.%s.%s", 
 			e->xh.a >> 8, fhstr.cstr(), rstr.cstr());
 
-  //nfs_fh3 new_fh = nfs_fh3();
-  //cache_entry *new_e = new cache_entry(new_fh, e->nfs_attr);
-  //strcpy (msg.cache_name, new_e->cache_name);
   strcpy (msg.cache_name, newcache);
   int cfd = open (msg.cache_name, O_CREAT | O_WRONLY | O_TRUNC, 0666);
   if (cfd < 0) {
@@ -755,6 +755,8 @@ comp_time (int fd, ref<struct xfs_message_open> h, bool dirfile,
       ex_fattr3 attr = *(res->attributes);
       attr.expire += rqtime;
       e->nfs_attr = attr;
+      warn << "got attribute, ltime " << e->ltime.seconds << " "
+	   << e->ltime.nseconds << "\n";
     } else {
       if (err) 
 	warn << "comp_time: " << err << "\n";
@@ -765,14 +767,11 @@ comp_time (int fd, ref<struct xfs_message_open> h, bool dirfile,
   }
 
   nfstime3 maxtime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
+  warn << "got attribute, maxtime " << maxtime.seconds  
+       << " " << maxtime.nseconds << "\n";
   if (greater (maxtime, e->ltime)) {
     if (dirfile) {
-#if 0      
-      if (!e) {
-	warn << "comp_time: Can't find node handle\n";
-	return;
-      }
-#endif
+      warn << "calling NFS readdir\n";
       readdir3args rda;
       rda.dir = e->nh;
       rda.cookie = 0;
@@ -887,6 +886,9 @@ xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
     warn << "xfs_message_open: Can't find node handle\n";
     return -1;
   }
+    
+  if (e->nfs_attr.type == NF3DIR)
+    warn << "xfs_message_open on directory: " << e->writers << "\n";
   
   if (h->tokens & (XFS_OPEN_NW|XFS_OPEN_EW)) {
     e->writers++;
@@ -904,6 +906,7 @@ xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
 
   if (!e->incache) {
     if (e->nfs_attr.type == NF3DIR) {
+      warn << "calling NFS readdir\n";
       readdir3args rda;
       rda.dir = e->nh;
       rda.cookie = 0;
@@ -919,7 +922,9 @@ xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
 	getfp (fd, h, e);
   }
   else {
-    
+    if (e->nfs_attr.type == NF3DIR) 
+      warn << "directory in cache, writers " << e->writers << "\n";
+
     // don't read if there are other writers on the cache
     if (e->writers > 1) {
       ref<struct xfs_message_getdata> hga = 
@@ -928,7 +933,12 @@ xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
       nfs3_read_exist (fd, hga, e);
     }
 
+    if (e->nfs_attr.type == NF3DIR) 
+      warn << "directory in cache, exp " << e->nfs_attr.expire << " " 
+	   << (uint32) timenow << " ltime " << e->ltime.seconds << "\n";
     if (e->nfs_attr.expire < (uint32) timenow) {
+      if (e->nfs_attr.type == NF3DIR) 
+	warn << "GETATTR called\n";
       nfs_fh3 fh = e->nh;
       ptr < ex_getattr3res > res = New refcounted < ex_getattr3res >;
       nfsc->call (lbfs_NFSPROC3_GETATTR, &fh, res,
@@ -953,6 +963,11 @@ nfs3_getattr (int fd, ref<struct xfs_message_getattr> h, cache_entry *e,
   size_t h0_len = 0;
 
   nfsobj2xfsnode (h->cred, e->nh, *res->attributes, rqtime, &msg.node);
+  if (e->nfs_attr.type == NF3DIR) {
+    nfstime3 maxtime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
+    if (!greater(maxtime, e->ltime))
+      e->nfs_attr.expire += rqtime;
+  }
 
   msg.header.opcode = XFS_MSG_INSTALLATTR;
   h0 = (struct xfs_message_header *) &msg;
@@ -1368,11 +1383,8 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
   if (!err && res->status == NFS3_OK) {
  
     struct xfs_message_installdata msg1;	//change content of parent dir
-    
     struct xfs_message_installnode msg2;	//New file node
-    
     struct xfs_message_installdata msg3;	//New file content (null)
-    
     struct xfs_message_header *h0 = NULL;
     size_t h0_len = 0;
     struct xfs_message_header *h1 = NULL;
@@ -1381,9 +1393,9 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
     size_t h2_len = 0;
 
     assert (res->resok->obj.present && res->resok->obj_attributes.present);
-    //create new file
     nfsobj2xfsnode (h->cred, *(res->resok->obj.handle),
-	      *(res->resok->obj_attributes.attributes), rqtime, &msg2.node);
+	            *(res->resok->obj_attributes.attributes), 
+		    rqtime, &msg2.node);
 
     cache_entry *e1 = nfsindex[*(res->resok->obj.handle)];
     if (!e1) {
@@ -1407,7 +1419,8 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
     }
     memmove (&msg3.cache_handle, &new_fh, sizeof (new_fh));
 
-    //write new direntry to parent dirfile (do a readdir or just append that entry?)
+    // write new direntry to parent dirfile (do a readdir or just append that
+    // entry?)
     cache_entry *e2 = xfsindex[h->parent_handle];
     if (!e2) {
       warn << "nfs3_create: Can't find parent handle\n";
@@ -1415,21 +1428,20 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
     }
     
     strcpy (msg1.cache_name, e2->cache_name);
-#if 0
-    int dir_fd = open (msg1.cache_name, O_CREAT | O_RDWR | O_APPEND, 0666);
-    if (nfsdirent2xfsfile (dir_fd, h->name, (*res->resok->obj_attributes.attributes).fileid) < 0)
-      return;
-    close (dir_fd);
-#endif
-    //msg1.node.tokens = same as parent dir's
+    // msg1.node.tokens = same as parent dir's
 
     assert (res->resok->dir_wcc.after.present);
-    
+  
     nfsobj2xfsnode (h->cred, e2->nh,
-		    *(res->resok->dir_wcc.after.attributes), rqtime, &msg1.node);
-   
-    e2->incache = true;
-    msg1.flag = 0;
+		    *(res->resok->dir_wcc.after.attributes), 
+		    0, &msg1.node);
+    
+    // XXX - benjie: this is sad... if i was jwz, i'd be writing how i would
+    // be going postal on people who implements nfs: on openbsd, we can't
+    // depend on directory attributes (in particularly mtime) to be properly
+    // updated after a create...
+    e2->incache = false;
+    msg1.flag = XFS_ID_INVALID_DNLC;
     msg1.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &msg1;
     h0_len = sizeof (msg1);
@@ -1504,11 +1516,8 @@ nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
   if (!err && res->status == NFS3_OK) {
 
     struct xfs_message_installdata msg1;	//change content of parent dir
-
     struct xfs_message_installnode msg2;	//new dir node
-
     struct xfs_message_installdata msg3;	//new dir content (null)
-
     struct xfs_message_header *h0 = NULL;
     size_t h0_len = 0;
     struct xfs_message_header *h1 = NULL;
@@ -1517,9 +1526,9 @@ nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
     size_t h2_len = 0;
 
     assert (res->resok->obj.present && res->resok->obj_attributes.present);
-    //create new dirfile
     nfsobj2xfsnode (h->cred, *(res->resok->obj.handle),
-	      *(res->resok->obj_attributes.attributes), rqtime, &msg2.node);
+	           *(res->resok->obj_attributes.attributes), 
+		   rqtime, &msg2.node);
 
     cache_entry *e1 = nfsindex[*(res->resok->obj.handle)];
     if (!e1) {
@@ -1543,7 +1552,6 @@ nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
     }
     memmove (&msg3.cache_handle, &new_fh, sizeof (new_fh));
 
-    //write new direntry to parent dirfile (do a readdir or just append that entry?)
     cache_entry *e2 = xfsindex[h->parent_handle];
     if (!e2) {
       warn << "nfs3_mkdir: Can't find parent handle\n";
@@ -1551,12 +1559,6 @@ nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
     }
 
     strcpy (msg1.cache_name, e2->cache_name);
-#if 0
-    int dir_fd = open (msg1.cache_name, O_WRONLY | O_APPEND, 0666);
-    if (nfsdirent2xfsfile (dir_fd, h->name, (*res->resok->obj_attributes.attributes).fileid) < 0)
-      return;
-    close (dir_fd);
-#endif
     fhandle_t parent_fh;
     if (getfh (msg1.cache_name, &parent_fh)) {
       warn << "getfh failed\n";
@@ -1564,19 +1566,17 @@ nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
     }
     memmove (&msg1.cache_handle, &parent_fh, sizeof (parent_fh));
 
-    //msg1.node.tokens = same as parent dir's
-
     assert (res->resok->dir_wcc.after.present);
-
     nfsobj2xfsnode (h->cred, e2->nh,
-	       *(res->resok->dir_wcc.after.attributes), rqtime, &msg1.node);
+	            *(res->resok->dir_wcc.after.attributes), 0, &msg1.node);
 
     msg1.flag = 0;
+    e2->incache = false; // sad mtime update problem with openbsd nfsd
     msg1.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &msg1;
     h0_len = sizeof (msg1);
 
-    //msg2.node.tokens = same as parent dir's
+    // msg2.node.tokens = same as parent dir's
     msg2.parent_handle = h->parent_handle;
     strlcpy (msg2.name, h->name, sizeof (msg2.name));
 
@@ -1636,7 +1636,6 @@ nfs3_link (int fd, ref<struct xfs_message_link> h, ref<ex_link3res > res,
 
   if (!err && res->status == NFS3_OK) {
     struct xfs_message_installdata msg1;	//update parent dir's data
-    
     struct xfs_message_installnode msg2;	//update attr of from_handle
 
     struct xfs_message_header *h0 = NULL;
@@ -1662,9 +1661,10 @@ nfs3_link (int fd, ref<struct xfs_message_link> h, ref<ex_link3res > res,
     
     assert (res->res->linkdir_wcc.after.present);
     nfsobj2xfsnode (h->cred, e1->nh,
-		    *(res->res->linkdir_wcc.after.attributes), rqtime, &msg1.node);
+		    *(res->res->linkdir_wcc.after.attributes), 0, &msg1.node);
     
     msg1.flag = 0;
+    e1->incache = false; // sad mtime update problem with openbsd nfsd
     msg1.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &msg1;
     h0_len = sizeof (msg1);
@@ -1677,7 +1677,8 @@ nfs3_link (int fd, ref<struct xfs_message_link> h, ref<ex_link3res > res,
 
     assert (res->res->file_attributes.present);
     nfsobj2xfsnode (h->cred, e2->nh,
-		    *(res->res->file_attributes.attributes), rqtime, &msg2.node);
+		    *(res->res->file_attributes.attributes), 
+		    rqtime, &msg2.node);
     
     msg2.node.tokens = XFS_ATTR_R;
     msg2.parent_handle = h->parent_handle;
@@ -1736,7 +1737,6 @@ nfs3_symlink (int fd, ref<struct xfs_message_symlink> h, cache_entry *e,
 
   if (!err && res->status == NFS3_OK) {
     struct xfs_message_installdata msg1;	//install change in parent dir
-
     struct xfs_message_installnode msg2;	//install symlink node
 
     struct xfs_message_header *h0 = NULL;
@@ -1745,13 +1745,10 @@ nfs3_symlink (int fd, ref<struct xfs_message_symlink> h, cache_entry *e,
     size_t h1_len = 0;
 
     assert (res->resok->obj.present && res->resok->obj_attributes.present);
-    //create symlink
     ex_fattr3 attr = *res->resok->obj_attributes.attributes;
     nfsobj2xfsnode (h->cred, *(res->resok->obj.handle),
 		    attr, rqtime, &msg2.node);
-    //e->ltime = max(attr.mtime, attr.ctime);
 
-    //write new direntry to parent dirfile (do a readdir or just append that entry?)
     cache_entry *e = xfsindex[h->parent_handle];
     if (!e) {
       warn << "nfs3_symlink: Can't find parent handle\n";
@@ -1759,13 +1756,12 @@ nfs3_symlink (int fd, ref<struct xfs_message_symlink> h, cache_entry *e,
     }
     strcpy (msg1.cache_name, e->cache_name);
 
-    //add entry to parent dir (changing the mtime)
     assert (res->resok->dir_wcc.after.present);
-
     nfsobj2xfsnode (h->cred, e->nh,
-	       *(res->resok->dir_wcc.after.attributes), rqtime, &msg1.node);
+	            *(res->resok->dir_wcc.after.attributes), 0, &msg1.node);
 
     msg1.flag = 0;
+    e->incache = false; // sad mtime update problem with openbsd nfsd
     msg1.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &msg1;
     h0_len = sizeof (msg1);
@@ -1825,8 +1821,6 @@ void
 remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
 	ref<ex_wccstat3 > wres, time_t rqtime, clnt_stat err)
 {
-
-  //remove entry from parent dir
   cache_entry *e1 = xfsindex[h->parent_handle];
   if (!e1) {
     warn << "xfs_message_remove: Can't find parent_handle\n";
@@ -1842,14 +1836,7 @@ remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
     struct xfs_message_installattr msg2;
     struct xfs_message_header *h1 = NULL;
     size_t h1_len = 0;
-#if 0
-    //remove entry from parent dir
-    cache_entry *e1 = xfsindex[h->parent_handle];
-    if (!e1) {
-      warn << "xfs_message_remove: Can't find parent_handle\n";
-      return;
-    }
-#endif
+    
     strcpy (msg1.cache_name, e1->cache_name);
     fhandle_t cfh;
     if (getfh (msg1.cache_name, &cfh)) {
@@ -1857,26 +1844,16 @@ remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
       return;
     }
     memmove (&msg1.cache_handle, &cfh, sizeof (cfh));
-    //remove entry from local dir after..
-#if 0
-    int dir_fd = open (msg1.cache_name, O_RDWR | O_SHLOCK, 0666);
-    if (xfsfile_rm_dirent (dir_fd, h->name) < 0)
-      return;
-    close (dir_fd);
-#endif
     ex_fattr3 attr = *(wres->wcc->after.attributes);
-    nfsobj2xfsnode (h->cred, e1->nh,
-		    attr, rqtime, &msg1.node);
+    nfsobj2xfsnode (h->cred, e1->nh, attr, 0, &msg1.node);
 
-    msg1.flag = XFS_ID_INVALID_DNLC;
+    e1->incache = false;
     msg1.node.tokens |= XFS_DATA_R;
-
+    msg1.flag = XFS_ID_INVALID_DNLC;
+    
     msg1.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &msg1;
     h0_len = sizeof (msg1);
-
-    //if the entry being removed from parent is still being referenced (nlink > 1)
-    //update its attr, otherwise, evict from cache
 
     ex_post_op_attr a;
     if (lres->resok->obj_attributes.present)
@@ -1899,22 +1876,13 @@ remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
 
       msg2.header.opcode = XFS_MSG_INSTALLATTR;
       --(a.attributes->nlink);
-      nfsobj2xfsnode (h->cred, e2->nh,
-		      *(a.attributes), rqtime, &msg1.node);
-
-      //msg2.node.tokens   = limbo_entry->tokens;
-
-      //  if data is not being used in the kernel...
-      //  msg2.node.tokens &= ~XFS_DATA_MASK;
-
+      nfsobj2xfsnode (h->cred, e2->nh, *(a.attributes), rqtime, &msg1.node);
       h1 = (struct xfs_message_header *) &msg2;
       h1_len = sizeof (msg2);
-
 
       xfs_send_message_wakeup_multiple (fd, h->header.sequence_num,
 					0, h0, h0_len, h1, h1_len,
 					NULL, 0);
-
     }
     else {
       //TODO: evict from cache..or save?
@@ -1924,17 +1892,6 @@ remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
 
   }
   else {
-#if 0
-    if (wres->status == NFS3ERR_ISDIR) {
-      diropargs3 doa;
-      doa.dir = e1->nh;
-      doa.name = h->name;
-      
-      ref<ex_wccstat3 > rmdres = New refcounted < ex_wccstat3 >;
-      nfsc->call (lbfs_NFSPROC3_RMDIR, &doa, rmdres,
-		  wrap (&remove, fd, (struct xfs_message_remove *) h, lres, rmdres, timenow));      
-    } else
-#endif 
     if (err)
       warn << err << ": nfs3_lookup in remove\n";
     else {
@@ -1951,10 +1908,6 @@ nfs3_remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
 
   if (!err && lres->status == NFS3_OK) {
 
-    //lookup entry's filehandle and attr
-    //if the entry being removed from parent is still being referenced (nlink > 1)
-    //update its attr
-    
     cache_entry *e = xfsindex[h->parent_handle];
     if (!e) {
       warn << "xfs_message_mkdir: Can't find parent_handle\n";
@@ -1968,7 +1921,6 @@ nfs3_remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
     ref<ex_wccstat3 > wres = New refcounted < ex_wccstat3 >;
     nfsc->call (lbfs_NFSPROC3_REMOVE, &doa, wres,
 		wrap (&remove, fd, h, lres, wres, timenow));
-
   }
   else {
     if (err)
@@ -2106,18 +2058,16 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
     if (err)
       warn << err << ": nfs3_rename_getattr\n";
     else {
-      warn << "nfs3_rename_getattr: gares->status = " << strerror (rena->gares->status) << "\n";
+      warn << "nfs3_rename_getattr: gares->status = " 
+	   << strerror (rena->gares->status) << "\n";
       reply_err (rena->fd, rena->h->header.sequence_num, rena->gares->status);
     }
     return;
   }
 
   struct xfs_message_installnode msg1;	//update attr of file renamed 
-
   struct xfs_message_installdata msg2;	//new parent dir content
-
   struct xfs_message_installdata msg3;	//old parent dir content
-  
   struct xfs_message_header *h1 = NULL;
   size_t h1_len = 0;
   struct xfs_message_header *h2 = NULL;
@@ -2158,7 +2108,6 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
     return;
   }
   strcpy (msg2.cache_name, e2->cache_name);
-  //change content of new parent dir (later)
   fhandle_t parent_fh;
   if (getfh (msg2.cache_name, &parent_fh)) {
     warn << "getfh failed\n";
@@ -2168,14 +2117,16 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
   assert (rena->rnres->res->todir_wcc.after.present);
   nfsobj2xfsnode (rena->h->cred, e2->nh,
 		  *(rena->rnres->res->todir_wcc.after.attributes),
-		  rqtime2, &msg2.node);
+		  0, &msg2.node);
 
+  e2->incache = false; // sad mtime update problem with openbsd nfsd
   msg2.flag = XFS_ID_INVALID_DNLC;
   msg2.header.opcode = XFS_MSG_INSTALLDATA;
   h2 = (struct xfs_message_header *) &msg2;
   h2_len = sizeof (msg2);
 
-  if (!xfs_handle_eq (&rena->h->old_parent_handle, &rena->h->new_parent_handle)) {
+  if (!xfs_handle_eq (&rena->h->old_parent_handle,
+	              &rena->h->new_parent_handle)) {
     cache_entry *e3 = xfsindex[rena->h->old_parent_handle];
     if (!e3) {
       warn << "nfs3_rename_getattr: Can't find file old_parent_handle\n";
@@ -2191,8 +2142,9 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
     assert (rena->rnres->res->fromdir_wcc.after.present);
     nfsobj2xfsnode (rena->h->cred, e3->nh,
 		    *(rena->rnres->res->fromdir_wcc.after.attributes),
-		    rqtime2, &msg3.node);
+		    0, &msg3.node);
 
+    e3->incache = false; // sad mtime update problem with openbsd nfsd
     msg3.flag = XFS_ID_INVALID_DNLC;
     msg3.header.opcode = XFS_MSG_INSTALLDATA;
     h3 = (struct xfs_message_header *) &msg3;
@@ -2568,6 +2520,7 @@ xfs_message_pioctl (int fd, ref<struct xfs_message_pioctl> h, u_int size) {
 void 
 cbdispatch (svccb * sbp)
 {
+  warn << "cbdispatch called\n";
   if (!sbp)
     return;
 
