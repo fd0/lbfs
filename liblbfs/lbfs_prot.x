@@ -21,6 +21,7 @@
 %#include "nfs3exp_prot.h"
 
 struct lbfs_condwrite3args {
+  nfs_fh3 commit_to;
   unsigned fd; 
   uint64 offset; 
   uint32 count; 
@@ -29,6 +30,7 @@ struct lbfs_condwrite3args {
 };
 
 struct lbfs_fdwrite3args {
+  nfs_fh3 commit_to;
   unsigned fd;
   uint64 offset;
   uint32 count;
@@ -37,13 +39,14 @@ struct lbfs_fdwrite3args {
 };
 
 struct lbfs_mktmpfile3args {
+  nfs_fh3 commit_to;
   unsigned fd;
   sattr3 obj_attributes;
 };
 
 struct lbfs_committmp3args {
-  unsigned fd;
   nfs_fh3 commit_to;
+  unsigned fd;
 };
 
 struct lbfs_getfp3args {

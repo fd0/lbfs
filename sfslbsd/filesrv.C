@@ -671,6 +671,7 @@ filesrv::fixarg (svccb *sbp, reqstate *rqsp)
     return false;
   }
   if (fht.srvno >= fstab.size ()) {
+    warn << "filesrv BADHANDLE\n";
     lbfs_nfs3exp_err (sbp, NFS3ERR_BADHANDLE);
     return false;
   }
