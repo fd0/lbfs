@@ -1,7 +1,6 @@
 
 Caching Client Implementation
 
-
 close-to-open consistency is: on any close, nfs client flushes all
 changes to server; on any open, nfs client fetches latest attributes
 from server, and loads new data when the cache time is less than
@@ -45,7 +44,20 @@ commit
 
 setattr
  - if size is changed, update size in both attribute cache and file cache
+ - wcc checking is done to update the attribute in the file cache
  - always forward setattr rpc onto the server
+
+wcc
+ - wcc checking is done when we flush cached file to server (i.e.
+   on write and commit RPCs) and when processing setattr
+ - the goal of doing wcc checking is to make the attribute in the file
+   cache be the same as the attribute on the server, so after a close,
+   another open will not trigger a cache update
+ - to make wcc work, "osize" field is kept for each cached object that
+   reflects the size of the object on server. as the size of the
+   object in cache changes, osize does not change. osize is updated
+   when the cached object is updated, flushed, or when setattr is
+   processed (since setattr is always forwarded to server)
 
 can we depend on nfs client to always send an ACCESS rpc before any
 read? we don't do access control upon seeing a READ rpc: we just
