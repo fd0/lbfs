@@ -20,7 +20,7 @@
  *
  */
 
-#define DEBUG 0
+#define DEBUG 1
 
 //
 // a cached file can be in one of the following four states
@@ -32,15 +32,15 @@
 //
 // below is the state transition rule when different RPC occurs. X
 // means exception. i.e. the cached file should not be in this state
-// when this RPC occurs. in most cases a RPC is blocked when the
-// cached file is in the state, and executed after the cached file
-// changes state.
+// when this RPC occurs. XX means the RPC is blocked when the cached
+// file is in this state, and executed after the cached file changes
+// state.
 //
-//          ACCESS  FETCH_DONE   READ   WRITE   CLOSE   FLUSH_DONE
-//  IDLE      IDLE    IDLE       IDLE   DIRTY    IDLE        X
-// DIRTY     DIRTY      X        DIRTY  DIRTY   FLUSH        X
-// FLUSH     FLUSH      X         X       X       X        IDLE
-// FETCH     FETCH      X        FETCH    X     FETCH        X
+//        ACCESS  FETCH_DONE   READ   WRITE   SETSIZE   CLOSE   FLUSH_DONE
+//  IDLE    IDLE    IDLE       IDLE   DIRTY   DIRTY     IDLE        X
+// DIRTY   DIRTY      X        DIRTY  DIRTY   DIRTY     FLUSH       X
+// FLUSH   FLUSH      X        FLUSH   XX      XX       FLUSH     IDLE
+// FETCH   FETCH      X      FETCH/XX  XX      XX       FETCH       X
 //
 
 #include <typeinfo>
@@ -313,7 +313,9 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     setattr3args *a = nc->template getarg<setattr3args> ();
     ex_wccstat3 *sres = static_cast<ex_wccstat3 *> (res);
     file_cache *e = file_cache_lookup(a->object);
-    if (!sres->status && e &&
+    // only does wcc checking and save attribute if file is not being
+    // flushed. otherwise wcc checking will fail.
+    if (!sres->status && e && !e->is_flush() &&
 	sres->wcc->before.present && sres->wcc->after.present) {
       // does wcc checking. if this is the only client making a change
       // to the object, install the post operation attribute (ignoring
@@ -447,9 +449,22 @@ server::dont_run_rpc (nfscall *nc)
     return false;
 
   if (e) {
-    if (e->is_flush()) {
+    if (e->is_flush() && nc->proc () != NFSPROC3_READ &&
+	nc->proc () != cl_NFSPROC3_CLOSE) {
       // if a file is being flushed, don't touch it until flush is
       // done. we hope this is a rare case.
+#if DEBUG
+      warn << "RPC " << nc->proc () << " blocked due to flush\n";
+#endif
+      if (nc->proc () == NFSPROC3_SETATTR) {
+        setattr3args *a = nc->template getarg<setattr3args> ();
+        if (!a->new_attributes.size.set) {
+#if DEBUG
+	  warn << "blocked SETATTR does not have size, unblock\n";
+#endif
+	  return false;
+	}
+      }
       e->rpcs.push_back(nc);
       return true;
     }
@@ -547,7 +562,9 @@ server::dispatch (nfscall *nc)
       close(e->fd);
       e->fd = -1;
     }
-    if (e && e->is_dirty())
+    if (e && e->is_flush()) // someone else is closing this file
+      nc->error (NFS3_OK);
+    else if (e && e->is_dirty())
       flush_cache (nc, e);
     else {
       if (!e)
