@@ -167,12 +167,21 @@ sfsConnect (str hostname, sfs_hash hid, str path, int fd)
   nfsc = aclnt::alloc (x, lbfs_program_3);
   nfscbs = asrv::alloc (x, ex_nfscb_program_3, wrap (&cbdispatch));
   sfs_connectarg arg;
+#if 0
   arg.set_civers (5);
   arg.ci5->release = sfs_release;
   arg.ci5->service = SFS_SFS;
   arg.ci5->sname = path;
   arg.ci5->extensions.set (sfs_extensions.base (), sfs_extensions.size (),
 			   freemode::NOFREE);
+#else
+  arg.set_civers (4);
+  arg.ci4->service = SFS_SFS;
+  arg.ci4->name = hostname;
+  arg.ci4->hostid = hid;
+  arg.ci4->extensions.set (sfs_extensions.base (), sfs_extensions.size (),
+			   freemode::NOFREE);
+#endif
   sfsc->call (SFSPROC_CONNECT, &arg, &conres, 
 	      wrap (&gotconres, fd, hostname, hid));
 

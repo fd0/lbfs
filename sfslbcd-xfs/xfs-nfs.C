@@ -145,7 +145,7 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
 #endif  
   assert(res->status == NFS3_OK);
   entry3 *nfs_dirent = res->resok->reply.entries;
-  xfs_dirent *xde = (xfs_dirent *) malloc (sizeof (*xde)); 
+  xfs_dirent *xde; // = (xfs_dirent *) malloc (sizeof (*xde)); 
   int reclen = sizeof(*xde);
 
   while (nfs_dirent != NULL) {
@@ -189,7 +189,7 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
 #endif
     nfs_dirent = nfs_dirent->nextentry;
   }
-  delete xde;
+  //delete xde;
   return 0;
 }
 
@@ -273,7 +273,7 @@ int dir_remove_name (int fd, const char *fname)
     return errno;
   }
   len = sb.st_size;
-  char *buf = (char *) mmap (0, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  char *buf = (char *) mmap (0, len, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
   if (buf == (char *) MAP_FAILED)
     return errno;
   char *p;

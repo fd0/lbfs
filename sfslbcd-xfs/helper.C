@@ -9,6 +9,7 @@
 AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
 AUTH *auth_default = 
   authunix_create ("localhost", (uid_t) 14228, (gid_t) 100, 0, NULL);
+#define LBFS 0
 
 struct attr_obj {
   attr_cb_t cb;
@@ -102,7 +103,7 @@ struct attr_obj {
   
   ~attr_obj ()
   {
-    delete h;
+    if (h) delete h;
   }
 
   attr_obj (int fd1, const xfs_message_putattr *h1, sfs_aid sa1,
@@ -204,7 +205,7 @@ struct getroot_obj {
 
   ~getroot_obj ()
   {
-    delete h;
+    if (h) delete h;
   }
 
   getroot_obj (int fd1, xfs_message_getroot *h1, sfs_aid sa1,  
@@ -262,7 +263,7 @@ struct lookup_obj {
 
   ~lookup_obj ()
   {
-    delete h;
+    if (h) delete h;
   }
 
   lookup_obj (int fd1, const struct xfs_message_getnode *h1, sfs_aid sa1, 
@@ -330,7 +331,7 @@ struct getnode_obj {
 
   ~getnode_obj ()
   {
-    delete h;
+    if (h) delete h;
   }
 
   getnode_obj (int fd1, xfs_message_getnode *h1, sfs_aid sa1, ref<aclnt> c1) :
@@ -511,12 +512,8 @@ struct readdir_obj {
       msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R;
       
       args.fd = assign_cachefile (fd, h->header.sequence_num, e, 
-				  msg.cache_name, &msg.cache_handle);
-      //int error = truncate (msg.cache_name, 0);
-      //if (error < 0) {
-      //	delete this; 
-      //	return;
-      //}
+				  msg.cache_name, &msg.cache_handle, 
+				  O_CREAT | O_WRONLY | O_TRUNC);
       write_dirfile (args, msg, clnt_stat (0));
     } else {
       xfs_reply_err (fd, h->header.sequence_num, err ? err : rdres->status);      
@@ -561,24 +558,13 @@ struct readdir_obj {
      	       ref<aclnt> c1, readdir_obj::cb_t cb1) :
     cb(cb1), fd(fd1), c(c1), h(h1), sa(sa1), e(e1)    
   {
-#if DEBUG > 0
-    warn << h->header.sequence_num << ":"
-	 << "xfs_message_open on directory: " << e->writers << "\n";
-#endif
     uint32 owriters = e->writers;
     if ((h->tokens & XFS_OPEN_MASK) & (XFS_OPEN_NW|XFS_OPEN_EW)) {
       e->writers = 1;
-#if DEBUG > 0
-      warn << h->header.sequence_num << ":"  
-	   << "open for write: " << e->writers << " writers\n";
-#endif      
     }
     if (!e->incache) {
       readdir ();
     } else {
-#if DEBUG > 0
-      warn << "directory in cache, writers " << e->writers << "\n";
-#endif
       if (owriters > 0) {
 	xfs_message_getdata *h1 = (xfs_message_getdata *) h;
 	lbfs_readexist (fd, h1, e);
@@ -930,6 +916,102 @@ lbfs_getfp (int fd, const xfs_message_open *h, cache_entry *e, sfs_aid sa,
   vNew getfp_obj (fd, h, e, sa, c, cb);
 }
 
+struct read_obj {
+  typedef callback<void>::ref cb_t;
+  cb_t cb;
+  int fd;
+  ref<aclnt> c;
+  
+  const struct xfs_message_open *h;
+  sfs_aid sa;
+  cache_entry *e;
+  read3args ra;
+  int out_fd;
+  struct xfs_message_installdata msg;
+  struct xfs_message_header *h0;
+  size_t h0_len;
+    
+  void compose_file (uint64 offset, ex_read3res *res)
+  {
+    if (lseek (out_fd, offset, SEEK_SET) < 0) {
+      xfs_reply_err(fd, h->header.sequence_num, errno);
+      delete this; return;
+    }
+    int err = write (out_fd, res->resok->data.base (), res->resok->count);
+    if ((uint)err != res->resok->count) {
+      if (err >= 0)
+	warn << "short write..wierd\n";
+      xfs_reply_err(fd, h->header.sequence_num, errno);
+      delete this; return;      
+    }
+  }
+
+  void gotdata (uint64 offset, ex_read3res *res, time_t rqt, clnt_stat err) 
+  {
+    if (!err && res->status == NFS3_OK) {
+      assert (res->resok->file_attributes.present);
+      e->nfs_attr = *(res->resok->file_attributes.attributes);
+      e->set_exp (rqt);
+      e->ltime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);      
+      compose_file (offset, res);
+
+      if (!res->resok->eof) {
+	ra.offset += res->resok->count;
+	ref<ex_read3res> rres = New refcounted <ex_read3res>;
+	c->call (lbfs_NFSPROC3_READ, &ra, rres,
+		 wrap (this, &read_obj::gotdata, ra.offset, rres, timenow),
+		 lbfs_authof (sa));	
+      } else {
+	close (out_fd);
+	nfsobj2xfsnode (h->cred, e, &msg.node);
+	msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R | XFS_OPEN_NW | XFS_DATA_W;
+	msg.header.opcode = XFS_MSG_INSTALLDATA;
+	h0 = (struct xfs_message_header *) &msg;
+	h0_len = sizeof (msg);
+	
+	xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+					  h0, h0_len, NULL, 0);
+	delete this;
+      }
+
+    } else { 
+      xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
+      delete this;
+    }
+  }
+
+  ~read_obj ()
+  {
+    if (out_fd) close (out_fd);
+    (*cb) ();
+  }
+
+  read_obj (int fd1, const xfs_message_open *h1, cache_entry *e1, sfs_aid sa1, 
+	    ref<aclnt> c1, read_obj::cb_t cb1) : cb(cb1), fd(fd1), c(c1), h(h1), 
+	      sa(sa1), e(e1)
+  {
+    out_fd = assign_cachefile (fd, h->header.sequence_num, e, 
+			       msg.cache_name, &msg.cache_handle, 
+			       O_CREAT | O_WRONLY | O_TRUNC);
+    ra.file = e->nh;
+    ra.offset = 0;
+    ra.count = NFS_MAXDATA;
+
+    ref<ex_read3res> rres = New refcounted <ex_read3res>;
+    c->call (lbfs_NFSPROC3_READ, &ra, rres,
+	     wrap (this, &read_obj::gotdata, ra.offset, rres, timenow),
+	     lbfs_authof (sa));
+  }
+  
+};
+
+void 
+lbfs_read (int fd, const xfs_message_open *h, cache_entry *e, sfs_aid sa, 
+	    ref<aclnt> c, read_obj::cb_t cb)
+{
+  vNew read_obj (fd, h, e, sa, c, cb);
+}
+
 struct readfile_obj {
   typedef callback<void>::ref cb_t;
   cb_t cb;
@@ -939,7 +1021,6 @@ struct readfile_obj {
   const struct xfs_message_open *h;
   sfs_aid sa;
   cache_entry *e;
-  ptr<ex_read3res> res;
 
   void done () 
   {
@@ -958,7 +1039,9 @@ struct readfile_obj {
     } 
     nfstime3 maxtime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
     if (greater (maxtime, e->ltime)) 
-      lbfs_getfp (fd, h, e, sa, c, wrap (this, &readfile_obj::done));
+      if (LBFS)
+	lbfs_getfp (fd, h, e, sa, c, wrap (this, &readfile_obj::done));
+      else lbfs_read (fd, h, e, sa, c, cb);
     else {
       xfs_message_getdata *h1 = (xfs_message_getdata *) h;
       lbfs_readexist (fd, h1, e);
@@ -979,7 +1062,9 @@ struct readfile_obj {
     }
     
     if (!e->incache)
-      lbfs_getfp (fd, h, e, sa, c, wrap (this, &readfile_obj::done));
+      if (LBFS)
+	lbfs_getfp (fd, h, e, sa, c, wrap (this, &readfile_obj::done));
+      else lbfs_read (fd, h, e, sa, c, cb);
     else {
       if (owriters > 0) {
 	xfs_message_getdata *h1 = (xfs_message_getdata *) h;
@@ -1012,7 +1097,7 @@ struct open_obj {
 
   void done () 
   {
-    delete h;
+    if (h) delete h;
     delete this;
   }
 
@@ -1175,7 +1260,7 @@ struct create_obj {
 
   ~create_obj ()
   {
-    delete h;
+    if (h) delete h;
   }
 
   create_obj (int fd1, const xfs_message_create *h1, sfs_aid sa1, 
@@ -1267,7 +1352,7 @@ struct link_obj {
 
   ~link_obj ()
   {
-    delete h;
+    if (h) delete h;
   }
 
   link_obj (int fd1, const xfs_message_link *h1, sfs_aid sa1, 
@@ -1365,7 +1450,7 @@ struct symlink_obj {
 
   ~symlink_obj ()
   {
-    delete h;
+    if (h) delete h;
   }
 
   symlink_obj (int fd1, const xfs_message_symlink *h1, sfs_aid sa1, 
@@ -1506,7 +1591,7 @@ struct remove_obj {
 
   ~remove_obj () 
   {
-    delete h;
+    if (h) delete h;
   }
 
   remove_obj (int fd1, const xfs_message_remove *h1, sfs_aid sa1, ref<aclnt> c1) :
@@ -1687,7 +1772,7 @@ struct rename_obj {
 
   ~rename_obj ()
   {
-    delete h;
+    if (h) delete h;
   }
 
   rename_obj (int fd1, const xfs_message_rename *h1, sfs_aid sa1, ref<aclnt> c1) :
@@ -2013,7 +2098,7 @@ struct putdata_obj {
   ~putdata_obj () 
   {
     delete chunker;
-    delete h;
+    if (h) delete h;
   }
 
   putdata_obj (int fd1, const xfs_message_putdata *h1, sfs_aid sa1, ref<aclnt> c1) :
@@ -2044,9 +2129,89 @@ struct putdata_obj {
   }
 };
 
+struct write_obj {
+  int fd;
+  ref<aclnt> c;
+  
+  const struct xfs_message_putdata *h;
+  sfs_aid sa;
+  cache_entry *e;
+  write3args wa;
+  int data_fd;
+
+  void send_data (uint offset, ex_write3res *res, time_t rqt, clnt_stat err) 
+  {
+    if (!err && (!res || res->status == NFS3_OK)) {    
+      if (lseek (data_fd, offset, SEEK_SET) < 0) {
+	xfs_reply_err(fd, h->header.sequence_num, errno);
+	delete this; return;      
+      }
+      char iobuf[NFS_MAXDATA];
+      int error = read (data_fd, iobuf, NFS_MAXDATA);
+      if (error < 0) {
+	xfs_reply_err(fd, h->header.sequence_num, errno);
+	delete this; return;      
+      }
+      
+      if (error > 0) {
+	wa.offset = offset;
+	wa.count = error;
+	wa.data.setsize (wa.count);
+	memcpy (wa.data.base (), iobuf, wa.count);
+      
+	ref<ex_write3res> wres = New refcounted <ex_write3res>;
+	c->call (lbfs_NFSPROC3_WRITE, &wa, wres,
+		 wrap (this, &write_obj::send_data, offset+wa.count, wres, timenow), 
+		 lbfs_authof (sa));
+      } else {
+	e->nfs_attr = *(res->resok->file_wcc.after.attributes);
+	e->set_exp (rqt, e->nfs_attr.type == NF3DIR);
+	e->ltime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
+	xfs_send_message_wakeup (fd, h->header.sequence_num, 0); 
+	delete this;
+      }
+    } else {
+      xfs_reply_err(fd, h->header.sequence_num, err ? err : res->status);
+      delete this;      
+    }
+  }
+
+  ~write_obj () 
+  {
+    if (data_fd) close (data_fd);
+  }
+
+  write_obj (int fd1, const xfs_message_putdata *h1, sfs_aid sa1, ref<aclnt> c1) :
+    fd(fd1), c(c1), h(h1), sa(sa1)
+  {
+    e = xfsindex[h->handle];
+    if (!e) {
+#if DEBUG > 0
+      warn << "write_obj: Can't find node handle\n";
+#endif
+      xfs_reply_err (fd, h->header.sequence_num, ENOENT);
+      delete this; return;
+    }
+
+    data_fd = open (e->cache_name, O_RDONLY, 0666);
+    if (data_fd < 0) {
+      xfs_reply_err (fd, h->header.sequence_num, errno);
+      delete this; return;
+    }
+      
+    wa.file = e->nh;
+    wa.stable = UNSTABLE;
+
+    send_data (0, NULL, 0, clnt_stat (0));
+  }
+   
+};
+
 void
 lbfs_putdata (int fd, const xfs_message_putdata *h, sfs_aid sa, ref<aclnt> c)
 {
-  vNew putdata_obj (fd, h, sa, c);
+  if (LBFS)
+    vNew putdata_obj (fd, h, sa, c);
+  else vNew write_obj (fd, h, sa, c);
 }
 
