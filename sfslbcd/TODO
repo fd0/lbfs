@@ -1,13 +1,8 @@
 
+run loss rate tests
+
 test directory invalidate with 2 clients
-
-minimize number of RPCs, especially number of blocking RPCs
-
-cache readdir replies
-
-run file system correctness tests on lbfs and lbfs-a. make sure things
-like close, setattr, getattr ends up returning the right attr even if
-the flush to server was not finished
+test file system correctness
 
 write test cases for
  - open, open, write, close, write, close

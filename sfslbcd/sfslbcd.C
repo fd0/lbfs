@@ -136,10 +136,9 @@ server::server (str arg, const sfsserverargs &a)
   rtpref = wtpref = 4096;
   try_compress = true;
   async_close = false;
-  if (arg == "a") {
-    warn << "mounting with async close on\n";
+  if (arg == "a")
     async_close = true;
-  }
+  warn << "lbfs server created for " << a.ma->carg.ci5->sname << "\n";
 }
 
 int

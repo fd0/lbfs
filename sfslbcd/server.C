@@ -323,6 +323,7 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
       lc_insert(a->dir, a->name, r->resok->object);
     }
   }
+
   else if (nc->proc () == NFSPROC3_READDIR) {
     readdir3args *a = nc->template getarg<readdir3args> ();
     ex_readdir3res *r = static_cast<ex_readdir3res *> (res);
@@ -342,7 +343,6 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     file_cache *e = file_cache_lookup(*a);
     if (e && r->status) {
       assert(!e->is_dirty() && !e->is_flush());
-      assert(e->fa.size == (r->attributes)->size);
     }
   }
 
