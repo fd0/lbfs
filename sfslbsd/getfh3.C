@@ -478,6 +478,10 @@ struct copy_obj {
       FATTR3 * attr = ares.attributes.addr();
       size = attr->size;
       next_read = 0;
+      if (size == 0) {
+        check_finish();
+	return;
+      }
       for(int i=0; i<concurrent_reads && next_read < size; i++) { 
 	int count = size > (next_read+NFS3_BLOCK_SIZE) 
 	            ? NFS3_BLOCK_SIZE : (size-next_read);
