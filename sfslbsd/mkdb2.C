@@ -207,7 +207,8 @@ done ()
   if (opt_count_dups)
     warnx // << " Hash collisions: " << num_collisions << "\n"
 	  << "Duplicate chunks: " << num_dup_chunks << "\n"
-	  << " Duplicate bytes: " << num_dup_bytes << "\n";
+	  << " Duplicate bytes: " << num_dup_bytes << "\n"
+	  << "    Unique bytes: " << num_bytes - num_dup_bytes << "\n";
   db.sync ();
   exit (0);
 }
