@@ -33,8 +33,7 @@ extern int server_fd;
 extern ptr<aclnt> sfsc;
 extern ptr<aclnt> nfsc;
 extern ptr<asrv> nfscbs;
-extern ptr<axprt_compress> x;
-extern ptr<axprt_crypt> xc;
+extern ptr<axprt_zcrypt> x;
 
 sfs_aid xfscred2aid (const xfs_cred *xc);
 AUTH *lbfs_authof (sfs_aid sa);

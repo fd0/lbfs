@@ -38,8 +38,7 @@ int server_fd = -1;
 ptr<aclnt> sfsc = NULL;
 ptr<aclnt> nfsc = NULL;
 ptr<asrv>  nfscbs = NULL;
-ptr<axprt_compress> x;
-ptr<axprt_crypt> xc;
+ptr<axprt_zcrypt> x;
 vec<sfs_extension> sfs_extensions;
 sfs_connectres conres;
 fp_db lbfsdb;
@@ -186,8 +185,7 @@ sfsConnect (str hostname, sfs_hash hid, str path, int fd)
   }
 
   tcp_nodelay (fd);
-  xc = axprt_crypt::alloc (fd);
-  x = axprt_compress::alloc (xc);
+  x = New refcounted<axprt_zcrypt>(fd, axprt_zcrypt::ps());
   sfsc = aclnt::alloc (x, sfs_program_1);
   nfsc = aclnt::alloc (x, lbfs_program_3);
   nfscbs = asrv::alloc (x, ex_nfscb_program_3, wrap (&cbdispatch));
