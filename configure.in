@@ -26,6 +26,9 @@ SFS_SFS
 test ! "${with_db3+set}" && with_db3=yes
 SFS_DB3
 
+test ! "${with_zlib+set}" && with_zlib=yes
+SFS_ZLIB
+
 SFS_DEV_RANDOM
 
 AC_SUBST(LIBLBFS)
