@@ -68,25 +68,25 @@ struct hashfh3 {
 };
 
 //
-// tmp fh to name translation
+// per user fd to fh, name, and chunk translation
 //
-struct tmpfh_record {
+struct ufd_rec {
+  unsigned fd;
 #define TMPFN_MAX 1024
   nfs_fh3 fh;
   nfs_fh3 dir;
   char name[TMPFN_MAX];
   int len;
   vec<chunk*> chunks;
-  ihash_entry<tmpfh_record> hlink;
+  ihash_entry<ufd_rec> hlink;
 
-  tmpfh_record (const nfs_fh3 &f, const nfs_fh3 &dir, 
-                const char *s, unsigned l);
-  ~tmpfh_record ();
+  ufd_rec (unsigned d, const nfs_fh3 &f, const nfs_fh3 &dir, 
+           const char *s, unsigned l);
+  ~ufd_rec ();
 };
 
-struct tmpfh_table {
-  ihash<const nfs_fh3, tmpfh_record, 
-        &tmpfh_record::fh, &tmpfh_record::hlink> tab;
+struct ufd_table {
+  ihash<const unsigned, ufd_rec, &ufd_rec::fd, &ufd_rec::hlink> tab;
 };
 
 struct filesys {
@@ -216,7 +216,6 @@ public:
   filesrv ();
   
   fp_db fpdb;
-  tmpfh_table fhtab;
 };
 
 extern int sfssfd;
@@ -264,6 +263,7 @@ class client : public virtual refcount, public sfsserv {
   filesrv *fsrv;
 
   ptr<asrv> nfssrv;
+  ufd_table ufdtab;
 
   static u_int64_t nextgen ();
 
@@ -293,6 +293,7 @@ class client : public virtual refcount, public sfsserv {
   void condwrite_read_cb (unsigned char *, off_t, Chunker*,
                           const unsigned char *, size_t, off_t);
   void condwrite (svccb *sbp, filesrv::reqstate rqs);
+  void fdwrite (svccb *sbp, filesrv::reqstate rqs);
 
   void mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 dir, 
                      char *path, void *_cres, clnt_stat err);

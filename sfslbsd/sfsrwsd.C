@@ -35,9 +35,10 @@ static str configfile;
 
 filesrv *defsrv;
 
-tmpfh_record::tmpfh_record(const nfs_fh3 &f, const nfs_fh3 &d,
-                           const char *s, unsigned l)
+ufd_rec::ufd_rec
+(unsigned ufd, const nfs_fh3 &f, const nfs_fh3 &d, const char *s, unsigned l)
 {
+  fd = ufd;
   fh = f;
   dir = d;
   assert (l <= TMPFN_MAX-1);
@@ -46,7 +47,7 @@ tmpfh_record::tmpfh_record(const nfs_fh3 &f, const nfs_fh3 &d,
   len = l;
 }
 
-tmpfh_record::~tmpfh_record()
+ufd_rec::~ufd_rec()
 {
   for(unsigned i=0; i<chunks.size(); i++) 
     delete chunks[i];

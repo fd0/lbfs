@@ -159,7 +159,11 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   else {
     if (lbsd_trace > 1)
       warn << "CONDWRITE: bingo, found a condwrite candidate\n";
-    nfs3_write(fsrv->c, cwa->file, 
+
+    ufd_rec *u = ufdtab.tab[cwa->fd];
+    assert(u);
+    nfs_fh3 fh = u->fh;
+    nfs3_write(fsrv->c, fh,
 	       wrap(mkref(this), &client::condwrite_write_cb, 
 		    sbp, rqs, cwa->count),
 	       data, cwa->offset, cwa->count, UNSTABLE);
@@ -205,10 +209,14 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
     
-  tmpfh_record *tfh_rec = fsrv->fhtab.tab[cwa->file]; 
-  if (tfh_rec) 
-    tfh_rec->chunks.push_back 
+  ufd_rec *u = ufdtab.tab[cwa->fd]; 
+  if (u) 
+    u->chunks.push_back 
       (New chunk(cwa->offset, cwa->count, cwa->fingerprint));
+  else {
+    lbfs_nfs3exp_err (sbp, NFS3ERR_NOENT);
+    return;
+  }
 
   fp_db::iterator *iter = 0;
   if (fsrv->fpdb.get_iterator(cwa->fingerprint, &iter) == 0) {
@@ -236,6 +244,28 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 }
 
 void
+client::fdwrite (svccb *sbp, filesrv::reqstate rqs)
+{
+  lbfs_fdwrite3args *fwa = sbp->template getarg<lbfs_fdwrite3args> ();
+  ufd_rec *u = ufdtab.tab[fwa->fd];
+  if (u) {
+    u_int32_t authno = sbp->getaui ();
+    write3args warg;
+    warg.file = u->fh;
+    warg.offset = fwa->offset;
+    warg.count = fwa->count;
+    warg.stable = fwa->stable;
+    warg.data = fwa->data;
+    write3res *res = New write3res;
+    fsrv->c->call(NFSPROC3_WRITE, &warg, res,
+		  wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
+	          authtab[authno]);
+  }
+  else
+    lbfs_nfs3exp_err (sbp, NFS3ERR_NOENT);
+}
+
+void
 client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, 
                       nfs_fh3 dir, char *path,
 		      void *_cres, clnt_stat err)
@@ -253,10 +283,13 @@ client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs,
 	mktmpfile(sbp, rqs);
 	break;
       default:
-	if (!cres->status) 
-	  fsrv->fhtab.tab.insert 
-	    (New tmpfh_record
-	     (*(cres->resok->obj.handle),dir,path,strlen(path)));
+	if (!cres->status) {
+          lbfs_mktmpfile3args *mta =
+	    sbp->template getarg<lbfs_mktmpfile3args> ();
+	  ufdtab.tab.insert
+	    (New ufd_rec
+	     (mta->fd, *(cres->resok->obj.handle),dir,path,strlen(path)));
+	}
 	delete[] path;
 	nfs3reply (sbp, _cres, rqs, RPC_SUCCESS);
     }
@@ -297,12 +330,12 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
                       commit3res *res, str err)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
-  nfs_fh3 tmpfh = cta->commit_from;
+  nfs_fh3 tmpfh;
   nfs_fh3 fh = cta->commit_to;
 #if KEEP_TMP_VERSIONS == 0
   u_int32_t authno = sbp->getaui ();
-#endif 
-
+#endif  
+ 
   if (lbsd_trace > 2) {
     gettimeofday(&t1, 0L);
     warn << "COMMITTMP: " << timediff() << " usecs\n";
@@ -320,10 +353,11 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
     nfs3reply (sbp, cres, rqs, RPC_FAILED);
   }
 
-  tmpfh_record *tfh_rec = fsrv->fhtab.tab[tmpfh];
-  if (tfh_rec) {
-    for (unsigned i=0; i<tfh_rec->chunks.size(); i++) {
-      chunk *c = tfh_rec->chunks[i];
+  ufd_rec *u = ufdtab.tab[cta->fd];
+  assert(u);
+  if (u) {
+    for (unsigned i=0; i<u->chunks.size(); i++) {
+      chunk *c = u->chunks[i];
 #if KEEP_TMP_VERSIONS
       c->location().set_fh(tmpfh);
       fsrv->fpdb.add_entry(c->fingerprint(), &(c->location()));
@@ -337,21 +371,21 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
       }
     }
     fsrv->fpdb.sync();
-    tfh_rec->name[tfh_rec->len] = '\0';
+    u->name[u->len] = '\0';
 
 #if KEEP_TMP_VERSIONS == 0
-    warn ("COMMITTMP: remove %s\n", tfh_rec->name);
+    warn ("COMMITTMP: remove %s\n", u->name);
     wccstat3 *rres = New wccstat3;
     diropargs3 rarg;
-    rarg.dir = tfh_rec->dir;
-    rarg.name = tfh_rec->name;
+    rarg.dir = u->dir;
+    rarg.name = u->name;
     fsrv->c->call (NFSPROC3_REMOVE, &rarg, rres,
 	           wrap (mkref (this), &client::removetmp_cb, rres),
 		   authtab[authno]);
 #endif
 
-    fsrv->fhtab.tab.remove(tfh_rec);
-    delete tfh_rec;
+    ufdtab.tab.remove(u);
+    delete u;
   }
 }
 
@@ -384,10 +418,22 @@ read_cb_nop (const unsigned char *data, size_t count, off_t)
 void
 client::committmp (svccb *sbp, filesrv::reqstate rqs)
 {
+  // XXX - need to stop commit from happening if a write has failed
+
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
+  nfs_fh3 tmpfh;
+  
+  ufd_rec *u = ufdtab.tab[cta->fd]; 
+  if (u)
+    tmpfh = u->fh;
+  else {
+    lbfs_nfs3exp_err (sbp, NFS3ERR_NOENT);
+    return;
+  }
+
   if (lbsd_trace > 2)
     gettimeofday(&t0, 0L);
-  nfs3_copy (fsrv->c, cta->commit_from, cta->commit_to,
+  nfs3_copy (fsrv->c, tmpfh, cta->commit_to,
              wrap(read_cb_nop),
              wrap(mkref(this), &client::committmp_cb, sbp, rqs));
 }
@@ -533,6 +579,8 @@ client::nfs3dispatch (svccb *sbp)
     mktmpfile(sbp, rqs);
   else if (sbp->proc () == lbfs_COMMITTMP)
     committmp(sbp, rqs);
+  else if (sbp->proc () == lbfs_FDWRITE)
+    fdwrite(sbp, rqs);
   else if (sbp->proc () == lbfs_CONDWRITE)
     condwrite(sbp, rqs);
   else if (sbp->proc () == lbfs_GETFP)

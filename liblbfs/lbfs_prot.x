@@ -17,23 +17,32 @@
 #endif
 
 %#include "sfs_prot.h"
+%#include "nfs_prot.h"
 %#include "nfs3exp_prot.h"
 
 struct lbfs_condwrite3args {
-  nfs_fh3 file; 
+  unsigned fd; 
   uint64 offset; 
   uint32 count; 
   uint64 fingerprint; 
   sfs_hash hash;
 };
 
+struct lbfs_fdwrite3args {
+  unsigned fd;
+  uint64 offset;
+  uint32 count;
+  stable_how stable;
+  opaque data<>;
+};
+
 struct lbfs_mktmpfile3args {
-  nfs_fh3 commit_to;
+  unsigned fd;
   sattr3 obj_attributes;
 };
 
 struct lbfs_committmp3args {
-  nfs_fh3 commit_from;
+  unsigned fd;
   nfs_fh3 commit_to;
 };
 
@@ -133,14 +142,17 @@ program LBFS_PROGRAM {
 		ex_write3res
 		lbfs_CONDWRITE (lbfs_condwrite3args) = 22;
 		
+		ex_write3res
+		lbfs_FDWRITE (lbfs_fdwrite3args) = 23;
+		
 		ex_diropres3
-		lbfs_MKTMPFILE (lbfs_mktmpfile3args) = 23;
+		lbfs_MKTMPFILE (lbfs_mktmpfile3args) = 24;
 		
 		ex_commit3res
-		lbfs_COMMITTMP (lbfs_committmp3args) = 24;
+		lbfs_COMMITTMP (lbfs_committmp3args) = 25;
 
 		lbfs_getfp3res
-		lbfs_GETFP (lbfs_getfp3args) = 25;
+		lbfs_GETFP (lbfs_getfp3args) = 26;
 
 	} = 3;
 } = 344444;
