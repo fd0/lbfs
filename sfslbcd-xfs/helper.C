@@ -1979,14 +1979,14 @@ struct putdata_obj {
       if (lbfs_prot == 1)
 	c->call (lbfs_NFSPROC3_WRITE, &wa, res,
 		 wrap (this, &putdata_obj::do_sendwrite, chunk, res), lbfs_authof (sa));
-      else {
-	blocks_written++;
+      else
 	c->call (lbfs_TMPWRITE, &twa, res,
 		 wrap (this, &putdata_obj::do_sendwrite, chunk, res), lbfs_authof (sa));
-	if (blocks_written == total_blocks && eof)
-	  sendcommittmp ();
-      }
     }
+    if (lbfs_prot > 1)
+      blocks_written++;
+    if (blocks_written == total_blocks && eof)
+      sendcommittmp ();
     close (rfd);
   }
 
