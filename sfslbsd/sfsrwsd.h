@@ -200,6 +200,10 @@ class client : public virtual refcount, public sfsserv {
 			  unsigned char *data, size_t count, str err);
   void condwrite (svccb *sbp, void *res, filesrv::reqstate rqs);
 
+  void mktmpfile_cb (svccb *sbp, void *_res, filesrv::reqstate rqs, 
+                     clnt_stat err);
+  void mktmpfile (svccb *sbp, void *res, filesrv::reqstate rqs);
+
 protected:
   client (ref<axprt_crypt> x);
   ~client ();

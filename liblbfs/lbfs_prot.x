@@ -36,6 +36,13 @@ default:
   wcc_data resfail;
 };
 
+
+struct lbfs_mktmpfile3args {
+  nfs_fh3 dir;
+  nfs_fh3 commit_to;
+  sattr3 obj_attributes;
+};
+
 program LBFS_PROGRAM {
 	version LBFS_V3 {
 		void
@@ -107,6 +114,8 @@ program LBFS_PROGRAM {
 		lbfs_condwrite3res
 		lbfs_NFSPROC3_CONDWRITE (lbfs_condwrite3args) = 22;
 		
+		ex_diropres3
+		lbfs_NFSPROC3_MKTMPFILE (lbfs_mktmpfile3args) = 23;
 	} = 3;
 } = 344444;
 

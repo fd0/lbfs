@@ -21,7 +21,10 @@
  *
  */
 
+#include <stdlib.h>
+
 #include "sha1.h"
+#include "serial.h"
 #include "sfsrwsd.h"
 #include <grp.h>
 
@@ -141,10 +144,13 @@ client::condwrite_read_cb (svccb *sbp, void *_res, filesrv::reqstate rqs,
 		   wrap (mkref (this), &client::nfs3reply, sbp, _res, rqs),
 		   authtab[authno]);
     delete iter;
+    return;
   }
 
-  nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
+  lbfs_condwrite3res *res = static_cast<lbfs_condwrite3res *>(_res);
+  delete res;
   delete iter;
+  nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
 
 void
@@ -166,7 +172,51 @@ client::condwrite (svccb *sbp, void *_res, filesrv::reqstate rqs)
       delete iter; 
     }
   }
+  lbfs_condwrite3res *res = static_cast<lbfs_condwrite3res *>(_res);
+  delete res;
   nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
+}
+
+void
+client::mktmpfile_cb (svccb *sbp, void *_res, filesrv::reqstate rqs, 
+                      clnt_stat err)
+{
+  ex_diropres3 *res = static_cast<ex_diropres3 *>(_res);
+  if (err) 
+    nfs3reply (sbp, _res, rqs, RPC_FAILED);
+  else {
+    switch(res->status) {
+      case NFS3ERR_EXIST:
+	mktmpfile(sbp, _res, rqs);
+	break;
+      default:
+	nfs3reply (sbp, _res, rqs, RPC_SUCCESS);
+    }
+  }
+}
+
+void
+client::mktmpfile (svccb *sbp, void *_res, filesrv::reqstate rqs)
+{
+  lbfs_mktmpfile3args *mta = sbp->template getarg<lbfs_mktmpfile3args> ();
+
+  str fhstr = armor32(mta->commit_to.data.base(), mta->commit_to.data.size());
+  int r = rand();
+  str rstr = armor32((void*)&r, sizeof(int));
+  char tmpfile[5+fhstr.len()+1+rstr.len()+1];
+  sprintf(tmpfile, ".sfs.%s.%s", fhstr.cstr(), rstr.cstr());
+  warn << "tmp file is " << tmpfile << "\n";
+  
+  u_int32_t authno = sbp->getaui ();
+  create3args c3arg;
+  c3arg.where.dir = mta->dir;
+  c3arg.where.name = tmpfile;
+  c3arg.how.set_mode(GUARDED);
+  *(c3arg.how.obj_attributes) = mta->obj_attributes;
+
+  fsrv->c->call (NFSPROC3_CREATE, &c3arg, _res,
+		 wrap (mkref (this), &client::mktmpfile_cb, sbp, _res, rqs),
+		 authtab[authno]);
 }
 
 void
@@ -201,9 +251,12 @@ client::nfs3dispatch (svccb *sbp)
 		   wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
 		   authtab[authno]);
 
+  else if (sbp->proc () == lbfs_NFSPROC3_MKTMPFILE)
+    mktmpfile(sbp, res, rqs);
+
   else if (sbp->proc () == lbfs_NFSPROC3_CONDWRITE)
     condwrite(sbp, res, rqs);
-
+  
   else
     fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
 		   wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
