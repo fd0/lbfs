@@ -402,8 +402,12 @@ struct readlink_obj {
     } else 
       xfs_reply_err (fd, h->header.sequence_num, err ? EIO : rlres->status);      
 
-    (*cb) ();
     delete this;    
+  }
+
+  ~readlink_obj ()
+  {
+    (*cb) ();
   }
 
   readlink_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
@@ -500,7 +504,6 @@ struct readdir_obj {
       
       xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 					h0, h0_len, NULL, 0);
-      (*cb) ();
       delete this;
     }      
   }
@@ -558,6 +561,11 @@ struct readdir_obj {
       lbfs_readexist (fd, hh, e);
       delete this;
     }
+  }
+
+  ~readdir_obj ()
+  {
+    (*cb) ();
   }
 
   readdir_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
@@ -1054,6 +1062,11 @@ struct readfile_obj {
     }
   }
   
+  ~readfile_obj () 
+  {
+    (*cb) ();
+  }
+
   readfile_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
 		ref<aclnt> c1, readfile_obj::cb_t cb1) :
     cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1)    
@@ -1117,7 +1130,7 @@ public:
 	warn << h->header.sequence_num << ":"  
 	     << "open_obj: Can't find node handle\n";
       xfs_reply_err(fd, h->header.sequence_num, ENOENT);
-      delete this;
+      delete this; return;
     } else {
       switch (e->nfs_attr.type) {
       case NF3DIR:
