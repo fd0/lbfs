@@ -218,7 +218,7 @@ struct read_obj {
     read3args arg;
     arg.file = fh;
     arg.offset = pos;
-    arg.count = want;
+    arg.count = want <= 8192 ? want : 8192;
     c->call (NFSPROC3_READ, &arg, &res,
 	     wrap (this, &read_obj::gotdata), auth_root);
   }

@@ -296,7 +296,9 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       cv[i]->loc.set_fh(fh);
       fpdb.add_entry(cv[i]->fingerprint, &(cv[i]->loc)); 
 #if DEBUG > 2
-      warn << "COMMITTMP: adding " << cv[i]->fingerprint << " to database\n";
+      warn << "COMMITTMP: adding " << cv[i]->fingerprint << " @"
+	   << cv[i]->loc.pos() << " " 
+	   << cv[i]->loc.count() << " to database\n";
 #endif
     }
     fpdb.sync();
@@ -307,7 +309,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   if (tfh_rec) {
     tfh_rec->name[tfh_rec->len] = '\0';
 #if DEBUG > 1
-    warn ("COMITTMP: remove %s\n", tfh_rec->name);
+    warn ("COMMITTMP: remove %s\n", tfh_rec->name);
 #endif
     wccstat3 *rres = New wccstat3;
     diropargs3 rarg;
@@ -360,9 +362,9 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     res->resok->fprints.setsize(n);
     for (; i<n; i++) {
       struct lbfs_fp3 x;
-      x.count = cv[i]->loc.count();
       x.fingerprint = cv[i]->fingerprint;
-      cv[i]->get_hash(x.hash);
+      x.hash = cv[i]->hash;
+      x.count = cv[i]->loc.count();
       res->resok->fprints[i] = x;
 #if DEBUG > 2
       warn << "GETFP: " << off+arg->offset << " " << cv[i]->fingerprint 

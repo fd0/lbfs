@@ -173,8 +173,5 @@ db_base<K,V>::add_entry(K k, V *v, int size)
 #define FP_DB "fp.db"
 typedef db_base<u_int64_t, lbfs_chunk_loc> fp_db;
 
-#define FH_DB "fh.db"
-typedef db_base<fh_rep, lbfs_chunk> fh_db;
-
 #endif _LBFS_DB_
 
