@@ -314,9 +314,11 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     res->set_status(rres->status);
     res->resfail = 
       *(union_entry<ex_post_op_attr>*)(&rres->resfail);
-    // XXX
+    // XXX is this correct
   }
+  // XXX - how to make sure nfs3reply does not crash?
   nfs3reply (sbp, res, rqs, RPC_SUCCESS);
+
   for (unsigned i=0; i<cv->size(); i++) delete (*cv)[i];
   delete cv;
   delete chunker;
