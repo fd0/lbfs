@@ -1276,7 +1276,12 @@ xfs_message_putdata (int fd, ref<struct xfs_message_putdata> h, u_int size)
   nfsc->call (lbfs_MKTMPFILE, &mt, res,
 	      wrap (&lbfs_mktmpfile, fd, h, res));
 
-  assert(e->writers>0);
+  // XXX - benjie: more madness... we apparently can't depend on xfs to tell
+  // us when it is opening a file for a small write, so we can't assert there.
+  // this also means sometimes we will overwrite the data file w/o telling
+  // xfs. oh well.
+  //
+  // assert(e->writers>0);
   if (!(h->flag&XFS_FSYNC) && e->writers>0) {
     e->writers--;
     warn << "close for write: " << e->writers << " writers\n";
