@@ -31,20 +31,26 @@ void
 server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
 {
   file_cache *e = file_cache_lookup(obj);
-  // update file cache if cache time < mtime and file is not dirty or
-  // blocked (i.e. being loaded by another RPC)
-  if (fa.type == NF3REG &&
-      (!e || (e->fa.mtime < fa.mtime && e->is_ok()))) {
-    if (!e) {
-      file_cache_insert (obj);
-      e = file_cache_lookup(obj);
-      assert(e);
+  if (fa.type == NF3REG) {
+    // update file cache if cache time < mtime and file is not dirty
+    // or blocked (i.e. being loaded by another RPC)
+    if (!e || ((e->fa.mtime < fa.mtime) && e->is_ok())) {
+      if (!e) {
+        file_cache_insert (obj);
+        e = file_cache_lookup(obj);
+        assert(e);
+      }
+      e->fa = fa;
+      e->osize = fa.size;
+      str f = fh2fn (obj);
+      lbfs_read (f, obj, fa.size, mkref(this), authof(aid),
+	         wrap(mkref(this), &server::file_cached, e));
     }
-    e->fa = fa;
-    e->osize = fa.size;
-    str f = fh2fn (obj);
-    lbfs_read (f, obj, fa.size, mkref(this), authof(aid),
-	       wrap(mkref(this), &server::file_cached, e));
+    // if file is not dirty and up to date, sync attribute
+    else if (e && e->is_ok()) {
+      e->fa = fa;
+      e->osize = fa.size;
+    }
   }
 }
 
@@ -76,7 +82,7 @@ server::file_cached (file_cache *e, bool done, bool ok)
     rpcs.push_back(e->rpcs[i]);
   e->rpcs.clear();
   for (unsigned i=0; i<rpcs.size(); i++) {
-#if 1
+#if 0
     warn << "RPC " << rpcs[i]->proc () << " runs\n";
 #endif
     dispatch(rpcs[i]);
@@ -276,7 +282,7 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     setattr3args *a = nc->template getarg<setattr3args> ();
     ex_wccstat3 *sres = static_cast<ex_wccstat3 *> (res);
     file_cache *e = file_cache_lookup(a->object);
-    if (!sres->status && a->new_attributes.size.set && e &&
+    if (!sres->status && e &&
 	sres->wcc->before.present && sres->wcc->after.present) {
       // does wcc checking. if this is the only client making a change
       // to the object, install the post operation attribute (ignoring
@@ -424,7 +430,7 @@ server::dont_run_rpc (nfscall *nc)
 	}
 	if (e->received(offset, size))
 	  return false;
-#if 1
+#if 0
         warn << "RPC " << nc->proc () << " blocked: "
 	     << offset << ":" << size << "\n";
 #endif
