@@ -32,6 +32,7 @@ read3args *ra;
 write3args *wa;
 create3args *ca;
 mkdir3args *ma;
+link3args *la;
 symlink3args *sla;
 setattr3args *sa;
 lbfs_mktmpfile3args *mt;
@@ -1253,7 +1254,6 @@ void nfs3_mkdir(int fd, struct xfs_message_mkdir *h, ex_diropres3 *res, time_t r
     nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
 		   *(res->resok->dir_wcc.after.attributes), rqtime, &msg1.node);
 
-    //get new file data ??
     msg1.flag = 0;  
     msg1.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *)&msg1;
@@ -1303,7 +1303,82 @@ int xfs_message_mkdir (int fd, struct xfs_message_mkdir *h, u_int size) {
   return 0;
 }
 
+void nfs3_link(int fd, struct xfs_message_link *h, ex_link3res *res, time_t rqtime,
+	       clnt_stat err) {
+  
+  struct xfs_message_installdata msg1; //update parent dir's data
+  struct xfs_message_installnode msg2; //update attr of from_handle
+  struct xfs_message_header *h0 = NULL;
+  size_t h0_len = 0;
+  struct xfs_message_header *h1 = NULL;
+  size_t h1_len = 0;
+
+  //change attributes of parent dir
+  //in the future implement local content change too..
+  if (fht.setcur(h->parent_handle)) {
+    warn << "xfs_message_link: Can't find parent_handle\n";
+    return;
+  }
+  strcpy(msg1.cache_name, fht.getcache_name());
+
+  fhandle_t parent_fh;
+  if (getfh(msg1.cache_name, &parent_fh)) {
+    warn << "getfh failed\n";
+    return;
+  }
+  memmove(&msg1.cache_handle, &parent_fh, sizeof(parent_fh)); 
+
+  assert(res->res->linkdir_wcc.after.present);    
+  nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
+		 *(res->res->linkdir_wcc.after.attributes), rqtime, &msg1.node);
+
+  msg1.flag = 0;  
+  msg1.header.opcode = XFS_MSG_INSTALLDATA;
+  h0 = (struct xfs_message_header *)&msg1;
+  h0_len = sizeof(msg1);
+
+  if (fht.setcur(h->from_handle)) {
+    warn << "xfs_message_link: Can't find from_handle\n";
+    return;
+  }
+
+  assert(res->res->file_attributes.present);
+  nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
+		 *(res->res->file_attributes.attributes), rqtime, &msg2.node);
+
+  msg2.node.tokens   = XFS_ATTR_R;
+  msg2.parent_handle = h->parent_handle;
+  strcpy (msg2.name, h->name);
+
+  msg2.header.opcode = XFS_MSG_INSTALLNODE;
+  h1 = (struct xfs_message_header *)&msg2;
+  h1_len = sizeof(msg2);
+
+  xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+				    h0, h0_len, h1, h1_len, NULL, 0);  
+}
+
 int xfs_message_link(int fd, struct xfs_message_link *h, u_int size) {
+
+  warn << "(hard) link !!\n";
+
+  if (fht.setcur(h->from_handle)) {
+    warn << "xfs_message_link: Can't find from_handle\n";
+    return -1;
+  }
+  la = new link3args;
+  la->file = fht.getnh(fht.getcur());
+
+  if (fht.setcur(h->parent_handle)) {
+    warn << "xfs_message_link: Can't find parent_handle\n";
+    return -1;
+  }
+  la->link.dir = fht.getnh(fht.getcur());
+  la->link.name = h->name;
+
+  ex_link3res *res = new ex_link3res;
+  nfsc->call(lbfs_NFSPROC3_LINK, la, res, 
+	     wrap(&nfs3_link, fd, h, res, timenow));
 
   return 0;
 }
@@ -1357,7 +1432,12 @@ void nfs3_symlink(int fd, struct xfs_message_symlink *h, ex_diropres3 *res,
 
   } else {
     warn << "nfs3_symlink: " << strerror(res->status) << "\n";
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
     
+    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, res->status,
+				      h0, h0_len, NULL, 0);
+
   }
 }
 
