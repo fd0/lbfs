@@ -496,7 +496,10 @@ server::dont_run_rpc (nfscall *nc)
 	     << offset << ":" << size << "\n";
 #endif
 	if (nc->proc() == NFSPROC3_READ)
-	  e->want(offset, size, rtpref);
+	  // *32 is an optimization: if client requests a read at
+	  // offset N, it's likely to want blocks from N to end of
+	  // file before from 0 to N
+	  e->want(offset, size*32, rtpref);
       }
 #if DEBUG
       else

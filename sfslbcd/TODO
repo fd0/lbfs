@@ -1,10 +1,4 @@
 
-* relax write back consistency
-  - optimzie write after open
-  - optimize write right after flush/close
-  - optimize read: if we receives a request with first byte at N > 0,
-    fetch til EOF before fetch beginning part of the file
-
 cache readdir replies
 
 run file system correctness tests on lbfs and lbfs-a. make sure things
