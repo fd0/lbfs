@@ -17,7 +17,7 @@ lbfs_db::~lbfs_db()
 }
 
 int 
-lbfs_db::open()
+lbfs_db::open(u_int32_t db3_flags)
 {
   int ret;
   if ((ret = db_create(&_fp_dbp, NULL, 0)) != 0) { 
@@ -27,12 +27,19 @@ lbfs_db::open()
   _fp_dbp->set_flags(_fp_dbp, DB_DUP | DB_DUPSORT);
 
   if ((ret = _fp_dbp->open
-	(_fp_dbp, FP_DB, NULL, DB_BTREE, DB_CREATE, 0664)) != 0) { 
+	(_fp_dbp, FP_DB, NULL, DB_BTREE, db3_flags, 0664)) != 0) { 
     _fp_dbp->err(_fp_dbp, ret, "%s", FP_DB); 
     return ret;
   }
   return 0;
 }
+
+int
+lbfs_db::open_and_truncate()
+{
+  return open(DB_CREATE | DB_TRUNCATE);
+}
+
 
 int
 lbfs_db::get_chunk_iterator(u_int64_t fingerprint, 

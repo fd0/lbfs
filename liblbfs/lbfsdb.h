@@ -119,7 +119,10 @@ public:
   ~lbfs_db();
 
   // open db, returns db3 errnos
-  int open(); 
+  int open(u_int32_t db3_flags = DB_CREATE); 
+
+  // open and truncate existing db
+  int open_and_truncate();
 
   // creates a chunk iterator and copies a ptr to it into the memory
   // referenced by iterp (callee responsible for freeing iterp). additionally,
