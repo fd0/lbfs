@@ -200,7 +200,7 @@ private:
   void make_trashent_lookup_cb(unsigned, unsigned, 
                                lookup3res *res, clnt_stat err);
   void make_trashent_remove_cb(wccstat3 *res, clnt_stat err);
-  void db_gc();
+  void db_gc(fp_db::iterator *);
   bool db_gc_on;
 
 public:

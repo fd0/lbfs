@@ -27,6 +27,7 @@
 #include "sfsrwsd.h"
 
 #define LBSD_GC_PERIOD 60
+#define CHUNKS_PER_GC  4096
 
 extern int lbsd_trace;
 
@@ -349,7 +350,8 @@ filesrv::make_trashent_lookup_cb(unsigned r, unsigned fsno,
       if (lbsd_trace > 1)
         warn << "GC: schedule old fh for " << tmpfile << " for gc\n";
       if (!db_gc_on) {
-        delaycb(LBSD_GC_PERIOD, wrap(this, &filesrv::db_gc));
+	fp_db::iterator *iter = 0;
+        delaycb(LBSD_GC_PERIOD, wrap(this, &filesrv::db_gc, iter));
 	db_gc_on = true;
       }
     }
@@ -370,41 +372,51 @@ filesrv::make_trashent_remove_cb(wccstat3 *res, clnt_stat err)
 }
 
 void
-filesrv::db_gc()
+filesrv::db_gc(fp_db::iterator *iter)
 {
-  int k = 0;
-  int n = 0;
+  bool over = false;
+  int nchunks = 0;
+  int nremoved = 0;
   if (lbsd_trace > 0)
     gettimeofday(&t0, 0L);
-  if (lbsd_trace > 1)
-    warn << "GC: trying to gc " << n << " fhs\n";
-  fp_db::iterator *iter = 0;
-  if (fpdb.get_iterator(&iter) == 0 && iter) {
+  if (removed_fhs.size()) {
+    if (iter == 0) {
+      if (fpdb.get_iterator(&iter) != 0 || !iter)
+	goto end;
+    }
     chunk_location c;
-    int j = iter->get(&c);
-    if (!j) {
+    if (!iter->get(&c)) {
       do {
-	k++;
+	nchunks++;
 	nfs_fh3 fh;
 	c.get_fh(fh);
         for(size_t i=0; i<removed_fhs.size(); i++) {
 	  if (fh == removed_fhs[i]) {
-	    n++;
+	    nremoved++;
             iter->del();
 	    break;
 	  }
         }
-      } while(!iter->next(&c));
+      } while(!(over = iter->next(&c)) && (nchunks%CHUNKS_PER_GC));
+      fpdb.sync();
     }
+    else
+      over = true;
   }
-  if (iter)
-    delete iter;
   if (lbsd_trace > 0) {
     gettimeofday(&t1, 0L);
     unsigned d = timediff()/1000;
-    warn << "GC: " << k << " chunks in " << d << " msec, " << n << " removed\n";
+    warn << "GC: " << nchunks << " chunks in " << d << " msec\n";
   }
-  fpdb.sync();
+
+  if (!over) {
+    delaycb(0, wrap(this, &filesrv::db_gc, iter));
+    return;
+  }
+
+end:
+  if (iter)
+    delete iter;
   removed_fhs.setsize(0);
   db_gc_on = false;
 }
