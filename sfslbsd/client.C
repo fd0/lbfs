@@ -86,6 +86,20 @@ client::renamecb_1 (svccb *sbp, void *_res, filesrv::reqstate rqs,
 }
 
 void
+client::condwritecb (svccb *sbp, void *_res, filesrv::reqstate rqs,
+		     lookup3res *ares, clnt_stat err)
+{
+  if (!err && !ares->status) {
+    // lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
+    // XXX deal with db
+    nfs3reply (sbp, _res, rqs, RPC_SUCCESS);
+  }
+  else
+    nfs3reply (sbp, _res, rqs, RPC_FAILED);
+  delete ares;
+}
+
+void
 client::nfs3dispatch (svccb *sbp)
 {
   if (!sbp) {
@@ -117,7 +131,12 @@ client::nfs3dispatch (svccb *sbp)
 		   wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
 		   authtab[authno]);
   else if (sbp->proc () == lbfs_NFSPROC3_CONDWRITE) {
-    // XXX - write me
+    printf("condwrite instr %d received\n", sbp->proc());
+    lookup3res *ares = New lookup3res;
+    fsrv->c->call (NFSPROC3_LOOKUP, 
+	           &sbp->template getarg<lbfs_condwrite3args> ()->file, ares, 
+		   wrap (mkref (this), &client::condwritecb, sbp, res, 
+		         rqs, ares), authtab[authno]);
   }
   else
     fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,

@@ -192,6 +192,9 @@ class client : public virtual refcount, public sfsserv {
   void renamecb_2 (svccb *sbp, rename3res *rres, filesrv::reqstate rqs,
 		   lookup3res *ares, clnt_stat err);
 
+  void condwritecb (svccb *sbp, void *res, filesrv::reqstate rqs,
+		    lookup3res *ares, clnt_stat err);
+
 protected:
   client (ref<axprt_crypt> x);
   ~client ();
