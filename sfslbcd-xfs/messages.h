@@ -46,7 +46,12 @@ class condwrite3args {
 public:
   condwrite3args(int filedesc, struct xfs_message_putdata* msg, nfs_fh3 tfh) :
     fd(filedesc), h(msg), tmpfh(tfh), blocks_written(0), total_blocks(0), 
-    done(false) {}
+    done(false) { 
+    fname = New char[MAXPATHLEN];
+  }
+  ~condwrite3args() { 
+    delete[] fname; 
+  }
   
   int fd;
   struct xfs_message_putdata* h;
@@ -61,7 +66,12 @@ public:
 class getfp_args {
  public:
   getfp_args(int f, struct xfs_message_getdata *header) : 
-    fd(f), h(header), offset(0), blocks_written(0), total_blocks(0) {}
+    fd(f), h(header), offset(0), blocks_written(0), total_blocks(0) {
+    out_fname = New char[MAXPATHLEN];
+  }
+  ~getfp_args() {
+    delete[] out_fname;
+  }
 
  int fd;
  struct xfs_message_getdata *h;
@@ -76,7 +86,16 @@ class getfp_args {
 class rename_args {
  public: 
   rename_args(int f, struct xfs_message_rename *header) :
-    fd(f), h(header) {}
+    fd(f), h(header) {
+    lres = 0;
+    rnres = 0;
+    gares = 0;
+  }
+  ~rename_args() {
+    if (lres) delete lres;
+    if (rnres) delete rnres;
+    if (gares) delete gares;
+  }
   int fd;
   struct xfs_message_rename *h;
   ex_lookup3res *lres;
