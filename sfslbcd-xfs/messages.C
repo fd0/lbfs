@@ -260,6 +260,7 @@ void write_dirfile(int fd, struct xfs_message_getdata *h, ex_readdir3res *res,
 
     if (nfsdir2xfsfile(res, &args) < 0)
       return;
+
     if (args.last) 
       flushbuf(&args);
     free (args.buf);
@@ -305,8 +306,10 @@ void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res, ti
       return;
     }
 
+    ex_fattr3 attr = *res->resok->dir_attributes.attributes;
     nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
-		   *res->resok->dir_attributes.attributes, rqtime, &msg.node);
+		   attr, rqtime, &msg.node);
+    fht.set_ltime(attr.mtime, attr.ctime);
 
     msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R;
 
@@ -633,8 +636,18 @@ void getfp(int fd, struct xfs_message_getdata *h) {
 	     wrap (&lbfs_getfp, ga, timenow));
 }
 
-void comp_time(int fd, struct xfs_message_getdata *h, ex_getattr3res *res, time_t rqtime, 
-	       clnt_stat err) {
+bool greater(nfstime3 a, nfstime3 b) {
+  if (a.seconds > b.seconds)
+    return true;
+  else 
+    if (a.seconds == b.seconds &&
+	a.nseconds > b.nseconds)
+      return true;
+    else return false;
+}
+
+void comp_time(int fd, struct xfs_message_getdata *h, bool dirfile, 
+	       ex_getattr3res *res, time_t rqtime, clnt_stat err) {
 
   if (fht.setcur(h->handle)) {
     warn << "comp_time: Can't find node handle\n";
@@ -646,15 +659,25 @@ void comp_time(int fd, struct xfs_message_getdata *h, ex_getattr3res *res, time_
     attr.expire += rqtime;
     fht.set_nfsattr(attr);
   }
-    
+  
   nfstime3 maxtime = fht.max(fht.get_nfsattr().mtime, fht.get_nfsattr().ctime);
-  if (maxtime.seconds > fht.get_ltime().seconds)
-    getfp(fd, h);
-  else 
-    if (maxtime.seconds == fht.get_ltime().seconds &&
-	maxtime.nseconds > fht.get_ltime().nseconds)
-      getfp(fd, h);
-    else nfs3_read_exist(fd, h);
+  if (greater(maxtime, fht.get_ltime())) {
+    if (dirfile) {
+      if (fht.setcur(h->handle)) {
+	warn << "comp_time: Can't find node handle\n";
+	return;
+      }
+      rda = new readdir3args;
+      rda->dir = fht.getnh(fht.getcur());
+      rda->cookie = 0;
+      rda->cookieverf = cookieverf3();
+      rda->count = fsinfo.dtpref;
+
+      ex_readdir3res *rdres = new ex_readdir3res;
+      nfsc->call(lbfs_NFSPROC3_READDIR, rda, rdres,
+		 wrap (&nfs3_readdir, fd, h, rdres, timenow));
+    } else getfp(fd, h);
+  } else nfs3_read_exist(fd, h);
 }
 
 int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
@@ -670,9 +693,9 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
     warn << "xfs_message_getdata: Can't find node handle\n";
     return -1;
   }
-
-  if (fht.get_nfsattr().type == NF3DIR) {
-    if (!fht.opened()) {
+  
+  if (!fht.opened()) { 
+    if (fht.get_nfsattr().type == NF3DIR) {
       rda = new readdir3args;
       rda->dir = fht.getnh(fht.getcur());
       rda->cookie = 0;
@@ -682,21 +705,20 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
       ex_readdir3res *rdres = new ex_readdir3res;
       nfsc->call(lbfs_NFSPROC3_READDIR, rda, rdres,
 		 wrap (&nfs3_readdir, fd, h, rdres, timenow));
-    } else nfs3_read_exist(fd, h);
-  } else       
-    if (fht.get_nfsattr().type == NF3REG) {
-      if (fht.opened()) {
-	if (fht.get_nfsattr().expire < (uint32)timenow) {
-	  fh = new nfs_fh3; 
-	  *fh = fht.getnh(fht.getcur());
-	  ex_getattr3res *res = new ex_getattr3res;
-	  nfsc->call(lbfs_NFSPROC3_GETATTR, fh, res, 
-		     wrap(&comp_time, fd, h, res, timenow));
-	} else comp_time(fd, h, NULL, 0, clnt_stat(0));
-      } else getfp(fd, h);
-    } else
-      warn << "unknown file type\n";
-  
+    } else 
+      if (fht.get_nfsattr().type == NF3REG) 
+	getfp(fd, h);
+      else warn << "unknown file type\n";
+  } else {
+    if (fht.get_nfsattr().expire < (uint32)timenow) {
+      fh = new nfs_fh3; 
+      *fh = fht.getnh(fht.getcur());
+      ex_getattr3res *res = new ex_getattr3res;
+      nfsc->call(lbfs_NFSPROC3_GETATTR, fh, res, 
+		 wrap(&comp_time, fd, h, 
+		      fht.get_nfsattr().type == NF3DIR, res, timenow));
+    } else comp_time(fd, h, fht.get_nfsattr().type == NF3DIR, NULL, 0, clnt_stat(0));
+  }    
   return 0;
 }
 
@@ -1264,12 +1286,12 @@ void remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
       return;
     }
     memmove(&msg1.cache_handle, &cfh, sizeof(cfh));
-
+#if 0
     int dir_fd = open(msg1.cache_name, O_RDWR | O_SHLOCK, 0666);
     if (xfsfile_rm_dirent(dir_fd, h->name) < 0)
       return;
     close(dir_fd);
-
+#endif
     nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
 		   *(wres->wcc->after.attributes), rqtime, &msg1.node);
 
@@ -1292,7 +1314,8 @@ void remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
       return;
     }
 
-    if (a.attributes->nlink > 2) {
+    if ((a.attributes->type == NF3DIR && a.attributes->nlink > 2) || 
+	(a.attributes->type == NF3REG && a.attributes->nlink > 1)) {
       msg2.header.opcode = XFS_MSG_INSTALLATTR;
       --a.attributes->nlink;
       nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 

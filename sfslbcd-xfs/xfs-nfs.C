@@ -156,15 +156,17 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
   
   assert(res->status == NFS3_OK);
   entry3 *nfs_dirent = res->resok->reply.entries;
-  xfs_dirent *xde = NULL;
+  xfs_dirent *xde = NULL; //(xfs_dirent *)malloc(sizeof(*xde)); //NULL;
   int reclen = sizeof(*xde);
 
   while (nfs_dirent != NULL) {
+#if 1
     if (args->ptr + reclen > args->buf + blocksize) {
       if (flushbuf (args) < 0) 
 	return -1;
     }
-    xde = (struct xfs_dirent *)args->ptr;
+#endif
+    xde = (xfs_dirent *)args->ptr; //(xfs_dirent *)malloc(reclen);
     xde->d_namlen = nfs_dirent->name.len();
     warn << "xde->namlen = " << xde->d_namlen 
 	 << " nfs_dirent_len = " << nfs_dirent->name.len() << "\n";
@@ -176,10 +178,18 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
     strcpy(xde->d_name, nfs_dirent->name.cstr());
     warn << "xde->d_name = " << xde->d_name 
 	 << " nfs_dirent_name = " << nfs_dirent->name.cstr() << "\n";
+#if 1
     args->ptr += xde->d_reclen;
     args->off += xde->d_reclen;
     args->last = xde;
-
+#else    
+    if (write (args->fd, xde, reclen) != reclen) {
+      warn << "(" << errno << "):write\n";
+      return -1;
+    }
+    warn << "wrote " << xde->d_name << "\n";
+    delete xde;
+#endif
     nfs_dirent = nfs_dirent->nextentry;
   }
 
@@ -206,10 +216,25 @@ int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid) {
 
 int xfsfile_rm_dirent(int fd, const char* fname) {
   xfs_dirent *xde = (xfs_dirent *)malloc(sizeof(*xde));
-  int err = read(fd, xde, sizeof(*xde));
+  int err, offset = 0, reclen = sizeof(*xde);
   
-  warn << err << "xde->d_namlen = " << xde->d_namlen << "\n";
+  do {
+    if ((err = read(fd, xde, sizeof(*xde))) < 0) {
+      warn << "xfsfile_rm_dirent: " << strerror(errno) << "\n";
+      return -1;
+    }
+    if (err != sizeof(*xde)) {
+      warn << "err = " << err << " ..short read..wierd\n";
+      return -1;
+    }
+    offset += reclen;
+    warn << "xde->d_namlen = " << xde->d_namlen << "\n";
+    warn << "xde->d_name = " << xde->d_name << "\n";
+    warn << "xde->d_reclen = " << xde->d_reclen << "\n";
+    warn << "xde->d_fileno = " << xde->d_fileno << "\n";
+  } while (strncmp(xde->d_name, fname, strlen(fname)));
 
+  lseek(fd, offset-reclen, SEEK_SET);
   return 0;
 }
 
