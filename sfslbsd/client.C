@@ -33,7 +33,7 @@
 #include "fingerprint.h"
 #include "lbfs.h"
 
-#define DEBUG 2
+#define DEBUG 3
 
 
 ihash<const u_int64_t, client, &client::generation, &client::glink> clienttab;
