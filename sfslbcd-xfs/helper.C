@@ -1183,7 +1183,7 @@ struct create_obj {
       int parent_fd = assign_cachefile (fd, h->header.sequence_num, e, 
 					msg1.cache_name, &msg1.cache_handle,
 					O_CREAT | O_WRONLY | O_APPEND);
-#if 1
+#if 0
       if (nfsdirent2xfsfile (parent_fd, h->name, e1->nfs_attr.fileid)) {
 	if (lbcd_trace)
 	  warn << "Error: can't write to parent dir file\n";
