@@ -773,8 +773,7 @@ if test "$with_zlib" != no; then
     else
 	libzrx='^libz.la$'
 	if test "$with_zlib" = yes; then
-	    for dir in /usr /usr/i486-linuxlibc1/lib "$prefix" \
-	               /usr/lib /usr/local; do
+	    for dir in /lib /usr/lib /usr/local/lib; do
 		if test -f $dir/libz.a \
 			|| ls $dir | egrep -q "$libzrx"; then
 		    with_zlib="$dir"
@@ -782,17 +781,19 @@ if test "$with_zlib" != no; then
 		fi
 	    done
 	fi
-
-	ZLIB_LIB=`ls $with_zlib | egrep "$libzrx" | tail -1`
-	if test -f "$with_zlib/$ZLIB_LIB"; then
-	    ZLIB_LIB="$with_zlib/$ZLIB_LIB"
-	elif test "$with_zlib" = /usr; then
-	    with_db3=yes
-	    ZLIB_LIB="-lz"
-	else
-	    ZLIB_LIB="-L${with_zlib} -lz"
-	fi
-	AC_MSG_RESULT([$with_zlib])
+	
+	if test -f $with_zlib/libz.a; then
+	  ZLIB_LIB=`ls $with_zlib | egrep "$libzrx" | tail -1`
+	  if test -f "$with_zlib/$ZLIB_LIB"; then
+	      ZLIB_LIB="$with_zlib/$ZLIB_LIB"
+	  elif test "$with_zlib" = /usr; then
+	      with_db3=yes
+	      ZLIB_LIB="-lz"
+	  else
+	      ZLIB_LIB="-L${with_zlib} -lz"
+	  fi
+	  AC_MSG_RESULT([$with_zlib])
+        fi
     fi
 fi
 
