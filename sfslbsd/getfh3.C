@@ -23,6 +23,8 @@
 
 #include "sfsrwsd.h"
 
+#define NFS3_BLOCK_SIZE 8192
+
 AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
 AUTH *auth_default = authunix_create_default ();
 
@@ -175,75 +177,6 @@ lookupfh3 (ref<aclnt> c, const nfs_fh3 &start, str path, lookup3obj::cb_t cb)
 }
 
 
-struct read_obj {
-  typedef callback<void, const unsigned char *, size_t, off_t>::ref read_cb_t;
-  typedef callback<void, size_t, read3res *, str>::ref cb_t;
-  read_cb_t read_cb;
-  cb_t cb;
-  ref<aclnt> c;
-
-  const nfs_fh3 fh;
-  off_t pos; 
-  uint32 count;
-  uint32 want;
-    
-  read3res res;
-
-  void gotdata (clnt_stat stat) {
-    
-    if (stat || res.status) {
-      (*cb) (count, &res, stat2str (res.status, stat));
-      delete this;
-    }
-    else {
-      read_cb(reinterpret_cast<unsigned char*>(res.resok->data.base()),
-	      res.resok->count, pos);
-      count += res.resok->count;
-      if (want > res.resok->count) {
-	want -= res.resok->count;
-	pos += res.resok->count;
-      }
-      else
-	want = 0;
-      if (want == 0 || res.resok->eof) {
-        (*cb) (count, &res, NULL);
-        delete this;
-      }
-      else
-	do_read();
-    }
-  }
-  
-  void do_read() {
-    read3args arg;
-    arg.file = fh;
-    arg.offset = pos;
-    arg.count = want <= 8192 ? want : 8192;
-    c->call (NFSPROC3_READ, &arg, &res,
-	     wrap (this, &read_obj::gotdata), auth_root);
-  }
-  
-  read_obj (ref<aclnt> c, const nfs_fh3 &f, off_t p, uint32 cnt, 
-            read_cb_t rcb, cb_t cb)
-    : read_cb(rcb), cb(cb), c(c), fh(f)
-  {
-    count = 0;
-    pos = p;
-    want = cnt;
-    do_read();
-  }
-};
-
-void
-nfs3_read (ref<aclnt> c, const nfs_fh3 &fh, 
-           read_obj::read_cb_t rcb, 
-           read_obj::cb_t cb, 
-           off_t pos, uint32 count)
-{
-  vNew read_obj (c, fh, pos, count, rcb, cb);
-}
-
-
 struct mkdir_obj {
   typedef callback<void, const nfs_fh3 *, str>::ref cb_t;
   cb_t cb;
@@ -315,9 +248,80 @@ nfs3_mkdir (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
 }
 
 
+struct read_obj {
+  typedef callback<void, const unsigned char *, size_t, off_t>::ref read_cb_t;
+  typedef callback<void, size_t, read3res *, str>::ref cb_t;
+  read_cb_t read_cb;
+  cb_t cb;
+  ref<aclnt> c;
+
+  const nfs_fh3 fh;
+  off_t pos; 
+  uint32 count;
+  uint32 want;
+    
+  void gotdata (read3res *res, clnt_stat stat) {
+    
+    if (stat || res->status) {
+      (*cb) (count, res, stat2str (res->status, stat));
+      delete this;
+    }
+    else {
+      count += res->resok->count;
+      if (want > res->resok->count) {
+	want -= res->resok->count;
+	pos += res->resok->count;
+      }
+      else
+	want = 0;
+      if (want == 0 || res->resok->eof) {
+        read_cb(reinterpret_cast<unsigned char*>(res->resok->data.base()), 
+	        res->resok->count, pos);
+        (*cb) (count, res, NULL);
+	delete res;
+        delete this;
+      }
+      else {
+	do_read();
+	read_cb(reinterpret_cast<unsigned char*>(res->resok->data.base()),
+		res->resok->count, pos);
+	delete res;
+      }
+    }
+  }
+  
+  void do_read() {
+    read3args arg;
+    arg.file = fh;
+    arg.offset = pos;
+    arg.count = want <= NFS3_BLOCK_SIZE ? want : NFS3_BLOCK_SIZE;
+    read3res *res = New read3res;
+    c->call (NFSPROC3_READ, &arg, res,
+	     wrap (this, &read_obj::gotdata, res), auth_root);
+  }
+  
+  read_obj (ref<aclnt> c, const nfs_fh3 &f, off_t p, uint32 cnt, 
+            read_cb_t rcb, cb_t cb)
+    : read_cb(rcb), cb(cb), c(c), fh(f)
+  {
+    count = 0;
+    pos = p;
+    want = cnt;
+    do_read();
+  }
+};
+
+void
+nfs3_read (ref<aclnt> c, const nfs_fh3 &fh, off_t pos, uint32 count, 
+           read_obj::read_cb_t rcb, read_obj::cb_t cb)
+{
+  vNew read_obj (c, fh, pos, count, rcb, cb);
+}
+
+
 struct copy_obj {
   typedef callback<void, unsigned const char *, size_t, off_t>::ref read_cb_t;
-  typedef callback<void, const FATTR3 *, commit3res *, str>::ref cb_t;
+  typedef callback<void, commit3res *, str>::ref cb_t;
   read_cb_t read_cb;
   cb_t cb;
   ref<aclnt> c;
@@ -328,34 +332,24 @@ struct copy_obj {
   getattr3res ares;
   commit3res cres;
 
+  bool cb_called;
+  int concurrent_reads;
   int outstanding_reads;
   int outstanding_writes;
   int errors;
   u_int64_t size;
   u_int64_t next_read;
   
-  static const int READ_BLOCK_SZ = 8192;
-
-  void gotdstattr(clnt_stat stat)
-  {
-    if (stat || cres.status) 
-      (*cb) (NULL, NULL, stat2str (cres.status, stat));
-    else {
-      FATTR3 * attr = ares.attributes.addr();
-      (*cb) (attr, &cres, NULL);
-    }
-    delete this;
-  }
-
   void gotcommit(clnt_stat stat)
   { 
-    if (stat || cres.status) {
-      (*cb) (NULL, NULL, stat2str (cres.status, stat));
-      delete this;
+    if (!cb_called) {
+      if (stat || cres.status)
+        (*cb) (NULL, stat2str (cres.status, stat));
+      else
+        (*cb) (&cres, NULL);
+      cb_called = true;
     }
-    else
-      c->call (NFSPROC3_GETATTR, &dst, &ares,
-	       wrap (this, &copy_obj::gotdstattr), auth_root);
+    delete this;
   }
 
   void check_finish()
@@ -378,8 +372,10 @@ struct copy_obj {
                  write3res *wres, clnt_stat stat) 
   {
     if (stat || wres->status || errors > 0) {
-      if (errors == 0) 
-	(*cb) (NULL, NULL, stat2str (wres->status, stat));
+      if (errors == 0 && !cb_called) {
+	(*cb) (NULL, stat2str (wres->status, stat));
+        cb_called = true;
+      }
       delete rres;
       delete wres;
       outstanding_writes--;
@@ -401,18 +397,12 @@ struct copy_obj {
         c->call (NFSPROC3_WRITE, &arg, wres2,
 	         wrap(this, &copy_obj::gotwrite, 
 		      arg.offset, arg.count, rres, wres2), auth_root);
+        outstanding_writes++;
       }
       else 
 	delete rres;
     }
     delete wres;
-
-    if (next_read < size) {
-      count = size > (next_read+READ_BLOCK_SZ) 
-	      ? READ_BLOCK_SZ : (size-next_read);
-      do_read(next_read, count);
-      next_read += count;
-    }
 
     outstanding_writes--;
     check_finish();
@@ -421,8 +411,10 @@ struct copy_obj {
   void gotread (u_int64_t pos, u_int32_t count, read3res *res, clnt_stat stat) 
   {
     if (stat || res->status || errors) {
-      if (errors == 0)
-	(*cb) (NULL, NULL, stat2str (res->status, stat));
+      if (errors == 0 && !cb_called) {
+	(*cb) (NULL, stat2str (res->status, stat));
+	cb_called = true;
+      }
       delete res;
       outstanding_reads--;
       errors++;
@@ -432,6 +424,12 @@ struct copy_obj {
       if (res->resok->count < count) {
         do_read(pos+res->resok->count, count-res->resok->count);
 	count = res->resok->count;
+      } 
+      else if (next_read < size) {
+        size_t c = size > (next_read+NFS3_BLOCK_SIZE) 
+	           ? NFS3_BLOCK_SIZE : (size-next_read);
+        do_read(next_read, c);
+        next_read += c;
       }
       write3args arg;
       arg.file = dst;
@@ -439,14 +437,14 @@ struct copy_obj {
       arg.count = count;
       arg.stable = UNSTABLE;
       arg.data.set(res->resok->data.base(), count, freemode::NOFREE);
-      read_cb(reinterpret_cast<unsigned char *>(res->resok->data.base()), 
-	      count, pos);
       write3res *wres = New write3res;
       c->call (NFSPROC3_WRITE, &arg, wres,
 	       wrap(this, &copy_obj::gotwrite, 
 		    arg.offset, arg.count, res, wres), auth_root);
       outstanding_writes++;
       outstanding_reads--;
+      read_cb(reinterpret_cast<unsigned char *>(res->resok->data.base()), 
+	      count, pos);
     } 
   }
  
@@ -465,16 +463,17 @@ struct copy_obj {
 
   void gotattr (clnt_stat stat) {
     if (stat || ares.status) {
-      (*cb) (NULL, NULL, stat2str(ares.status, stat));
+      (*cb) (NULL, stat2str(ares.status, stat));
       delete this;
     }
     else {
       FATTR3 * attr = ares.attributes.addr();
       size = attr->size;
       next_read = 0;
-      for(int i=0; i<10 && next_read < size; i++) {
-        int count = size > (next_read+READ_BLOCK_SZ) 
-	              ? READ_BLOCK_SZ : (size-next_read);
+      warn << "firing up " << concurrent_reads << " reads on copy\n";
+      for(int i=0; i<concurrent_reads && next_read < size; i++) { 
+	int count = size > (next_read+NFS3_BLOCK_SIZE) 
+	            ? NFS3_BLOCK_SIZE : (size-next_read);
         do_read(next_read, count);
         next_read += count;
       }
@@ -488,26 +487,30 @@ struct copy_obj {
   }
 
   copy_obj (ref<aclnt> c, const nfs_fh3 &s, const nfs_fh3 &d, 
-            read_cb_t rcb, cb_t cb)
-    : read_cb(rcb), cb(cb), c(c), src(s), dst(d)
+            read_cb_t rcb, cb_t cb, bool in_order)
+    : read_cb(rcb), cb(cb), c(c), src(s), dst(d), cb_called(false)
   {
     errors = outstanding_reads = outstanding_writes = 0;
+    if (in_order)
+      concurrent_reads = 1;
+    else 
+      concurrent_reads = 10;
     do_getattr();
   }
 };
 
-// cb may be called more than once
 void
 nfs3_copy (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst,
-           copy_obj::read_cb_t rcb, copy_obj::cb_t cb)
+           copy_obj::read_cb_t rcb, copy_obj::cb_t cb, bool in_order)
 {
-  vNew copy_obj (c, src, dst, rcb, cb);
+  vNew copy_obj (c, src, dst, rcb, cb, in_order);
 }
 
 struct write_obj {
   typedef callback<void, write3res *, str>::ref cb_t;
   ref<aclnt> c;
   cb_t cb;
+  bool cb_called;
 
   const nfs_fh3 fh;
   unsigned char *data;
@@ -528,8 +531,10 @@ struct write_obj {
     
   void done_write (write3res *res, clnt_stat stat) {
     if (stat || res->status || errors > 0) {
-      if (errors == 0)
+      if (errors == 0 && !cb_called) {
 	(*cb) (res, stat2str (res->status, stat));
+        cb_called = true;
+      }
       delete res;
       outstanding_writes--;
       errors++;
@@ -537,13 +542,16 @@ struct write_obj {
     }
     else {
       if (count < total) {
+        delete res;
 	do_write();
         outstanding_writes--;
       }
       else {
         outstanding_writes--;
-	if (outstanding_writes == 0)
+	if (outstanding_writes == 0 && !cb_called) {
 	  (*cb) (res, NULL);
+	  cb_called = true;
+        }
         delete res;
         check_finish();
       }
@@ -553,7 +561,7 @@ struct write_obj {
   void do_write() {
     for(int i=0; i<10 && count<total; i++) {
       int cnt = total - count;
-      if (cnt > 8192) cnt = 8192;
+      if (cnt > NFS3_BLOCK_SIZE) cnt = NFS3_BLOCK_SIZE;
       write3args arg;
       arg.file = fh;
       arg.offset = pos;
@@ -576,11 +584,12 @@ struct write_obj {
     count = 0;
     outstanding_writes = 0;
     errors = 0;
+    cb_called = false;
     do_write();
   }
 };
 
-// cb may be called multiple times
+// data will be deleted at the end when write is finished.
 void
 nfs3_write (ref<aclnt> c, const nfs_fh3 &fh, 
             write_obj::cb_t cb, 

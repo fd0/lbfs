@@ -111,43 +111,49 @@ compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
 
 void
 client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
-                             fp_db::iterator *iter,
+                             fp_db::iterator *iter, Chunker *chunker0,
 			     unsigned char *data, 
 			     size_t count, read3res *, str err)
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
   lbfs_chunk_loc c;
   iter->get(&c);
+  chunker0->stop();
+  const vec<lbfs_chunk *>& cv = chunker0->chunk_vector();
 
-  if (err || count != cwa->count ||
-      fingerprint(data, count) != cwa->fingerprint ||
-      compare_sha1_hash(data, count, cwa->hash)) {
+  if (err || count != cwa->count || cv.size() != 1 || 
+      cv[0]->fingerprint != cwa->fingerprint ||
+      memcmp(cv[0]->hash.base(), cwa->hash.base(), sha1::hashsize) != 0) {
 #if DEBUG > 0
     if (err) 
       warn << "CONDWRITE: error reading file\n";
     else if (count != cwa->count)
       warn << "CONDWRITE: db corrupted, size does not match\n";
-    else if (fingerprint(data,count) != cwa->fingerprint)
+    else if (cv.size() != 1 || cv[0]->fingerprint != cwa->fingerprint)
       warn << "CONDWRITE: fingerprint mismatch\n";
     else 
       warn << "CONDWRITE: sha1 hash mismatch\n";
 #endif
     delete[] data;
+    delete chunker0;
     iter->del(); 
     if (!iter->next(&c)) { 
       nfs_fh3 fh; 
       c.get_fh(fh); 
+      Chunker *chunker = New Chunker(CHUNK_SIZES(0), true);
       unsigned char *buf = New unsigned char[c.count()];
       nfs3_read
 	(fsrv->c, fh, 
-	 wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos()), 
-	 wrap(mkref(this), &client::condwrite_got_chunk, sbp, rqs, iter, buf), 
-	 c.pos(), c.count());
+	 c.pos(), c.count(),
+	 wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos(), chunker), 
+	 wrap(mkref(this), &client::condwrite_got_chunk, 
+	      sbp, rqs, iter, chunker, buf));
       return; 
     }
   }
  
   else {
+    delete chunker0;
 #if DEBUG > 2
     // fingerprint matches, do write
     warn << "CONDWRITE: bingo, found a condwrite candidate\n";
@@ -185,10 +191,11 @@ client::condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, size_t count,
 }
 
 void
-client::condwrite_read_cb(unsigned char *buf, off_t pos0,
+client::condwrite_read_cb(unsigned char *buf, off_t pos0, Chunker *chunker,
                           const unsigned char *data, size_t count, off_t pos)
 {
   memmove(buf+(pos-pos0), data, count);
+  chunker->chunk(data, count);
 }
 
 void
@@ -202,12 +209,14 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
       if (!iter->get(&c)) { 
 	nfs_fh3 fh; 
 	c.get_fh(fh);
+        Chunker *chunker = New Chunker(CHUNK_SIZES(0), true);
 	unsigned char *buf = New unsigned char[c.count()];
 	nfs3_read
 	  (fsrv->c, fh,
-	   wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos()), 
-	   wrap(mkref(this), &client::condwrite_got_chunk, sbp, rqs, iter, buf),
-	   c.pos(), c.count());
+	   c.pos(), c.count(),
+	   wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos(),chunker),
+	   wrap(mkref(this), &client::condwrite_got_chunk,
+	        sbp, rqs, iter, chunker, buf));
 	return;
       } 
       delete iter; 
@@ -274,7 +283,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
 
 void
 client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
-                      const FATTR3 *attr, commit3res *res, str err)
+                      commit3res *res, str err)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
   nfs_fh3 tmpfh = cta->commit_from;
@@ -407,9 +416,9 @@ client::getfp (svccb *sbp, filesrv::reqstate rqs)
   Chunker *chunker = New Chunker(CHUNK_SIZES(0), true);
   nfs3_read 
     (fsrv->c, arg->file, 
+     arg->offset, arg->count,
      wrap(mkref(this), &client::chunk_data, chunker),
-     wrap(mkref(this), &client::getfp_cb, sbp, rqs, chunker),
-     arg->offset, arg->count);
+     wrap(mkref(this), &client::getfp_cb, sbp, rqs, chunker));
 }
 
 void

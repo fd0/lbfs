@@ -205,14 +205,14 @@ void getfh3 (ref<aclnt> c, str path,
 void lookupfh3 (ref<aclnt> c, const nfs_fh3 &start, str path,
 		callback<void, const nfs_fh3 *, const FATTR3 *, str>::ref cb);
 
-// issues READ requests to server. for each successful read, pass data
-// pointer, number of bytes read, and offset to the rcb. when all read
+// issues READ requests to server, in order. for each successful read, pass
+// data pointer, number of bytes read, and offset to the rcb. when all read
 // requests are finished, call cb and pass the total number of bytes read.
 
 void nfs3_read (ref<aclnt> c, const nfs_fh3 &fh,
+                off_t pos, size_t count,
                 callback<void, const unsigned char *, size_t, off_t>::ref rcb,
-                callback<void, size_t, read3res *, str>::ref cb,
-                off_t pos, size_t count);
+                callback<void, size_t, read3res *, str>::ref cb);
 
 // make nfs directory
 void nfs3_mkdir (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
@@ -224,7 +224,8 @@ void nfs3_mkdir (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
 // attribute of the dst filehandle, and the final commit res object.
 void nfs3_copy (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst, 
                 callback<void, const unsigned char *, size_t, off_t>::ref rcb,
-                callback<void, const FATTR3 *, commit3res *, str>::ref cb);
+                callback<void, commit3res *, str>::ref cb,
+		bool in_order = true);
 
 // issues multiple concurrent NFS write requests to server.
 void nfs3_write (ref<aclnt> c, const nfs_fh3 &fh, 
@@ -254,10 +255,10 @@ class client : public virtual refcount, public sfsserv {
   void condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, size_t count,
                            write3res *, str err);
   void condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
-		            fp_db::iterator * iter, 
+		            fp_db::iterator * iter, Chunker*,
 			    unsigned char *data, 
 			    size_t count, read3res *, str err);
-  void condwrite_read_cb (unsigned char *, off_t, 
+  void condwrite_read_cb (unsigned char *, off_t, Chunker*,
                           const unsigned char *, size_t, off_t);
   void condwrite (svccb *sbp, filesrv::reqstate rqs);
 
@@ -268,8 +269,8 @@ class client : public virtual refcount, public sfsserv {
   void chunk_data (Chunker *, const unsigned char *data, 
                    size_t count, off_t pos);
   void removetmp_cb (wccstat3 *, clnt_stat err);
-  void committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *,
-                     const FATTR3 *attr, commit3res *res, str err);
+  void committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *, 
+                     commit3res *res, str err);
   void committmp (svccb *sbp, filesrv::reqstate rqs);
  
   void getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *, 

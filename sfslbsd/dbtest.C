@@ -112,9 +112,9 @@ getnfsc(ptr<aclnt> nc, clnt_stat stat)
       reusable_chunks[i]->get_fh(fh);
       unsigned char *buf = New unsigned char[reusable_chunks[i]->count()];
       nfs3_read(_c, fh, 
+	        reusable_chunks[i]->pos(), reusable_chunks[i]->count(),
 	        wrap(gotdata0, buf, reusable_chunks[i]->pos()),
-	        wrap(gotdata, new_chunks[i]->fingerprint, buf),
-	        reusable_chunks[i]->pos(), reusable_chunks[i]->count());
+	        wrap(gotdata, new_chunks[i]->fingerprint, buf));
       _requests++;
     }
     delete new_chunks[i];

@@ -99,12 +99,14 @@ Chunker::handle_hash(const unsigned char *data, size_t size)
 void
 Chunker::stop()
 {
-  lbfs_chunk *c = New lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
-  if (_hash) { 
-    sha1_hash(c->hash.base(), _hbuf, _hbuf_cursor); 
-    _hbuf_cursor = 0; 
+  if (_cur_pos != _last_pos) {
+    lbfs_chunk *c = New lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
+    if (_hash) { 
+      sha1_hash(c->hash.base(), _hbuf, _hbuf_cursor); 
+      _hbuf_cursor = 0; 
+    }
+    _cv.push_back(c);
   }
-  _cv.push_back(c);
 }
 
 void
