@@ -32,6 +32,7 @@
 #include <errno.h>
 
 #define LBFSCACHE "/var/tmp/lbfscache"
+#define LBCD_GC_PERIOD 120
 
 static inline void
 strip_mountprot(sfs_connectarg &carg, str &proto)
@@ -144,6 +145,13 @@ server::server (const sfsserverargs &a)
   mpz_get_rawmag_be (verf3.base(), NFS3_WRITEVERFSIZE, &verf);
 }
 
+void
+server::db_sync()
+{
+  fpdb.sync();
+  delaycb (LBCD_GC_PERIOD, wrap(server::db_sync));
+}
+
 int
 main (int argc, char **argv)
 {
@@ -165,6 +173,9 @@ main (int argc, char **argv)
     vNew sfsprog (x, &sfslbcd_alloc, false, true);
   else
     fatal ("could not get connection to sfscd.\n");
+
+  server::fpdb.open_and_truncate(FP_DB);
+  delaycb (LBCD_GC_PERIOD, wrap(server::db_sync));
 
   amain ();
 }

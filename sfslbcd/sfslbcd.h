@@ -36,6 +36,9 @@
 #include "aiod.h"
 #include "attrcache.h"
 
+#include "lbfsdb.h"
+#include "fingerprint.h"
+
 inline bool
 operator== (const nfs_fh3 &a, const nfs_fh3 &b)
 {
@@ -333,6 +336,8 @@ public:
                  sfs_aid aid, void *arg, void *res);
 
   static unsigned tmpfd;
+  static fp_db fpdb;
+  static void db_sync ();
 };
 
 void lbfs_read (str fn, nfs_fh3 fh, uint64 size, ref<server> srv,

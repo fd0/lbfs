@@ -35,6 +35,7 @@
 
 aiod* file_cache::a = New aiod (2);
 unsigned server::tmpfd = 0;
+fp_db server::fpdb;
 
 void
 server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
