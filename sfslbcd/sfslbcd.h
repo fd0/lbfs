@@ -204,6 +204,7 @@ class server : public sfsserver_auth {
 protected:
   str cdir;
   bool try_compress;
+  writeverf3 verf3;
   lbfs_attr_cache ac;
   lrucache<nfs_fh3, file_cache *> fc;
   lrucache<nfs_fh3, dir_lc *> lc; 

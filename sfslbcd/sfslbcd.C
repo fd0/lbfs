@@ -133,6 +133,12 @@ server::server (const sfsserverargs &a)
   }
   rtpref = wtpref = 4096;
   try_compress = true;
+
+  bigint verf;
+  char xxb[20];
+  rnd.getbytes (xxb, 20);
+  mpz_set_rawmag_be (&verf, xxb, 20);
+  mpz_get_rawmag_be (verf3.base(), NFS3_WRITEVERFSIZE, &verf);
 }
 
 int

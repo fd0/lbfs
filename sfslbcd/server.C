@@ -246,7 +246,7 @@ server::write_to_cache_write (nfscall *sbp, file_cache *e,
     (res.resok->file_wcc.before.attributes)->ctime = e->fa.ctime;
     res.resok->file_wcc.after.set_present (true);
     *(res.resok->file_wcc.after.attributes) = e->fa;
-    // XXX res.resok->verf =;
+    res.resok->verf = verf3;
     sbp->reply (&res);
   }
 
@@ -314,7 +314,7 @@ server::flush_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok)
       e->idle ();
     if (nc->proc () == NFSPROC3_COMMIT) {
       commit3res res (NFS3_OK);
-      // XXX res.resok->verf =;
+      res.resok->verf = verf3;
       nc->reply (&res);
     }
     else
