@@ -121,15 +121,18 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr,
 
 static long blocksize = XFS_DIRENT_BLOCKSIZE;
 
-void flushbuf(write_dirent_args *args) {
+int flushbuf(write_dirent_args *args) {
   unsigned inc = blocksize - (args->ptr - args->buf);
   xfs_dirent *last = (xfs_dirent *)args->last;
 
   last->d_reclen += inc;
-  if (write (args->fd, args->buf, blocksize) != blocksize)
-    warn << errno << ":write\n";
+  if (write (args->fd, args->buf, blocksize) != blocksize) {
+    warn << "(" << errno << "):write\n";
+    return -1;
+  }
   args->ptr = args->buf;
   args->last = NULL;
+  return 0;
 }
 
 int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
@@ -149,8 +152,10 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
   int reclen = sizeof(*xde);
 
   while (nfs_dirent != NULL) {
-    if (args->ptr + reclen > args->buf + blocksize)
-      flushbuf (args);
+    if (args->ptr + reclen > args->buf + blocksize) {
+      if (flushbuf (args) < 0) 
+	return -1;
+    }
     xde = (struct xfs_dirent *)args->ptr;
     xde->d_namlen = nfs_dirent->name.len();
     warn << "xde->namlen = " << xde->d_namlen 
@@ -168,6 +173,42 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
     args->last = xde;
 
     nfs_dirent = nfs_dirent->nextentry;
+  }
+
+  return 0;
+}
+
+int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid) {
+
+  xfs_dirent *xde = (xfs_dirent *)malloc(sizeof(*xde));
+  xde->d_namlen = strlen(fname);
+  strcpy(xde->d_name, fname);
+  xde->d_reclen = sizeof(*xde);
+#if defined(HAVE_STRUCT_DIRENT_D_TYPE) && !defined(__linux__)
+  xde->d_type = DT_UNKNOWN;
+#endif
+  xde->d_fileno = fid;
+  
+  if (write(fd, xde, xde->d_reclen) != xde->d_reclen) {
+    warn << "(" << errno << "):write\n";
+    return -1;
+  }
+  return 0;
+}
+
+int xfsattr2nfsattr(xfs_attr xa, sattr3 *na) {
+
+  na->mode = xa.xa_mode;
+  na->uid = xa.xa_uid;
+  na->gid = xa.xa_gid;
+  na->size = xa.xa_size;
+  if (na->atime.set == SET_TO_CLIENT_TIME) {
+    na->atime.time->seconds = xa.xa_atime;
+    na->atime.time->nseconds = 0;
+  }
+  if (na->mtime.set == SET_TO_CLIENT_TIME) {
+    na->mtime.time->seconds = xa.xa_mtime;
+    na->mtime.time->nseconds = 0;
   }
 
   return 0;

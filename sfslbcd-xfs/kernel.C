@@ -323,7 +323,7 @@ void akernel() {
 	 << strerror(errno) << "\n";
     return;
   } else if (len == 0) {
-    warn << "akernel: len = 0..wierd\n";
+    warn << "akernel: len = 0..wierd..maybe device is closed\n";
     fdcb(kernel_fd, selread, NULL);
     return;
   } else {

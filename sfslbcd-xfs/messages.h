@@ -40,4 +40,38 @@
 
 extern fh_map fht;
 
+int xfs_message_getroot (int, struct xfs_message_getroot*, u_int);
+
+int xfs_message_getnode (int, struct xfs_message_getnode*, u_int);
+
+int xfs_message_getdata (int, struct xfs_message_getdata*, u_int);
+
+int xfs_message_getattr (int, struct xfs_message_getattr*, u_int);
+
+int xfs_message_inactivenode (int,struct xfs_message_inactivenode*,u_int);
+
+int xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size);
+
+int xfs_message_putattr (int fd, struct xfs_message_putattr *h, u_int size);
+
+int xfs_message_create (int fd, struct xfs_message_create *h, u_int size);
+
+int xfs_message_mkdir (int fd, struct xfs_message_mkdir *h, u_int size);
+
+#if 0
+
+int xfs_message_link (int fd, struct xfs_message_link *h, u_int size);
+
+int xfs_message_symlink (int fd, struct xfs_message_symlink *h, u_int size);
+
+int xfs_message_remove (int fd, struct xfs_message_remove *h, u_int size);
+
+int xfs_message_rmdir (int fd, struct xfs_message_rmdir *h, u_int size);
+
+int xfs_message_rename (int fd, struct xfs_message_rename *h, u_int size);
+
+int xfs_message_pioctl (int fd, struct xfs_message_pioctl *h, u_int size) ;
+
+#endif /* if 0 */
+
 #endif /* _MESSAGES_H_ */

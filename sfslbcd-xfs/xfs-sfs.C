@@ -20,6 +20,7 @@
  */
 
 #include "xfs-sfs.h"
+#include "messages.h"
 
 char *sfs_path = new char[1000];
 int server_fd = -1;
@@ -101,6 +102,7 @@ void gotconres(int fd, str hostname, sfs_hash hostid, clnt_stat err) {
     fail (ENOENT);
     return;
   }
+
 }
 
 void sfsConnect(str hostname, sfs_hash hid, int fd) {

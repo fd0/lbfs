@@ -32,22 +32,20 @@ int main(int argc, char **argv) {
 
   int err;
 
-#if 0
   if (argc != 3) {
-    cout << "usage: " << argv[0] << " device_filename sfs_hostname:hostinfo\n";
+    warn << "usage: " << argv[0] << " device_filename sfs_hostname:hostinfo\n";
     return -1;
   } else {
+    device_file = new char[MAXPATHLEN];
+    hostpath = new char[MAXPATHLEN];
     strcpy(device_file, argv[1]);
     strcpy(hostpath, argv[2]);
   }
-  
-  if (mount(MOUNT_XFS, mnt_path, mnt_flags, device_file)) {
+
+  if (mount(MOUNT_XFS, "/sfs", /*MNT_UNION*/0, device_file)) {
     if (errno == EOPNOTSUPP)
-      arla_errx(1, ADEBERROR,"Filesystem not supported by kernel");
-    else
-      arla_errx(1, ADEBERROR, NULL);
+      warn << strerror(errno) << ":" << errno << "\n";
   }
-#endif
 
   signal(SIGPIPE, SIG_IGN);
 
@@ -60,7 +58,8 @@ int main(int argc, char **argv) {
   }
   warn("Opened device file\n");
   
-  sfsInit(hostpath);
+  sfsInit(hostpath); // or connect when usr sends a /sfs/hostname:hostid request
+
 #if 0
   skernel();
 #else
