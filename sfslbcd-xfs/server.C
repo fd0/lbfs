@@ -84,7 +84,7 @@ xfs_getattr (ref<xfscall> xfsc)
   cache_entry *e = xfsindex[h->handle];
   if (!e)
     xfs_reply_err (xfsc->fd, h->header.sequence_num, ENOENT);
-  else lbfs_getattr (xfsc->fd, *h, xfsc->getaid (), e->nh, nfsc, NULL);
+  //else lbfs_getattr (xfsc->fd, *h, xfsc->getaid (), e->nh, nfsc);
 }
 
 void 
@@ -144,8 +144,17 @@ xfs_putdata (ref<xfscall> xfsc)
 void 
 xfs_putattr (ref<xfscall> xfsc) 
 {
-
+  xfs_message_putattr *h = (xfs_message_putattr *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_putattr\n";
+  warn << h->header.sequence_num << ":" <<" xfs_handle ("
+    << (int) h->handle.a << ","
+    << (int) h->handle.b << ","
+    << (int) h->handle.c << ","
+    << (int) h->handle.d << ")\n";
+#endif
   
+  lbfs_setattr (xfsc->fd, *h, xfsc->getaid (), nfsc);
 }
 
 void 

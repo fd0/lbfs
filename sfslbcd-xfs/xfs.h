@@ -109,7 +109,7 @@ void lbfs_getroot (int, xfs_message_getroot &, sfs_aid,
 		   ref<aclnt> sc1, ref<aclnt> nc1);
 void lbfs_getnode (int, xfs_message_getnode &, sfs_aid, ref<aclnt>);
 void lbfs_getattr (int, xfs_message_getattr &, sfs_aid, const nfs_fh3 &, 
-		   ref<aclnt>, callback<void, const ex_getattr3res *, clnt_stat>);
+		   ref<aclnt>); //, callback<void, const ex_getattr3res *, clnt_stat>);
 void lbfs_open (int fd, const xfs_message_open &h, sfs_aid sa, 
 		ref<aclnt> c);
 void lbfs_readexist (int fd, const xfs_message_getdata &h, cache_entry *e);
@@ -119,7 +119,8 @@ void lbfs_link (int fd, const xfs_message_link &h, sfs_aid sa,
 		ref<aclnt> c);
 void lbfs_symlink (int fd, const xfs_message_symlink &h, sfs_aid sa, 
 		   ref<aclnt> c);
-
+void lbfs_setattr (int fd, const xfs_message_putattr &h, sfs_aid sa, 
+		   ref<aclnt> c);
 /* helper.C */
 
 #endif /* __XFS_H_V */

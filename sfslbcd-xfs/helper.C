@@ -10,6 +10,35 @@ AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
 AUTH *auth_default = 
   authunix_create ("localhost", (uid_t) 14228, (gid_t) 100, 0, NULL);
 
+void 
+installattr (int fd, uint seqnum, xfs_cred cred, nfs_fh3 fh, ex_fattr3 attr, 
+	     time_t rqt, clnt_stat err) 
+{
+  if (!err) {
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+    struct xfs_message_installattr msg;
+
+    msg.header.opcode = XFS_MSG_INSTALLATTR;
+    h0 = (struct xfs_message_header *) &msg;
+    h0_len = sizeof (msg);
+
+    bool update_dir_expire = false;
+    cache_entry *e = update_cache (fh, attr);
+    if (e->nfs_attr.type == NF3DIR) {
+      nfstime3 maxtime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
+      if (!greater(maxtime, e->ltime))
+	update_dir_expire = true;
+    }
+    e->set_exp (rqt, update_dir_expire);
+    nfsobj2xfsnode (cred, e, &msg.node);
+
+    xfs_send_message_wakeup_multiple (fd, seqnum,
+				      0, h0, h0_len, NULL, 0);
+  } else 
+    xfs_reply_err (fd, seqnum, err);
+}
+
 struct getattr_obj {
   
   typedef callback<void, ptr<ex_getattr3res>, time_t, clnt_stat>::ref cb_t;
@@ -22,39 +51,17 @@ struct getattr_obj {
   const nfs_fh3 fh;
   ptr<ex_getattr3res> res;
   
-  void installattr (ptr<ex_getattr3res> res, time_t rqt, clnt_stat err) 
-  {
-    if (!err && res->status == NFS3_OK) {
-      struct xfs_message_header *h0 = NULL;
-      size_t h0_len = 0;
-      struct xfs_message_installattr msg;
-
-      msg.header.opcode = XFS_MSG_INSTALLATTR;
-      h0 = (struct xfs_message_header *) &msg;
-      h0_len = sizeof (msg);
-
-      bool update_dir_expire = false;
-      cache_entry *e = update_cache (fh, *res->attributes);
-      if (e->nfs_attr.type == NF3DIR) {
-	nfstime3 maxtime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
-	if (!greater(maxtime, e->ltime))
-	  update_dir_expire = true;
-      }
-      e->set_exp (rqt, update_dir_expire);
-      nfsobj2xfsnode (h.cred, e, &msg.node);
-
-      xfs_send_message_wakeup_multiple (fd, h.header.sequence_num,	
-					0, h0, h0_len, NULL, 0);
-    } else 
-      xfs_reply_err (fd, h.header.sequence_num, err ? EIO : res->status);
-  }
-
   void gotattr (time_t rqt, clnt_stat err) 
   {
-    if (!err)
-      (*cb) (res, rqt, err);
-     else
-      (*cb) (NULL, 0, err);
+#if 0
+    if (!cb)
+      installattr (res, rqt, err);
+    else
+#endif
+      if (!err)
+	(*cb) (res, rqt, err);
+      else
+	(*cb) (NULL, 0, err);
     delete this;
   }
 
@@ -76,10 +83,18 @@ struct getattr_obj {
 };
 
 void 
-lbfs_getattr(int fd, const xfs_message_getattr &h, sfs_aid sa, const nfs_fh3 &fh, 
-	     ref<aclnt> c, getattr_obj::cb_t cb) 
+l_getattr (int fd, const xfs_message_getattr &h, sfs_aid sa, const nfs_fh3 &fh, 
+	   ref<aclnt> c, getattr_obj::cb_t cb)
 {
   vNew getattr_obj (fd, h, sa, fh, c, cb);
+}
+
+void 
+lbfs_getattr (int fd, const xfs_message_getattr &h, sfs_aid sa, const nfs_fh3 &fh, 
+	      ref<aclnt> c)
+{
+  //  getattr_obj::cb_t cb;
+  //  vNew getattr_obj (fd, h, sa, fh, c, cb);
 }
 
 struct getroot_obj {
@@ -144,7 +159,7 @@ struct getroot_obj {
     nc->call (lbfs_NFSPROC3_FSINFO, &sfs_fsi->nfs->v3->root, nfs_fsi,
 	      wrap (this, &getroot_obj::gotnfs_fsinfo), lbfs_authof (sa));
     const struct xfs_message_getattr *h1 = (xfs_message_getattr *) &h;
-    lbfs_getattr (fd, *h1, sa, sfs_fsi->nfs->v3->root, 
+    l_getattr (fd, *h1, sa, sfs_fsi->nfs->v3->root, 
 		  nc, wrap (this, &getroot_obj::gotattr));
   }
 
@@ -524,7 +539,7 @@ struct readdir_obj {
 #endif
 	if (e->nfs_attr.expire < (uint32) timenow) {
 	  const struct xfs_message_getattr *h1 = (xfs_message_getattr *) &h;
-	  lbfs_getattr (fd, *h1, sa, e->nh, c, 
+	  l_getattr (fd, *h1, sa, e->nh, c, 
 			wrap (this, &readdir_obj::get_updated_copy));
 	} else get_updated_copy (NULL, 0, clnt_stat (0));
       }
@@ -927,7 +942,7 @@ struct readfile_obj {
       } else 
 	if (e->nfs_attr.expire < (uint32) timenow) {
 	  const struct xfs_message_getattr *h1 = (xfs_message_getattr *) &h;
-	  lbfs_getattr (fd, *h1, sa, e->nh, c,
+	  l_getattr (fd, *h1, sa, e->nh, c,
 	  		wrap (this, &readfile_obj::get_updated_copy));
 	} else get_updated_copy (NULL, 0, clnt_stat (0));
     }
@@ -1309,4 +1324,53 @@ void
 lbfs_symlink (int fd, const xfs_message_symlink &h, sfs_aid sa, ref<aclnt> c)
 {
   vNew symlink_obj (fd, h, sa, c);
+}
+
+struct setattr_obj {
+  int fd;
+  ref<aclnt> c;
+  
+  const struct xfs_message_putattr h;
+  sfs_aid sa;
+  cache_entry *e;
+  ptr<ex_wccstat3> res;
+
+  setattr_obj (int fd1, const xfs_message_putattr &h1, sfs_aid sa1, ref<aclnt> c1) :
+    fd(fd1), c(c1), h(h1), sa(sa1) 
+  {
+    e = xfsindex[h.handle];
+    if (!e) {
+#if DEBUG > 0
+      warn << "putattr_obj: Can't find node handle\n";
+#endif
+      xfs_reply_err(fd, h.header.sequence_num, ENOENT);
+      delete this;
+    }
+
+    setattr3args sa;
+    sa.object = e->nh;
+    xfsattr2nfsattr (h.header.opcode, h.attr, &sa.new_attributes);
+    sa.guard.set_check (false);
+
+    if (sa.new_attributes.size.set) {
+#if DEBUG > 0
+      warn << "setting size to " 
+	   << (uint32) *(sa.new_attributes.size.val) << "\n";
+#endif
+      // can't depend on client set time to expire cache data
+      truncate(e->cache_name, *(sa.new_attributes.size.val));
+    }
+    res = New refcounted <ex_wccstat3>;
+#if 0
+    c->call (lbfs_NFSPROC3_SETATTR, &sa, res,
+	     wrap (&installattr, fd, h.header.sequence_num, h.cred, e->nh, 
+		   res->wcc.after***, timenow));  
+#endif
+  }
+};
+
+void 
+lbfs_setattr (int fd, const xfs_message_putattr &h, sfs_aid sa, ref<aclnt> c)
+{
+  vNew setattr_obj (fd, h, sa, c);
 }
