@@ -152,8 +152,18 @@ xfs_open (ref<xfscall> xfsc)
 void 
 xfs_putdata (ref<xfscall> xfsc) 
 {
-
+  xfs_message_putdata *h = (xfs_message_putdata *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_putdata\n";
+  warn << h->header.sequence_num << ":" <<" xfs_handle ("
+    << (int) h->handle.a << ","
+    << (int) h->handle.b << ","
+    << (int) h->handle.c << ","
+    << (int) h->handle.d << ")\n";
+  warn << "flag = " << h->flag << "\n";
+#endif
   
+  lbfs_putdata (xfsc->fd, *h, xfsc->getaid (), nfsc);  
 }
 
 void 

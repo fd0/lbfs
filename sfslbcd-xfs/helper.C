@@ -1692,3 +1692,338 @@ lbfs_rename (int fd, const xfs_message_rename &h, sfs_aid sa, ref<aclnt> c)
 {
   vNew rename_obj (fd, h, sa, c);
 }
+
+struct putdata_obj {
+  int fd;
+  ref<aclnt> c;
+  
+  const struct xfs_message_putdata h;
+  sfs_aid sa;
+  cache_entry *e;
+  nfs_fh3 tmpfh;
+  char *fname;
+  uint blocks_written;
+  uint total_blocks;
+  Chunker *chunker;
+  bool eof;
+  int retries;
+  bool committed;
+  off_t cur_pos;
+  const int OUTSTANDING_CONDWRITES;
+  int outstanding_condwrites;
+  ptr<ex_diropres3> mtres;
+  
+  void do_committmp (ref<ex_commit3res> res, time_t rqtime, clnt_stat err)
+  {
+    if (!err && res->status == NFS3_OK) {
+      ex_fattr3 attr = *(res->resok->file_wcc.after.attributes);
+      e->nfs_attr = attr;
+      e->set_exp (rqtime, attr.type == NF3DIR);
+      e->ltime = max(attr.mtime, attr.ctime);
+      xfs_send_message_wakeup (fd, h.header.sequence_num, 0);      
+    } else
+      xfs_reply_err (fd, h.header.sequence_num, err ? err : res->status);
+    delete this;
+  }
+
+  void sendcommittmp () 
+  {
+    lbfs_committmp3args ct;
+    ct.commit_from = tmpfh;
+    ct.commit_to = e->nh;
+
+    committed = true;
+#if DEBUG > 0
+    warn << h.header.sequence_num << " COMMITTMP: "
+	 << blocks_written << " blocks written " 
+	 << total_blocks << " needed, eof? "
+	 << eof << "\n";
+#endif
+    ref<ex_commit3res> cres = New refcounted <ex_commit3res>;
+    c->call (lbfs_COMMITTMP, &ct, cres,
+	     wrap (this, &putdata_obj::do_committmp, cres, timenow));
+  }
+
+  void do_sendwrite (chunk *chunk, ref<ex_write3res> res, clnt_stat err)
+  {
+    if (outstanding_condwrites > 0) outstanding_condwrites--;
+    if (!err && res->status == NFS3_OK) {
+#if DEBUG > 0
+      warn << h.header.sequence_num << " do_sendwrite: @"
+	   << chunk->location().pos() << ", "
+	   << res->resok->count << " total needed "
+	   << chunk->location().count() << "\n"; 
+	//" had " << chunk->aux_count << "\n";
+#endif
+      chunk->got_bytes(res->resok->count);
+      assert(chunk->bytes() <= chunk->location().count());
+      if (chunk->bytes() == chunk->location().count()) 
+	blocks_written++;
+#if DEBUG > 0
+      warn << h.header.sequence_num << " nfs3_write: @"
+	   << chunk->location().pos() << " +"
+	   << chunk->location().count() << " "
+	   << blocks_written << " blocks written " 
+	   << total_blocks << " needed, eof? "
+	   << eof << "\n";
+#endif
+      if (blocks_written == total_blocks && eof)
+	sendcommittmp ();
+    } else {
+      if (err && retries < 1) {
+	sendwrite (chunk);
+	retries++;
+      } else {
+	xfs_reply_err (fd, h.header.sequence_num, err ? err : res->status);
+	delete this;
+      }
+    }
+    if (!eof && outstanding_condwrites < OUTSTANDING_CONDWRITES) 
+      condwrite_chunk();    
+  }
+
+  void sendwrite (chunk *chunk)
+  {
+    int err, ost;
+    char iobuf[NFS_MAXDATA];
+    uint64 offst = chunk->location().pos ();
+    uint32 count = chunk->location().count ();
+
+    assert (!committed);
+
+    int rfd = open (e->cache_name, O_RDONLY, 0666);
+    if (rfd < 0) {
+      xfs_reply_err(fd, h.header.sequence_num, EIO);
+      delete this;
+    }
+
+    while (count > 0) {
+      ost = lseek (rfd, offst, SEEK_SET);
+      if (count < NFS_MAXDATA)
+	err = read (rfd, iobuf, count);
+      else
+	err = read (rfd, iobuf, NFS_MAXDATA);
+      if (err < 0) {
+	xfs_reply_err(fd, h.header.sequence_num, EIO);
+	delete this;
+      }
+      count -= err;
+      offst += err;
+      write3args wa;
+      wa.file = tmpfh;
+      wa.offset = ost;
+      wa.stable = UNSTABLE;
+      wa.count = err;
+      wa.data.setsize (err);
+      memcpy (wa.data.base (), iobuf, err);
+
+      ref<ex_write3res> res = New refcounted <ex_write3res>;
+      outstanding_condwrites++;
+      c->call (lbfs_NFSPROC3_WRITE, &wa, res,
+	       wrap (this, &putdata_obj::do_sendwrite, chunk, res));
+    }
+    close (rfd);
+  }
+
+  void do_sendcondwrite (chunk *chunk, ref<ex_write3res> res, clnt_stat err)
+  {
+    if (outstanding_condwrites > 0) outstanding_condwrites--;
+    if (!err && res->status == NFS3_OK) {
+      if (res->resok->count != chunk->location().count ()) {
+#if DEBUG > 0
+	warn << "do_sendcondwrite: did not write the whole chunk...\n";
+#endif
+	sendwrite (chunk);
+	return;
+      }
+      chunk->got_bytes(chunk->location().count());
+      blocks_written++;
+#if DEBUG > 0
+      warn << h.header.sequence_num << " condwrite: @"
+	   << chunk->location().pos() << " +"
+	   << chunk->location().count() << " "
+	   << blocks_written << " blocks written " 
+	   << total_blocks << " needed, eof? "
+	   << eof << "\n";
+#endif
+      if (blocks_written == total_blocks && eof)
+	sendcommittmp ();
+    } else {
+      if (err || res->status == NFS3ERR_FPRINTNOTFOUND) {
+#if DEBUG > 0
+	warn << "do_sendcondwrite: " << err << "\n";
+	warn << "-> " << h.header.sequence_num << " condwrite: "
+	     << blocks_written << " blocks written " 
+	     << total_blocks << " needed, eof? "
+	     << eof << "\n";
+#endif
+	sendwrite (chunk);
+      } else
+	xfs_reply_err (fd, h.header.sequence_num, err ? err : res->status);
+    }
+
+    if (!eof && outstanding_condwrites < OUTSTANDING_CONDWRITES) 
+      condwrite_chunk();
+  }
+
+  void sendcondwrite (chunk *chunk) 
+  {
+    assert (!committed);
+
+    lbfs_condwrite3args cw;
+    cw.file = tmpfh;
+    cw.offset = chunk->location().pos ();
+    cw.count = chunk->location().count ();
+    cw.fingerprint = chunk->fingerprint();
+
+    int rfd = open (e->cache_name, O_RDONLY, 0666);
+    if (rfd < 0) {
+#if DEBUG > 0
+      warn << "sendcondwrite: " << e->cache_name << ".." << strerror (errno) << "\n";
+#endif
+      sendwrite(chunk);
+      return;
+    }
+
+    lseek (rfd, chunk->location().pos (), SEEK_SET);
+    char buf[cw.count];
+    unsigned total_read = 0;
+    while (total_read < cw.count) {
+      int err = read (rfd, &buf[total_read], cw.count);
+      if (err < 0) {
+#if DEBUG > 0
+	warn << "lbfs_condwrite: error: " << strerror (errno) 
+	     << "(" << errno << ")\n"; 
+#endif
+	sendwrite(chunk);
+	return;
+      }
+      total_read += err;
+    }
+    assert(total_read == cw.count);
+    sha1_hash (&cw.hash, buf, total_read);
+    close (rfd);
+
+    ref<ex_write3res> res = New refcounted <ex_write3res>;
+
+    c->call (lbfs_CONDWRITE, &cw, res,
+	     wrap (this, &putdata_obj::do_sendcondwrite, chunk, res));    
+  }
+
+  void condwrite_chunk ()
+  {
+    int data_fd = open (e->cache_name, O_RDONLY, 0666);
+    if (data_fd < 0) {
+#if DEBUG > 0
+      warn << "putdata_obj::condwrite_chunk: " << strerror (errno) << "\n";
+#endif
+      xfs_reply_err (fd, h.header.sequence_num, EIO);
+      delete this;
+    }
+  
+    uint index, v_size;
+    index = v_size = chunker->chunk_vector().size();
+    if (lseek (data_fd, cur_pos, SEEK_SET) < 0) {
+#if DEBUG > 0
+      warn << "putdata_obj::condwrite_chunk: " << strerror (errno) << "\n";
+#endif
+      xfs_reply_err (fd, h.header.sequence_num, EIO);
+      delete this;
+    }
+    
+    uint count;
+    unsigned char buf[4096];
+    while ((count = read(data_fd, buf, 4096)) > 0) {
+      cur_pos += count;
+      chunker->chunk_data(buf, count);
+      if (chunker->chunk_vector().size() > v_size) {
+	v_size = chunker->chunk_vector().size();
+	total_blocks = v_size;
+	for (; index < v_size; index++) {
+#if DEBUG > 0
+	  warn << "chindex = " << index << " size = " << v_size << "\n";
+#endif
+	  outstanding_condwrites++;
+	  sendcondwrite(chunker->chunk_vector()[index]);
+	  lbfsdb.add_entry (chunker->chunk_vector()[index]->fingerprint(),
+			    &(chunker->chunk_vector()[index]->location()));
+	}
+      if (outstanding_condwrites >= OUTSTANDING_CONDWRITES) 
+	break;
+      }
+    }
+    close(data_fd);
+    assert (count >= 0);
+    if (count == 0) {
+      chunker->stop();
+      v_size = chunker->chunk_vector().size();
+      total_blocks = chunker->chunk_vector().size();
+      for (; index < v_size; index++) {
+#if DEBUG > 0
+	warn << "chindex = " << index << " size = " <<  total_blocks<< "\n";
+#endif
+	sendcondwrite(chunker->chunk_vector()[index]);
+      }
+      eof = true;
+    }
+#if DEBUG > 0
+    warn << "total_blocks = "  << total_blocks << " " 
+	 << count << " eof " << eof << "\n";
+#endif
+    if (eof && total_blocks == 0)
+      sendcommittmp();    
+  }
+  
+  void mktmpfile (clnt_stat err)
+  {
+    if (!err && mtres->status == NFS3_OK) {
+      assert (mtres->resok->obj.present);
+      
+    } else {
+      xfs_reply_err (fd, h.header.sequence_num, err ? err : mtres->status);
+      delete this;
+    }
+    tmpfh = *mtres->resok->obj.handle;
+      //    strcpy (cwa->fname, e->cache_name);
+    condwrite_chunk();
+  }
+
+  ~putdata_obj () 
+  {
+    delete chunker;
+  }
+
+  putdata_obj (int fd1, const xfs_message_putdata &h1, sfs_aid sa1, ref<aclnt> c1) :
+    fd(fd1), c(c1), h(h1), sa(sa1), blocks_written(0), total_blocks(0), 
+    eof(false), retries(0), committed(false), cur_pos(0), 
+    OUTSTANDING_CONDWRITES(4), outstanding_condwrites(0)
+  {
+    chunker = New Chunker;
+    e = xfsindex[h.handle];
+    if (!e) {
+#if DEBUG > 0
+      warn << "xfs_putdata: Can't find node handle\n";
+#endif
+      xfs_reply_err (fd, h.header.sequence_num, ENOENT);
+      delete this;
+    }
+
+    lbfs_mktmpfile3args mt;
+    mt.commit_to = e->nh;
+    xfsattr2nfsattr (h.header.opcode, h.attr, &mt.obj_attributes);
+    
+    mtres = New refcounted <ex_diropres3>;
+    
+    c->call (lbfs_MKTMPFILE, &mt, mtres,
+	     wrap (this, &putdata_obj::mktmpfile));
+    //benjie's rant
+    e->writers = 0;
+  }
+};
+
+void
+lbfs_putdata (int fd, const xfs_message_putdata &h, sfs_aid sa, ref<aclnt> c)
+{
+  vNew putdata_obj (fd, h, sa, c);
+}
+

@@ -125,6 +125,8 @@ void lbfs_remove (int fd, const xfs_message_remove &h, sfs_aid sa,
 		  ref<aclnt> c);
 void lbfs_rename (int fd, const xfs_message_rename &h, sfs_aid sa, 
 		  ref<aclnt> c);
+void lbfs_putdata (int fd, const xfs_message_putdata &h, sfs_aid sa, 
+		   ref<aclnt> c);
 /* helper.C */
 
 #endif /* __XFS_H_V */
