@@ -37,7 +37,7 @@ mapfile (const u_char **bufp, size_t *sizep, const char *path)
 }
 
 int
-chunk_data(const char *path, unsigned csize, 
+chunk_data(const char *path, const nfs_fh3 *fhp, unsigned csize, 
            const unsigned char *data, size_t size, 
 	   vec<lbfs_chunk *> *cvp)
 {
@@ -52,7 +52,7 @@ chunk_data(const char *path, unsigned csize,
   for (i = 0; i < size; i++) {
     f_break = w.slide8 (data[i]);
     if ((f_break % csize) == BREAKMARK_VALUE) {
-      lbfs_chunk *c = new lbfs_chunk(path, last_i, i-last_i, f_chunk);
+      lbfs_chunk *c = new lbfs_chunk(*fhp, last_i, i-last_i, f_chunk);
       cvp->push_back(c);
       w.reset();
       f_chunk = 0;
@@ -60,20 +60,21 @@ chunk_data(const char *path, unsigned csize,
     }
     f_chunk = w.append8 (f_chunk, data[i]);
   }
-  lbfs_chunk *c = new lbfs_chunk(path, last_i, i-last_i, f_chunk); 
+  lbfs_chunk *c = new lbfs_chunk(*fhp, last_i, i-last_i, f_chunk); 
   cvp->push_back(c);
 
   return 0;
 }
 
 int
-chunk_file(const char *path, unsigned csize, vec<lbfs_chunk *> *cvp)
+chunk_file(const char *path, const nfs_fh3 *fhp, unsigned csize, 
+           vec<lbfs_chunk *> *cvp)
 {
   const u_char *fp;
   size_t fl;
   if (mapfile (&fp, &fl, path) != 0)
     return -1;
-  int ret = chunk_data(path, csize, fp, fl, cvp);
+  int ret = chunk_data(path, fhp, csize, fp, fl, cvp);
   munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
   return ret;
 }

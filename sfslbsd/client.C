@@ -43,6 +43,10 @@ client::nfs3reply (svccb *sbp, void *res, filesrv::reqstate rqs, clnt_stat err)
     return;
   }
   doleases (fsrv, generation, rqs.fsno, sbp, res);
+
+  // XXX - lbfs: should trap SETATTR, WRITE, REMOVE, and may be COMMIT so to
+  // keep the database up to date.
+
   if (fsrv->fixres (sbp, res, &rqs)) {
     nfs3_exp_enable (sbp->proc (), res);
     sbp->reply (res);
@@ -90,8 +94,8 @@ client::condwritecb (svccb *sbp, void *_res, filesrv::reqstate rqs,
 		     getattr3res *ares, clnt_stat err)
 {
   if (!err && !ares->status) {
+    // XXX - we may need to invalidate some entries as well, but when?
     // lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
-    // XXX deal with db
     nfs3reply (sbp, _res, rqs, RPC_SUCCESS);
   }
   else
@@ -131,7 +135,6 @@ client::nfs3dispatch (svccb *sbp)
 		   wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
 		   authtab[authno]);
   else if (sbp->proc () == lbfs_NFSPROC3_CONDWRITE) {
-    printf("condwrite instr %d received\n", sbp->proc());
     getattr3res *ares = New getattr3res;
     fsrv->c->call (NFSPROC3_GETATTR,
 	           &sbp->template getarg<lbfs_condwrite3args> ()->file, ares,

@@ -3,18 +3,18 @@
 
 $(PROGRAMS): $(LDEPS)
 
-sfslib_PROGRAMS = mkdb dbif sfslbsd
+sfslib_PROGRAMS = sfslbsd mkdb
 
 noinst_HEADERS = lbfs.h sfsrwsd.h
 
 sfslbsd_SOURCES = client.C fhtrans.C filesrv.C getfh3.C lease.C sfsrwsd.C
 sfslbsd_LDADD = $(LDADD) $(DB3_LIB)
 
-mkdb_SOURCES = mkdb.C
+mkdb_SOURCES = mkdb.C getfh3.C
 mkdb_LDADD = $(LDADD) $(DB3_LIB)
 
-dbif_SOURCES = dbif.C lbfs.C
-dbif_LDADD = $(LDADD) $(DB3_LIB)
+# dbif_SOURCES = dbif.C lbfs.C
+# dbif_LDADD = $(LDADD) $(DB3_LIB)
 
 EXTRA_DIST = .cvsignore
 CLEANFILES = core *.core *~ *.rpo

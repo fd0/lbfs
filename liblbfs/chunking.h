@@ -11,8 +11,9 @@
  * caller.
  */
 int mapfile (const u_char **bufp, size_t *sizep, const char *path);
-int chunk_file(const char *path, unsigned csize, vec<lbfs_chunk *> *cvp);
-int chunk_data(const char *path, unsigned csize, 
+int chunk_file(const char *path, const nfs_fh3 *fhp, unsigned csize, 
+               vec<lbfs_chunk *> *cvp);
+int chunk_data(const char *path, const nfs_fh3 *fhp, unsigned csize, 
                const unsigned char *data, size_t size, 
 	       vec<lbfs_chunk *> *cvp);
 
