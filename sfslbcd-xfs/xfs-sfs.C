@@ -98,7 +98,7 @@ void gotconres(int fd, str hostname, sfs_hash hostid, clnt_stat err) {
     return;
   }
   if (conres.reply->servinfo.host.pubkey.nbits () < sfs_minpubkeysize) {
-    warn << sfs_path << ": public key too small\n";
+    warn << sfs_path << " : public key too small\n";
     fail (ENOENT);
     return;
   }
@@ -132,7 +132,7 @@ void sfsConnect(str hostname, sfs_hash hid, int fd) {
 
   tcp_nodelay (fd);
   sfsc = aclnt::alloc (axprt_stream::alloc (fd), sfs_program_1);
-  nfsc = aclnt::alloc (axprt_stream::alloc (fd), ex_nfs_program_3);
+  nfsc = aclnt::alloc (axprt_stream::alloc (fd), lbfs_program_3);
   sfs_connectarg arg;
   arg.release = sfs_release;
   arg.service = SFS_SFS;

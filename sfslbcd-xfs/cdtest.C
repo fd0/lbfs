@@ -9,7 +9,7 @@ int main(int argc, char **argv) {
   int fd = open("/sfs/h", O_RDWR | O_APPEND | O_CREAT, 0666);
   int k = 0;
   int i = 0;
-  int j;
+  int j = 0;
   cout << "Opened /sfs/h \n";
 
   char buf[2000];

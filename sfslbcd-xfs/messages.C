@@ -75,10 +75,7 @@ void getrootattr(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, ex_geta
 
   assert(res->status == NFS3_OK);
   
-  //char uname = new char[20];
-  //getpw(getuid(), uname);
-
-  warn << "uid = " << getuid() << "\n"; // "username = " << uname << "\n";
+  warn << "uid = " << getuid() << "\n"; 
 
   nfsobj2xfsnode(h->cred, fsi->nfs->v3->root, *res->attributes, &msg.node);
   
@@ -97,9 +94,9 @@ void getfsinfo(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, clnt_stat
   assert(fsi->prog == ex_NFS_PROGRAM && fsi->nfs->vers == ex_NFS_V3);
 
   ex_getattr3res *res = new ex_getattr3res;
-  AUTH *auth_default = authunix_create_default ();
+  //AUTH *auth_default = authunix_create_default ();
 
-  nfsc->call(ex_NFSPROC3_GETATTR, &fsi->nfs->v3->root, res, 
+  nfsc->call(lbfs_NFSPROC3_GETATTR, &fsi->nfs->v3->root, res, 
 	     wrap (&getrootattr, fd, h, fsi, res));
 	     //	     auth_default);
 }
@@ -175,7 +172,7 @@ int xfs_message_getnode (int fd, struct xfs_message_getnode *h, u_int size)
   warn << "requesting file name " << doa->name.cstr() << "\n";
   ex_lookup3res *res = new ex_lookup3res;
   
-  nfsc->call(ex_NFSPROC3_LOOKUP, doa, res, 
+  nfsc->call(lbfs_NFSPROC3_LOOKUP, doa, res, 
 	     wrap (&nfs3_lookup, fd, h, res));
 
   return 0;
@@ -241,7 +238,7 @@ void write_dirfile(int fd, struct xfs_message_getdata *h, ex_readdir3res *res,
       //rda->count = 2000; //GUESS!! should use dtpres
 
       ex_readdir3res *rdres = new ex_readdir3res;
-      nfsc->call(ex_NFSPROC3_READDIR, rda, rdres,
+      nfsc->call(lbfs_NFSPROC3_READDIR, rda, rdres,
 		 wrap (&write_dirfile, fd, h, rdres, args, msg));
     } else {
 
@@ -314,7 +311,7 @@ void write_file(int fd, struct xfs_message_getdata *h, ex_read3res *res,
     ra->count = NFS_MAXDATA;
     
     ex_read3res *rres = new ex_read3res;
-    nfsc->call(ex_NFSPROC3_READ, ra, rres,
+    nfsc->call(lbfs_NFSPROC3_READ, ra, rres,
 	       wrap(&write_file, fd, h, rres, cfd, msg));
   } else {
 
@@ -376,7 +373,6 @@ void nfs3_read(int fd, struct xfs_message_getdata *h, ex_read3res *res,
 
 void nfs3_read_exist(int fd, struct xfs_message_getdata *h) {
 
-  int cfd;
   struct xfs_message_installdata msg; 
   
   nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
@@ -429,7 +425,7 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
       rda->count = 2000; //GUESS!! should use dtpres
 
       ex_readdir3res *rdres = new ex_readdir3res;
-      nfsc->call(ex_NFSPROC3_READDIR, rda, rdres,
+      nfsc->call(lbfs_NFSPROC3_READDIR, rda, rdres,
 		 wrap (&nfs3_readdir, fd, h, rdres));
     } else
       if (fht.getattr(fht.getcur()).type == NF3REG) {
@@ -440,7 +436,7 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
 	ra->count = NFS_MAXDATA;
 
 	ex_read3res *rres = new ex_read3res;
-	nfsc->call(ex_NFSPROC3_READ, ra, rres,
+	nfsc->call(lbfs_NFSPROC3_READ, ra, rres,
 		   wrap(&nfs3_read, fd, h, rres));
       }
   } else
@@ -486,7 +482,7 @@ int xfs_message_getattr (int fd, struct xfs_message_getattr *h, u_int size)
   fh = new nfs_fh3; 
   *fh = fht.getnh(fht.getcur());
   ex_getattr3res *res = new ex_getattr3res;
-  nfsc->call(ex_NFSPROC3_GETATTR, fh, res, 
+  nfsc->call(lbfs_NFSPROC3_GETATTR, fh, res, 
 	     wrap(&nfs3_getattr, fd, h, res));
   
   return 0;
@@ -512,24 +508,27 @@ void lbfs_nfs3_condwrite(nfs_fh3 tmpfh, uint chunk_index, vec<lbfs_chunk *> *cvp
     lbfs_condwrite3res *res = new lbfs_condwrite3res;
     nfsc->call(lbfs_NFSPROC3_CONDWRITE, cw, res,
 	       wrap(&lbfs_nfs3_condwrite, tmpfh, ++chunk_index, cvp, res));
-  } else {
-    //remove node from cache
-    
-  }
+  } 
   
 }
 
-void lbfs_nfs3_mktmpfile(int fd, struct xfs_message_inactivenode* h, 
+void lbfs_nfs3_mktmpfile(int fd, struct xfs_message_putdata* h, 
 			 ex_diropres3 *res, clnt_stat err) {
 
-  assert(res->status == NFS3_OK && res->resok->obj.present);
+  if (res->status != NFS3_OK) {
+    warn << "error: " << strerror(res->status) << "(" << res->status << ")\n";
+    return;
+  } else if (!res->resok->obj.present) {
+    warn << "tmpfile handle not present\n";
+    return;
+  }
   //send data to server
   if (fht.setcur(h->handle)) {
     warn << "xfs_getattr: Can't find node handle\n";
     return;
   } 
   
-  char *fname;
+  char fname[MAXPATHLEN];
   assign_filename(fname, fht.getcur());
 
   vec<lbfs_chunk *> cvp; 
@@ -548,7 +547,8 @@ void lbfs_nfs3_mktmpfile(int fd, struct xfs_message_inactivenode* h,
 int xfs_message_inactivenode (int fd, struct xfs_message_inactivenode* h, u_int size) {
 
   warn << "inactivenode !!\n";
-  
+  //remove node from cache
+#if 0
   if (fht.setcur(h->handle)) {
     warn << "xfs_getattr: Can't find node handle\n";
     return -1;
@@ -563,11 +563,13 @@ int xfs_message_inactivenode (int fd, struct xfs_message_inactivenode* h, u_int 
 
   nfsc->call(lbfs_NFSPROC3_MKTMPFILE, mt, res,
 	     wrap(&lbfs_nfs3_mktmpfile, fd, h, res));
+#endif
 
   return 0;
 
 }
 
+//not using this right now
 void write_data(int fd, struct xfs_message_putdata *h, 
 		int ffd, ex_write3res *res, clnt_stat cl_err) {
 
@@ -600,7 +602,7 @@ void write_data(int fd, struct xfs_message_putdata *h,
 	wa->data.setsize(err);
 	memcpy (wa->data.base(), iobuf, err);	
 	res = new ex_write3res;
-	nfsc->call(ex_NFSPROC3_WRITE, wa, res,
+	nfsc->call(lbfs_NFSPROC3_WRITE, wa, res,
 		   wrap(&write_data, fd, h, ffd, res));
       }      
 }
@@ -614,6 +616,15 @@ int xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size) {
     return -1;
   } 
 
+  //get temp file handle so the update will be atomic
+  mt = new lbfs_mktmpfile3args;
+  mt->commit_to = fht.getnh(fht.getcur());
+  xfsattr2nfsattr(h->attr, &mt->obj_attributes);
+
+  ex_diropres3 *res = new ex_diropres3;
+
+  nfsc->call(lbfs_NFSPROC3_MKTMPFILE, mt, res,
+	     wrap(&lbfs_nfs3_mktmpfile, fd, h, res));
 #if 0
   char *fname;
   assign_filename(fname, fht.getcur());
@@ -624,9 +635,9 @@ int xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size) {
   wa->offset = 0;
   wa->stable = FILE_SYNC;
   write_data(fd, h, ffd, NULL, clnt_stat(0));
-#endif
 
   xfs_send_message_wakeup (fd, h->header.sequence_num, 0);
+#endif
   
   return 0;
 }
@@ -678,7 +689,7 @@ int xfs_message_putattr (int fd, struct xfs_message_putattr *h, u_int size) {
     sa->guard.ctime->seconds = h->attr.xa_ctime;
 
   ex_wccstat3 *res = new ex_wccstat3;
-  nfsc->call(ex_NFSPROC3_SETATTR, sa, res, 
+  nfsc->call(lbfs_NFSPROC3_SETATTR, sa, res, 
 	     wrap(&nfs3_setattr, fd, h, res));
 
   return 0;
@@ -782,7 +793,7 @@ int xfs_message_create (int fd, struct xfs_message_create *h, u_int size) {
   else warn << "xfs_message_create: create mode not UNCHECKED or GUARDED\n";
 
   ex_diropres3 *res = new ex_diropres3;
-  nfsc->call(ex_NFSPROC3_CREATE, ca, res, 
+  nfsc->call(lbfs_NFSPROC3_CREATE, ca, res, 
 	     wrap(&nfs3_create, fd, h, res));
 
   return 0;
@@ -881,7 +892,7 @@ int xfs_message_mkdir (int fd, struct xfs_message_mkdir *h, u_int size) {
   xfsattr2nfsattr(h->attr, &ma->attributes);
 
   ex_diropres3 *res = new ex_diropres3;
-  nfsc->call(ex_NFSPROC3_MKDIR, ma, res, 
+  nfsc->call(lbfs_NFSPROC3_MKDIR, ma, res, 
 	     wrap(&nfs3_mkdir, fd, h, res));
 
   return 0;
@@ -1009,7 +1020,7 @@ void nfs3_remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
     doa->name = h->name;
 
     ex_wccstat3 *wres = new ex_wccstat3;
-    nfsc->call(ex_NFSPROC3_REMOVE, doa, wres,
+    nfsc->call(lbfs_NFSPROC3_REMOVE, doa, wres,
 	       wrap(&remove, fd, h, lres, wres));
 
   } else
@@ -1032,7 +1043,7 @@ int xfs_message_remove(int fd, struct xfs_message_remove *h, u_int size) {
   warn << "requesting file name " << doa->name.cstr() << "\n";
   ex_lookup3res *res = new ex_lookup3res;
     
-  nfsc->call(ex_NFSPROC3_LOOKUP, doa, res, 
+  nfsc->call(lbfs_NFSPROC3_LOOKUP, doa, res, 
 	     wrap (&nfs3_remove, fd, h, res));
 
   return 0;
@@ -1057,7 +1068,7 @@ void nfs3_rmdir(int fd, struct xfs_message_rmdir *h, ex_lookup3res *lres,
     doa->name = h->name;
 
     ex_wccstat3 *wres = new ex_wccstat3;
-    nfsc->call(ex_NFSPROC3_RMDIR, doa, wres,
+    nfsc->call(lbfs_NFSPROC3_RMDIR, doa, wres,
 	       wrap(&remove, fd, (struct xfs_message_remove *)h, lres, wres));
 
   } else
@@ -1080,7 +1091,7 @@ int xfs_message_rmdir(int fd, struct xfs_message_rmdir *h, u_int size) {
   warn << "requesting file name " << doa->name.cstr() << "\n";
   ex_lookup3res *res = new ex_lookup3res;
     
-  nfsc->call(ex_NFSPROC3_LOOKUP, doa, res, 
+  nfsc->call(lbfs_NFSPROC3_LOOKUP, doa, res, 
 	     wrap (&nfs3_rmdir, fd, h, res));
 
 
