@@ -126,8 +126,8 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 
   ++recv_stat[opcode];
   str msgstr = str((const char *)h, size);
+  xfscall *xfsc;
 
-  xfscall *xfsc = New xfscall (opcode, fd);
   switch (opcode) {
   case XFS_MSG_GETROOT: {
     struct xfs_message_getroot *hh = 
@@ -137,8 +137,8 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->header = hh->header;
     msg->cred = hh->cred;
     ref<struct xfs_getroot_args> gra = 
-      New refcounted<struct xfs_getroot_args> (hh);
-    //xfsc->argp = gra;
+      New refcounted<struct xfs_getroot_args> ();
+    xfsc = New xfscall (opcode, fd, msg, gra);
     break;
   }
   case XFS_MSG_GETNODE: {

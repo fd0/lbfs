@@ -29,10 +29,7 @@
 #endif
 
 #include <xfs/xfs_message.h>
-#include "sfslbcd.h"
 #include "xfs-sfs.h"
-#include "xfs-nfs.h"
-#include "fh_map.h"
 #include "xfs.h"
 #include "fingerprint.h"
 #include "sha1.h"
@@ -121,56 +118,6 @@ compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
 #endif
   return strncmp(h, hash.base(), sha1::hashsize);
 }
-
-int xfs_wakeup (xfscall *xfsc);
-int xfs_getroot (xfscall *xfsc);
-int xfs_getnode (xfscall *xfsc);
-int xfs_getdata (xfscall *xfsc);
-int xfs_open (xfscall *xfsc);
-int xfs_getattr (xfscall *xfsc);
-int xfs_inactivenode (xfscall *xfsc);
-int xfs_putdata (xfscall *xfsc);
-int xfs_putattr (xfscall *xfsc);
-int xfs_create (xfscall *xfsc);
-int xfs_mkdir (xfscall *xfsc);
-int xfs_link (xfscall *xfsc);
-int xfs_symlink (xfscall *xfsc);
-int xfs_remove (xfscall *xfsc);
-int xfs_rmdir (xfscall *xfsc);
-int xfs_rename (xfscall *xfsc);
-int xfs_pioctl (xfscall *xfsc);
-
-void cbdispatch(svccb *sbp);
-
-class xfs_wakeup_args {
- public:
-  int fd;
-  struct xfs_message_wakeup *h;
-
-  xfs_wakeup_args (int file_des, struct xfs_message_wakeup *header) :
-    fd(file_des), h(header) { }
-  ~xfs_wakeup_args () {
-    delete h;
-  }
-
-};
-
-struct xfs_getroot_args {
-  struct xfs_message_getroot *h;
-  sfs_fsinfo *fsi;
-  ex_getattr3res *attr_res;
-
-  xfs_getroot_args (struct xfs_message_getroot *header) :
-    h(header), fsi(NULL), attr_res(NULL) { }
-
-  ~xfs_getroot_args () {
-    delete h;
-    if (fsi) 
-      delete fsi;
-    if (attr_res) 
-      delete attr_res;
-  }
-};
 
 class xfs_getnode_args {
  public:

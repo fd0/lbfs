@@ -20,7 +20,9 @@
  */
 
 #include "messages.h"
-#include <xfs/xfs_pioctl.h>
+//#include <xfs/xfs_pioctl.h>
+//#include "xfs-nfs.h"
+#include "fh_map.h"
 #include "crypt.h"
 
 u_int64_t cache_entry::nextxh;
@@ -29,13 +31,42 @@ ihash<nfs_fh3, cache_entry, &cache_entry::nh,
 ihash<xfs_handle, cache_entry, &cache_entry::xh,
   &cache_entry::xlink> xfsindex;
 
-void nfs_receive (xfscall *xfsc, clnt_stat err) {
+void sfs_getfsinfo (xfscall *);
+void nfs3_fsinfo (xfscall *);
+void nfs3_getattr (xfscall *);
+
+void nfs_dispatch (xfscall *xfsc, clnt_stat err) {
+
+  switch (xfsc->opcode) {
+  case XFS_MSG_GETROOT: 
+    switch (xfsc->instance) {
+    case 0:
+      sfs_getfsinfo (xfsc);
+      break;
+    case 1:
+      nfs3_fsinfo (xfsc);
+      break;
+    case 2:
+      nfs3_getattr (xfsc);
+      break;
+    }
+    break;
+
+  default:
+#if DEBUG < 0
+    warn << "Uncovered case .. opcode = " << xfsc->opcode << "\n";
+#endif
+    break;
+  }
 
 }
 
 int
 xfs_wakeup (xfscall *xfsc) {
 
+#if DEBUG > 0
+  warn << "Received wakeup from XFS\n";
+#endif
   return 0;
 }
 
@@ -43,22 +74,24 @@ int
 xfs_getroot (xfscall *xfsc) {
 
 #if DEBUG > 0
-  warn << "get root!!\n";
+  warn << "Received getroot from XFS\n";
 #endif
 
   sfsc->call (SFSPROC_GETFSINFO, NULL, 
 	      ((xfs_getroot_args*) xfsc->getvoidarg ())->fsi,
-	      wrap (nfs_receive, xfsc));
+	      wrap (nfs_dispatch, xfsc));
   return 0;
 
 }
 
-int xfs_getnode (xfscall *xfsc) {
+int 
+xfs_getnode (xfscall *xfsc) {
 
   return 0;
 }
 
-int xfs_getattr (xfscall *xfsc) {
+int 
+xfs_getattr (xfscall *xfsc) {
 
   return 0;
 }

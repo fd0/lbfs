@@ -22,10 +22,6 @@
 #ifndef _XFS_SFS_H_
 #define _XFS_SFS_H_ 1
 
-#include "async.h"
-#include "arpc.h"
-#include "sfsmisc.h"
-#include "lbfs_prot.h"
 #include "axprt_crypt.h"
 #include "axprt_compress.h"
 #include "lbfsdb.h"
