@@ -6,7 +6,7 @@
  * are omitted.
  */
 
-// XXX TODO: change program numbers to be LBFS instead of ex_NFS3
+/* XXX TODO: change program numbers to be LBFS instead of ex_NFS3 */
 
 #ifndef RFC_SYNTAX
 # define RFC_SYNTAX 1
