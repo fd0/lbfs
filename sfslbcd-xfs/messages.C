@@ -379,6 +379,7 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *e,
 	warn << "adding fp = " << cvp[i]->fingerprint << " to lbfsdb\n";
 	cvp[i]->loc.set_fh (e->nh);
 	lbfsdb.add_entry (cvp[i]->fingerprint, &(cvp[i]->loc));
+        delete cvp[i];
       }
       lbfsdb.sync ();
       e->opened = true;
