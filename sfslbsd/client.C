@@ -22,6 +22,7 @@
 #include <stdlib.h>
 
 #include "sha1.h"
+#include "crypt.h"
 #include "serial.h"
 #include "sfsrwsd.h"
 #include <grp.h>
@@ -30,8 +31,6 @@
 #include "lbfsdb.h"
 #include "fingerprint.h"
 #include "lbfs.h"
-
-#define SFS_TRASH_DIR_SIZE 10000 // number of files
 
 #define DEBUG 3
 
@@ -124,13 +123,18 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   if (err || count != cwa->count || cv.size() != 1 || 
       cv[0]->fingerprint != cwa->fingerprint ||
       memcmp(cv[0]->hash.base(), cwa->hash.base(), sha1::hashsize) != 0) {
-#if DEBUG > 0
+#if DEBUG > 1
     if (err) 
       warn << "CONDWRITE: error reading file: " << err << "\n";
     else if (count != cwa->count)
       warn << "CONDWRITE: size does not match, old chunk? " 
 	   << "want " << cwa->count << " got " << count << "\n";
-    else if (cv.size() != 1 || cv[0]->fingerprint != cwa->fingerprint)
+#endif
+#if DEBUG > 0
+#if DEBUG > 1
+    else 
+#endif
+    if (cv.size() != 1 || cv[0]->fingerprint != cwa->fingerprint)
       warn << "CONDWRITE: fingerprint mismatch\n";
     else 
       warn << "CONDWRITE: sha1 hash mismatch\n";
@@ -262,7 +266,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   lbfs_mktmpfile3args *mta = sbp->template getarg<lbfs_mktmpfile3args> ();
 
   str fhstr = armor32(mta->commit_to.data.base(), mta->commit_to.data.size());
-  int r = rand();
+  int r = rnd.getword();
   str rstr = armor32((void*)&r, sizeof(int));
   char *tmpfile = New char[5+fhstr.len()+1+rstr.len()+1];
   sprintf(tmpfile, "sfs.%s.%s", fhstr.cstr(), rstr.cstr());
@@ -297,11 +301,16 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   unsigned fsno = rqs.fsno;
 
   commit3res *cres = New commit3res;
-  *cres = *res;
-  if (!err || cres->status)
-    nfs3reply (sbp, cres, rqs, RPC_SUCCESS);
-  else
+  if (!res)
     nfs3reply (sbp, cres, rqs, RPC_FAILED);
+  else if (!err || res->status) {
+    *cres = *res;
+    nfs3reply (sbp, cres, rqs, RPC_SUCCESS);
+  }
+  else {
+    *cres = *res;
+    nfs3reply (sbp, cres, rqs, RPC_FAILED);
+  }
 
   chunker->stop();
   const vec<lbfs_chunk *>& cv = chunker->chunk_vector();
@@ -407,7 +416,7 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       nfs3reply (sbp, res, rqs, RPC_FAILED);
   }
 
-#if DEBUG > 1
+#if DEBUG > 2
   gettimeofday(&tv1, NULL);
   unsigned a;
   if (tv1.tv_usec >= tv0.tv_usec)
@@ -437,42 +446,36 @@ client::getfp (svccb *sbp, filesrv::reqstate rqs)
 }
 
 void 
-client::removecb (svccb *sbp, rename3res *rnres, filesrv::reqstate rqs, 
-                  clnt_stat err)
+client::oscar_add_cb (svccb *sbp, filesrv::reqstate rqs, 
+                      link3res *lnres, clnt_stat err)
 {
-  if (err || rnres->status) {
-    u_int32_t authno = sbp->getaui ();
-    void *res = nfs_program_3.tbl[NFSPROC3_REMOVE].alloc_res ();
-    fsrv->c->call (NFSPROC3_REMOVE, sbp->template getarg<void> (), res,
-		   wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
-		   authtab[authno]);
-    delete rnres;
-  }
-  else {
-    wccstat3 *wcc = New wccstat3;
-    *(wcc->wcc) = rnres->res->fromdir_wcc;
-    nfs3reply (sbp, wcc, rqs, RPC_SUCCESS);
-    delete rnres;
-  }
+  normal_dispatch(sbp, rqs);
+  delete lnres;
+  fsrv->update_oscar(rqs.fsno);
 }
 
 void
-client::remove (svccb *sbp, filesrv::reqstate rqs)
+client::oscar_lookup_cb (svccb *sbp, filesrv::reqstate rqs, 
+                         lookup3res *lres, clnt_stat err)
 {
-  u_int32_t authno = sbp->getaui ();
-  diropargs3 *arg = sbp->template getarg<diropargs3> ();
-  rename3args rnarg;
-  rnarg.from = *arg;
-  rnarg.to.dir = fsrv->sfs_trash_fhs[rqs.fsno];
-  int r = rand() % SFS_TRASH_DIR_SIZE;
-  str rstr = armor32((void*)&r, sizeof(int));
-  char tmpfile[7+rstr.len()+1];
-  sprintf(tmpfile, "oscar.%s", rstr.cstr());
-  rnarg.to.name = tmpfile;
-  rename3res *rnres = New rename3res;
-  fsrv->c->call (NFSPROC3_RENAME, &rnarg, rnres,
-	         wrap (mkref (this), &client::removecb, sbp, rnres, rqs),
-		 authtab[authno]);
+  if (!err && !lres->status && lres->resok->obj_attributes.present) {
+    u_int32_t authno = sbp->getaui ();
+    link3args lnarg;
+    lnarg.file = lres->resok->object;
+    unsigned r = fsrv->get_oscar(rqs.fsno);
+    str rstr = armor32((void*)&r, sizeof(r));
+    char tmpfile[7+rstr.len()+1];
+    sprintf(tmpfile, "oscar.%s", rstr.cstr());
+    lnarg.link.name = tmpfile;
+    lnarg.link.dir = fsrv->sfs_trash_fhs[rqs.fsno];
+    link3res *lnres = New link3res;
+    fsrv->c->call (NFSPROC3_LINK, &lnarg, lnres,
+	           wrap (mkref (this), &client::oscar_add_cb, sbp, rqs, lnres),
+		   authtab[authno]);
+  }
+  else
+    normal_dispatch(sbp, rqs);
+  delete lres;
 }
 
 void
@@ -508,27 +511,51 @@ client::nfs3dispatch (svccb *sbp)
   else if (sbp->proc () == lbfs_CONDWRITE)
     condwrite(sbp, rqs);
   else if (sbp->proc () == lbfs_GETFP) {
-#if DEBUG > 1
+#if DEBUG > 2
     gettimeofday(&tv0, NULL);
 #endif
     getfp(sbp, rqs);
   }
-  else if (sbp->proc () == NFSPROC3_REMOVE) 
-    remove(sbp, rqs); 
+  else if (sbp->proc () == NFSPROC3_REMOVE) {
+    diropargs3 *arg = sbp->template getarg<diropargs3> ();
+    diropargs3 larg;
+    larg.dir = arg->dir;
+    larg.name = arg->name;
+    lookup3res *res = New lookup3res;
+    fsrv->c->call (NFSPROC3_LOOKUP, &larg, res,
+	           wrap (mkref(this), &client::oscar_lookup_cb, sbp, rqs, res),
+	           authtab[authno]);
+  }
+  else if (sbp->proc () == NFSPROC3_RENAME) {
+    rename3args *arg = sbp->template getarg<rename3args> ();
+    diropargs3 larg;
+    larg.dir = arg->to.dir;
+    larg.name = arg->to.name;
+    lookup3res *res = New lookup3res;
+    fsrv->c->call (NFSPROC3_LOOKUP, &larg, res,
+	           wrap (mkref(this), &client::oscar_lookup_cb, sbp, rqs, res),
+	           authtab[authno]);
+  }
   else {
     if (sbp->proc () == NFSPROC3_LOOKUP) 
       warn ("server: %lu %lu\n", xc->bytes_sent, xc->bytes_recv);
-    
-    void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
-    if (sbp->proc () == NFSPROC3_RENAME)
-      fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
-		     wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
-		     authtab[authno]);
-    else
-      fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
-		     wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
-		     authtab[authno]);
+    normal_dispatch(sbp, rqs);
   }
+}
+    
+void 
+client::normal_dispatch (svccb *sbp, filesrv::reqstate rqs)
+{
+  u_int32_t authno = sbp->getaui ();
+  void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
+  if (sbp->proc () == NFSPROC3_RENAME)
+    fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
+		   wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
+		   authtab[authno]);
+  else
+    fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
+		   wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
+		   authtab[authno]);
 }
 
 u_int64_t

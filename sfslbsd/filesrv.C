@@ -221,6 +221,8 @@ filesrv::gotroots (bool ok)
 
   ref<erraccum> ea (New refcounted<erraccum> (wrap (this, &filesrv::gotmps)));
   sfs_trash_fhs.setsize(fstab.size());
+  sfs_trash_next.setsize(fstab.size());
+
   for (size_t i = 0; i < fstab.size (); i++) {
     lookupfh3 (c, fstab[i].fh_root, "",
 	       wrap (this, &filesrv::gotrootattr, ea, i));
@@ -236,6 +238,7 @@ filesrv::gotroots (bool ok)
     *(trash_attr.uid.val) = 0;
     trash_attr.gid.set_set(true);
     *(trash_attr.gid.val) = 0;
+   
     nfs3_mkdir (c, fstab[i].fh_root, ".sfs.trash", trash_attr,
 	        wrap (this, &filesrv::gottrashdir, ea, i));
   }
@@ -248,7 +251,53 @@ filesrv::gottrashdir (ref<erraccum> ea, int i, const nfs_fh3 *fhp, str err)
     sfs_trash_fhs[i] = *fhp;
     warn << "trash dir for " << fstab[i].path_mntpt << ": " << 
             armor32(fhp->data.base(), fhp->data.size()) << "\n";
+    sfs_trash_next[i] = New unsigned[SFS_TRASH_WIN_SIZE+1];
+    sfs_trash_next[i][0] = 0;
+    for (unsigned j = 0; j < SFS_TRASH_WIN_SIZE; j++)
+      make_oscar(i, j);
   }
+}
+
+unsigned
+filesrv::get_oscar(unsigned fsno)
+{
+  unsigned i = sfs_trash_next[fsno][0];
+  unsigned r = sfs_trash_next[fsno][i+1];
+  return r;
+}
+
+void
+filesrv::update_oscar(unsigned fsno)
+{
+  unsigned i = sfs_trash_next[fsno][0];
+  if (sfs_trash_next[fsno][0] == SFS_TRASH_WIN_SIZE-1)
+    sfs_trash_next[fsno][0] = 0;
+  else
+    sfs_trash_next[fsno][0]++;
+  make_oscar(fsno, i);
+}
+
+void
+filesrv::make_oscar(unsigned fsno, unsigned trash_idx)
+{
+  sfs_trash_next[fsno][trash_idx+1] = rnd.getword() % SFS_TRASH_DIR_SIZE; 
+  unsigned r = sfs_trash_next[fsno][trash_idx+1];
+  str rstr = armor32((void*)&r, sizeof(r));
+  char tmpfile[7+rstr.len()+1];
+  sprintf(tmpfile, "oscar.%s", rstr.cstr());
+   
+  diropargs3 arg;
+  arg.name = tmpfile;
+  arg.dir = sfs_trash_fhs[fsno];
+  wccstat3 *res = New wccstat3;
+  c->call (NFSPROC3_REMOVE, &arg, res,
+	   wrap (this, &filesrv::make_oscar_cb, res), auth_default);
+}
+
+void
+filesrv::make_oscar_cb(wccstat3 *res, clnt_stat err)
+{
+  delete res;
 }
 
 void

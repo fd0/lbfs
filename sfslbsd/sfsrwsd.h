@@ -86,6 +86,9 @@ struct tmpfh_table {
         &tmpfh_record::fh, &tmpfh_record::hlink> tab;
 };
 
+#define SFS_TRASH_DIR_SIZE 10000 // number of files
+#define SFS_TRASH_WIN_SIZE 32    // 32 empty slots to nfs3_link to
+
 struct filesys {
   typedef qhash<u_int64_t, u_int64_t> inotab_t;
 
@@ -131,6 +134,9 @@ public:
 
   vec<filesys> fstab;
   vec<nfs_fh3> sfs_trash_fhs;
+  unsigned get_oscar(unsigned fsno);
+  void update_oscar(unsigned fsno);
+
   ihash<nfs_fh3, filesys, &filesys::fh_root, &filesys::rhl, hashfh3> root3tab;
   ihash<nfs_fh3, filesys, &filesys::fh_mntpt, &filesys::mphl, hashfh3> mp3tab;
 
@@ -178,6 +184,10 @@ private:
 #endif CHECK_BOUNDS
     return fsp - fstab.base ();
   }
+
+  vec<unsigned*> sfs_trash_next;
+  void make_oscar(unsigned fsno, unsigned trash_idx);
+  void make_oscar_cb(wccstat3 *res, clnt_stat err);
 
 public:
   synctab *const st;
@@ -252,9 +262,12 @@ class client : public virtual refcount, public sfsserv {
   void renamecb_2 (svccb *sbp, rename3res *rres, filesrv::reqstate rqs,
 		   lookup3res *ares, clnt_stat err);
 
-  void removecb (svccb *sbp, rename3res *rnres, filesrv::reqstate rqs, 
-                 clnt_stat err);
-  void remove (svccb *sbp, filesrv::reqstate rqs);
+  void normal_dispatch (svccb *, filesrv::reqstate rqs);
+  
+  void oscar_add_cb (svccb *sbp, filesrv::reqstate rqs,
+                     link3res *lnres, clnt_stat err);
+  void oscar_lookup_cb (svccb *sbp, filesrv::reqstate rqs,
+                        lookup3res *, clnt_stat err);
 
   void condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, size_t count,
                            write3res *, str err);
