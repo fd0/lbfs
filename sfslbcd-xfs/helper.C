@@ -1054,6 +1054,7 @@ struct read_obj {
 	  msg.header.opcode = XFS_MSG_INSTALLDATA;
 	  h0 = (struct xfs_message_header *) &msg;
 	  h0_len = sizeof (msg);
+	  e->incache = true;
 	  xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 					    h0, h0_len, NULL, 0);
 	  notified = true;
@@ -1097,6 +1098,7 @@ struct read_obj {
     nfs3_read(0, NFS_MAXDATA);
     nfs3_read(NFS_MAXDATA, NFS_MAXDATA);
     readrpc_window = 2;
+    warn << "readrpc window starts at 2\n";
     next_offset = NFS_MAXDATA*2;
   }
 };
@@ -1133,6 +1135,8 @@ struct readfile_obj {
     } 
     nfstime3 maxtime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
     if (greater (maxtime, e->ltime)) {
+      if (lbcd_trace > 0)
+	warn << e->name << " m/ctime greater than ltime, update\n";
       if (lbfs > 1)
 	lbfs_getfp (fd, hh, e, sa, c, cb);
       else
@@ -1165,6 +1169,8 @@ struct readfile_obj {
     }
     
     if (!e->incache) {
+      if (lbcd_trace > 0)
+        warn << e->name << " not in cache, need to read\n";
       if (lbfs > 1)
 	lbfs_getfp (fd, hh, e, sa, c, cb);
       else
