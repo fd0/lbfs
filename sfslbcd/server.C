@@ -26,6 +26,7 @@
 #define warn_debug  if (0) warn
 
 #include <typeinfo>
+#include "nfs3_prot.h"
 #include "sfslbcd.h"
 #include "axprt_crypt.h"
 #include "axprt_compress.h"
@@ -745,6 +746,20 @@ server::dont_run_rpc (nfscall *nc)
 
   nfs_fh3 *fh = static_cast<nfs_fh3 *> (nc->getvoidarg ());
   file_cache *e = file_cache_lookup(*fh);
+
+  uint32 access;
+  if (nc->proc () == NFSPROC3_READ)
+    access = ACCESS3_READ;
+  else if (nc->proc () == cl_NFSPROC3_CLOSE)
+    access = ACCESS3_READ | ACCESS3_LOOKUP;
+  else
+    access = ACCESS3_MODIFY;
+  int32_t perm = ac.access_lookup (*fh, nc->getaid (), access);
+  if (perm == 0) {
+    warn << "proc " << nc->proc () << ": no access information available\n";
+    nc->reject (SYSTEM_ERR);
+    return true;
+  }
 
   if (e) {
     if (nc->proc () == NFSPROC3_COMMIT) {
