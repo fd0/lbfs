@@ -21,7 +21,6 @@
 
 #ifndef __XFS_H_V
 #define __XFS_H_V 1
-#define DEBUG 3
 
 #include <stdarg.h>
 #include <xfs/xfs_message.h>
