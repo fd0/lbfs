@@ -1,12 +1,4 @@
 
-run loss rate tests
-
-test directory invalidate with 2 clients
-test file system correctness
-
-write test cases for
- - open, open, write, close, write, close
-
 lbfs: rename the cached file to another name before fetching a new
 version; so we retain the old data
 
