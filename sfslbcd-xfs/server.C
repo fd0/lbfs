@@ -21,6 +21,7 @@
 
 #include "xfs.h"
 #include "xfs-sfs.h"
+#include "xfs-nfs.h"
 #include "cache.h"
 #include "crypt.h"
 
@@ -49,7 +50,6 @@ xfs_getroot (ref<xfscall> xfsc)
   
   lbfs_getroot (xfsc->fd, *((xfs_message_getroot *) xfsc->argp), 
 		xfsc->getaid (), sfsc, nfsc);
-
 }
 
 void 
@@ -64,21 +64,51 @@ xfs_getnode (ref<xfscall> xfsc)
     << (int) h->parent_handle.c << ","
     << (int) h->parent_handle.d << ")\n";
 #endif
-  
+
   lbfs_getnode (xfsc->fd, *h, xfsc->getaid (), nfsc);
 }
 
 void 
 xfs_getattr (ref<xfscall> xfsc) 
 {
+  xfs_message_getattr *h = (xfs_message_getattr *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_getattr\n";
+  warn << h->header.sequence_num << ":" <<" xfs_handle ("
+    << (int) h->handle.a << ","
+    << (int) h->handle.b << ","
+    << (int) h->handle.c << ","
+    << (int) h->handle.d << ")\n";
+#endif
   
+  cache_entry *e = xfsindex[h->handle];
+  if (!e)
+    xfs_reply_err (xfsc->fd, h->header.sequence_num, ENOENT);
+  else lbfs_getattr (xfsc->fd, *h, xfsc->getaid (), e->nh, nfsc, NULL);
 }
 
 void 
 xfs_getdata (ref<xfscall> xfsc) 
 {
-
+  xfs_message_getdata *h = (xfs_message_getdata *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_getdata\n";
+  warn << h->header.sequence_num << ":" <<" xfs_handle ("
+    << (int) h->handle.a << ","
+    << (int) h->handle.b << ","
+    << (int) h->handle.c << ","
+    << (int) h->handle.d << ")\n";
+#endif
   
+  cache_entry *e = xfsindex[h->handle];
+  if (!e) {
+    xfs_reply_err (xfsc->fd, h->header.sequence_num, ENOENT);
+    return;
+  }
+  assert (e->nfs_attr.type != NF3DIR);
+  if (e->incache)
+    lbfs_readexist (xfsc->fd, *h, e);
+  else lbfs_open (xfsc->fd, *((xfs_message_open *)h), xfsc->getaid (), nfsc);
 }
 
 void 

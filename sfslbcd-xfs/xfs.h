@@ -29,6 +29,7 @@
 #include "arpc.h"
 #include "lbfs_prot.h"
 #include "xfs-sfs.h"
+#include "cache.h"
 
 /* xfs.C */
 void xfs_message_init (void);
@@ -111,6 +112,7 @@ void lbfs_getattr (int, xfs_message_getattr &, sfs_aid, const nfs_fh3 &,
 		   ref<aclnt>, callback<void, const ex_getattr3res *, clnt_stat>);
 void lbfs_open (int fd, const xfs_message_open &h, sfs_aid sa, 
 		ref<aclnt> c);
+void lbfs_readexist (int fd, const xfs_message_getdata &h, cache_entry *e);
 void lbfs_create (int fd, const xfs_message_create &h, sfs_aid sa, 
 		  ref<aclnt> c);
 void lbfs_link (int fd, const xfs_message_link &h, sfs_aid sa, 

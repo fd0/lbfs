@@ -317,12 +317,12 @@ struct readlink_obj {
       e->nfs_attr = *rlres->resok->symlink_attributes.attributes;
       e->set_exp (rqt);
       e->ltime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
+      nfsobj2xfsnode (h.cred, e, &msg.node);
       msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R | XFS_OPEN_NW | XFS_DATA_W;
 
       int lfd = assign_cachefile (fd, h.header.sequence_num, e, 
 				  msg.cache_name, &msg.cache_handle);
-      if (lfd < 0) 
-	return;
+
       write (lfd, rlres->resok->data.cstr (), rlres->resok->data.len ());
       close (lfd);
       e->incache = true;
@@ -364,10 +364,8 @@ lbfs_readexist (int fd, const xfs_message_getdata &h, cache_entry *e)
 
   nfsobj2xfsnode (h.cred, e, &msg.node);
   msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R; // | XFS_OPEN_NW | XFS_DATA_W;
-  int cfd = assign_cachefile (fd, h.header.sequence_num, e, 
-				  msg.cache_name, &msg.cache_handle);
-  assert (cfd >= 0);
-  close (cfd);
+  assign_cachefile (fd, h.header.sequence_num, e, 
+		    msg.cache_name, &msg.cache_handle);
 
   struct xfs_message_header *h0 = NULL;
   size_t h0_len = 0;
@@ -453,8 +451,6 @@ struct readdir_obj {
       warn << "installdir: seq_num = " << h.header.sequence_num << "\n";
       args.fd = assign_cachefile (fd, h.header.sequence_num, e, 
 				  msg.cache_name, &msg.cache_handle);
-      if (args.fd < 0)
-	delete this;
       write_dirfile (args, msg, clnt_stat (0));
     } else {
       xfs_reply_err (fd, h.header.sequence_num, err ? err : rdres->status);      
@@ -571,11 +567,8 @@ struct getfp_obj {
     e->cache_name = out_fname;
     e->incache = true;
 
-    int cfd = assign_cachefile (fd, h.header.sequence_num, e, 
-				msg.cache_name, &msg.cache_handle);
-    if (cfd < 0)
-      delete this;
-    close(cfd);
+    assign_cachefile (fd, h.header.sequence_num, e, 
+		      msg.cache_name, &msg.cache_handle);
 
     nfsobj2xfsnode (h.cred, e, &msg.node);
     msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R; // | XFS_OPEN_NW | XFS_DATA_W;
@@ -1033,10 +1026,8 @@ struct create_obj {
       }
       nfsobj2xfsnode (cred, e1, &msg2.node);
     
-      int new_fd = assign_cachefile (fd, h.header.sequence_num, e, 
-				     msg3.cache_name, &msg3.cache_handle);
-      if (new_fd < 0)
-	delete this;
+      assign_cachefile (fd, h.header.sequence_num, e, 
+			msg3.cache_name, &msg3.cache_handle);
       
       strcpy (msg1.cache_name, e->cache_name);
       assert (res->resok->dir_wcc.after.present);
@@ -1165,10 +1156,10 @@ struct link_obj {
 
       //change attributes of parent dir
       //in the future implement local content change too..
-      int pfd = assign_cachefile (fd, h.header.sequence_num, e2, 
-				  msg1.cache_name, &msg1.cache_handle);
-      assert (pfd >= 0 && res->res->linkdir_wcc.after.present);
-      close (pfd);
+      assign_cachefile (fd, h.header.sequence_num, e2, 
+			msg1.cache_name, &msg1.cache_handle);
+
+      assert (res->res->linkdir_wcc.after.present);
       e2->nfs_attr = *(res->res->linkdir_wcc.after.attributes);
       e2->set_exp (rqt, true);
       nfsobj2xfsnode (h.cred, e2, &msg1.node);
@@ -1256,10 +1247,9 @@ struct symlink_obj {
       struct xfs_message_header *h1 = NULL;
       size_t h1_len = 0;
 
-      int cfd = assign_cachefile (fd, h.header.sequence_num, e, 
-				  msg1.cache_name, &msg1.cache_handle);
-      assert (cfd >= 0);
-      close (cfd);
+      assign_cachefile (fd, h.header.sequence_num, e, 
+			msg1.cache_name, &msg1.cache_handle);
+
       assert (res->resok->dir_wcc.after.present);
       e->nfs_attr = *(res->resok->dir_wcc.after.attributes);
       nfsobj2xfsnode (h.cred, e, &msg1.node);
@@ -1278,7 +1268,7 @@ struct symlink_obj {
       msg2.node.tokens = XFS_ATTR_R;
       msg2.parent_handle = h.parent_handle;
       strlcpy (msg2.name, h.name, sizeof (msg2.name));
-
+      
       msg2.header.opcode = XFS_MSG_INSTALLNODE;
       h1 = (struct xfs_message_header *) &msg2;
       h1_len = sizeof (msg2);
