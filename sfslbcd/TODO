@@ -1,5 +1,9 @@
 
 cache readdir replies
+cache lookup replies
+
+minimize number of RPCs to server; for those that need to go to
+server; can we be optimistic about them?
 
 run file system correctness tests on lbfs and lbfs-a. make sure things
 like close, setattr, getattr ends up returning the right attr even if

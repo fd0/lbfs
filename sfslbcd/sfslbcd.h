@@ -34,6 +34,19 @@
 #include "lrucache.h"
 #include "ranges.h"
 
+inline bool
+operator== (const nfs_fh3 &a, const nfs_fh3 &b)
+{
+  return a.data.size () == b.data.size ()
+    && !memcmp (a.data.base (), b.data.base (), b.data.size ());
+}
+
+inline bool
+operator!= (const nfs_fh3 &a, const nfs_fh3 &b)
+{
+  return !(a == b);
+}
+
 inline
 const strbuf &
 strbuf_cat(const strbuf &b, nfs_fh3 fh)
@@ -174,6 +187,7 @@ protected:
   bool async_close;
   attr_cache ac;
   lrucache<nfs_fh3, file_cache *> fc;
+  lrucache<nfs_fh3, vec<filename3>* > nlc;
 
   void dispatch_dummy (svccb *sbp);
   void cbdispatch (svccb *sbp);
@@ -202,10 +216,65 @@ protected:
     return n;
   }
 
+  void nlc_insert (nfs_fh3 fh, filename3 name) {
+    vec<filename3> *v;
+    vec<filename3> **vp = nlc[fh];
+    if (!vp) {
+      v = New vec<filename3>;
+      nlc.insert(fh, v);
+    }
+    else
+      v = *vp;
+    for (unsigned i=0; i<v->size(); i++) {
+      if ((*v)[i] == "") {
+	(*v)[i] = name;
+	return;
+      }
+    }
+    v->push_back(name);
+  }
+
+  bool nlc_lookup (nfs_fh3 fh) {
+    vec<filename3> **vp = nlc[fh];
+    return (vp != 0);
+  }
+
+  bool nlc_lookup (nfs_fh3 fh, filename3 name) {
+    vec<filename3> **vp = nlc[fh];
+    if (vp) {
+      vec<filename3> *v = *vp;
+      for (unsigned i=0; i<v->size(); i++) {
+        if ((*v)[i] == name)
+	  return true;
+      }
+    }
+    return false;
+  }
+
+  void nlc_remove (nfs_fh3 fh, filename3 name) {
+    vec<filename3> **vp = nlc[fh];
+    if (vp) {
+      vec<filename3> *v = *vp;
+      for (unsigned i=0; i<v->size(); i++) {
+        if ((*v)[i] == name)
+	  (*v)[i] = "";
+      }
+    }
+  }
+
+  void nlc_remove (nfs_fh3 fh) {
+    vec<filename3> **vp = nlc[fh];
+    if (vp) {
+      nlc.remove(fh);
+      delete *vp;
+    }
+  }
+
   void file_cache_insert (nfs_fh3 fh) {
     file_cache *f = New file_cache(fh);
     fc.insert(fh,f);
   }
+
   file_cache *file_cache_lookup (nfs_fh3 fh) {
     file_cache **e = fc[fh];
     if (e) {
@@ -214,7 +283,9 @@ protected:
     }
     return 0;
   }
-  void file_cache_remove (file_cache *e);
+
+  void file_cache_gc_remove (file_cache *e);
+  void nlc_gc_remove (vec<filename3> *v);
 
 public:
   typedef sfsserver_auth super;

@@ -58,7 +58,8 @@ a file; whereas attributes from the file cache may reflect changes yet
 to be flushed to the server.
 
 when a file is dirty or being flushed, GETATTR uses attribute from
-file cache.
+file cache. in fact, we intercept ACCESS, GETATTR, SETATTR, and LOOKUP
+replies and change the size attribute to that in the file cache.
 
 write: on each write, update the size in file cache. always return
 FILE_SYNC, because on CLOSE we commit everything on server.

@@ -22,7 +22,7 @@
 
 // implementation description is in "notes"
 
-#define DEBUG 1
+#define DEBUG 0
 
 #include <typeinfo>
 #include "sfslbcd.h"
@@ -286,6 +286,8 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
   // size from the file cache. in case of SETATTR, we want to update
   // the cached file's attribute with attribute from server, ignoring
   // the server's size and mtime values.
+  //
+  // also intercept RPCs that may affect the negative lookup cache.
 
   if (nc->proc () == NFSPROC3_ACCESS) {
     access3args *a = nc->template getarg<access3args> ();
@@ -299,6 +301,7 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     }
   }
   else if (nc->proc () == NFSPROC3_LOOKUP) {
+    diropargs3 *a = nc->template getarg<diropargs3> ();
     ex_lookup3res *r = static_cast<ex_lookup3res *> (res);
     file_cache *e = 0;
     if (!r->status && (e = file_cache_lookup(r->resok->object)) &&
@@ -307,6 +310,20 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 	assert(e->is_dirty() || e->is_flush());
 	(r->resok->obj_attributes.attributes)->size = e->fa.size;
       }
+    }
+    if (r->status == NFS3ERR_NOENT && r->resfail->present)
+      nlc_insert(a->dir, a->name);
+    else if (!r->status)
+      nlc_remove(a->dir, a->name);
+  }
+  else if (nc->proc () == NFSPROC3_READDIR) {
+    readdir3args *a = nc->template getarg<readdir3args> ();
+    ex_readdir3res *r = static_cast<ex_readdir3res *> (res);
+    if (r->status)
+      nlc_remove(a->dir);
+    else {
+      for (entry3 *e = r->resok->reply.entries; e; e = e->nextentry)
+	nlc_remove(a->dir, e->name);
     }
   }
   else if (nc->proc () == NFSPROC3_GETATTR) {
@@ -385,6 +402,11 @@ server::cbdispatch (svccb *sbp)
 	a->expire += timenow;
       }
       ac.attr_enter (xa->handle, a, NULL);
+
+      // if directory has been invalidated, clear negative lookup cache
+      if (nlc_lookup(xa->handle))
+        nlc_remove(xa->handle);
+
       sbp->reply (NULL);
       break;
     }
@@ -625,6 +647,58 @@ server::dispatch (nfscall *nc)
     warn << "sfslbcd sees COMMIT, forward to server\n";
   }
 
+  else if (nc->proc () == NFSPROC3_LOOKUP) {
+    diropargs3 *a = nc->template getarg<diropargs3> ();
+    bool has_negative = nlc_lookup(a->dir, a->name);
+    if (has_negative) {
+      const ex_fattr3 *f = ac.attr_lookup (a->dir);
+      if (f) {
+        lookup3res res(NFS3ERR_NOENT);
+        res.resfail->set_present (true);
+        *res.resfail->attributes = *reinterpret_cast<const fattr3 *> (f);
+        nc->reply (&res);
+	return;
+      }
+    }
+    warn << "lookup " << a->name << "\n";
+  }
+ 
+  // these operations invalidate entries in the negative lookup cache
+  else if (nc->proc () == NFSPROC3_CREATE ||
+           nc->proc () == NFSPROC3_MKDIR ||
+	   nc->proc () == NFSPROC3_SYMLINK ||
+	   nc->proc () == NFSPROC3_RENAME ||
+	   nc->proc () == NFSPROC3_LINK) {
+    nfs_fh3 dir;
+    filename3 name;
+    if (nc->proc() == NFSPROC3_CREATE) {
+      create3args *a = nc->template getarg<create3args> ();
+      dir = a->where.dir;
+      name = a->where.name;
+    }
+    else if (nc->proc() == NFSPROC3_MKDIR) {
+      mkdir3args *a = nc->template getarg<mkdir3args> ();
+      dir = a->where.dir;
+      name = a->where.name;
+    }
+    else if (nc->proc() == NFSPROC3_SYMLINK) {
+      symlink3args *a = nc->template getarg<symlink3args> ();
+      dir = a->where.dir;
+      name = a->where.name;
+    }
+    else if (nc->proc() == NFSPROC3_RENAME) {
+      rename3args *a = nc->template getarg<rename3args> ();
+      dir = a->to.dir;
+      name = a->to.name;
+    }
+    else if (nc->proc() == NFSPROC3_LINK) {
+      link3args *a = nc->template getarg<link3args> ();
+      dir = a->link.dir;
+      name = a->link.name;
+    }
+    nlc_remove(dir, name);
+  }
+
   void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
   nfsc->call (nc->proc (), nc->getvoidarg (), res,
 	      wrap (mkref(this), &server::getreply, timenow, nc, res),
@@ -632,12 +706,18 @@ server::dispatch (nfscall *nc)
 }
 
 void
-server::file_cache_remove (file_cache *e)
+server::file_cache_gc_remove (file_cache *e)
 {
   str fn = fh2fn(e->fh);
   warn << "remove " << fn << "\n";
   if (unlink(fn.cstr()) < 0)
     perror("removing cache file");
   delete e;
+}
+
+void
+server::nlc_gc_remove (vec<filename3> *v)
+{
+  delete v;
 }
 
