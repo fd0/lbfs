@@ -21,7 +21,7 @@
  *
  */
 
-#include "sfsrwsd.h"
+#include "sfslbsd.h"
 
 #define NFS3_BLOCK_SIZE 8192
 #define CONCURRENT_READS 4

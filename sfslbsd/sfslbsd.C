@@ -21,7 +21,7 @@
  *
  */
 
-#include "sfsrwsd.h"
+#include "sfslbsd.h"
 #include "parseopt.h"
 
 #include "aios.h"
@@ -304,7 +304,7 @@ main (int argc, char **argv)
 
   sfsconst_init ();
   if (!configfile)
-    configfile = sfsconst_etcfile_required ("sfsrwsd_config");
+    configfile = sfsconst_etcfile_required ("sfslbsd_config");
   filesrv *fsrv = parseconfig (configfile);
 
   random_init_file (sfsdir << "/random_seed");

@@ -24,7 +24,7 @@
 #include "nfstrans.h"
 #include "nfs3_nonnul.h"
 #include "lbfs.h"
-#include "sfsrwsd.h"
+#include "sfslbsd.h"
 
 #define LBSD_GC_PERIOD 120
 #define CHUNKS_PER_GC  1024

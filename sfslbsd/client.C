@@ -24,7 +24,7 @@
 #include "sha1.h"
 #include "crypt.h"
 #include "serial.h"
-#include "sfsrwsd.h"
+#include "sfslbsd.h"
 #include <grp.h>
 #include "arpc.h"
 

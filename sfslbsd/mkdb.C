@@ -16,7 +16,7 @@
 
 #include "fingerprint.h"
 #include "lbfsdb.h"
-#include "sfsrwsd.h"
+#include "sfslbsd.h"
 #include "ihash.h"
 
 ptr<aclnt> _mountc;

@@ -56,7 +56,7 @@
  * directories they do not have execute permission on.
  */
 
-#include "sfsrwsd.h"
+#include "sfslbsd.h"
 #include "ihash.h"
 #include "blowfish.h"
 
