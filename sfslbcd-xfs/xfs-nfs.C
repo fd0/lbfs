@@ -263,20 +263,20 @@ int xfsattr2nfsattr(uint32 opcode, xfs_attr xa, sattr3 *na) {
   if (opcode != XFS_MSG_CREATE) {
     if (XA_VALID_UID(&xa)) {
       na->uid.set_set(true);
-      warn << "xfs_uid = " << xa.xa_uid << "\n";
+      // warn << "xfs_uid = " << xa.xa_uid << "\n";
       *na->uid.val = xa.xa_uid;
     }
     
     if (XA_VALID_GID(&xa)) {
       na->gid.set_set(true);
-      warn << "xfs_gid = " << xa.xa_gid << "\n";
+      // warn << "xfs_gid = " << xa.xa_gid << "\n";
       *na->gid.val = xa.xa_gid;
     }
   }
 
   if (XA_VALID_SIZE(&xa)) {
     na->size.set_set(true);
-    warn << "xfs_size = " << xa.xa_size << "\n";
+    // warn << "xfs_size = " << xa.xa_size << "\n";
     *na->size.val = xa.xa_size;
   }
 

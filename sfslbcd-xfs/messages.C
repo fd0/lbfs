@@ -311,8 +311,8 @@ write_dirfile (int fd, ref<struct xfs_message_open> h, //cache_entry *e,
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				      h0, h0_len, NULL, 0);
 
-    unsigned exp = e->nfs_attr.expire - timenow + 1;
-    delaycb(exp, wrap(&xfs_expire_node_cb, fd, msg.node, h->handle));
+    // unsigned exp = e->nfs_attr.expire - timenow + 1;
+    // delaycb(exp, wrap(&xfs_expire_node_cb, fd, msg.node, h->handle));
   }
 }
 
@@ -1051,7 +1051,7 @@ nfs3_write (ref<condwrite3args > cwa, ref<ex_write3res > res, clnt_stat err)
 
   if (!err && res->status == NFS3_OK) {
     cwa->blocks_written++;
-    if ( /*cwa->done && */ cwa->blocks_written == cwa->total_blocks)
+    if (cwa->blocks_written == cwa->total_blocks && cwa->eof)
       sendcommittmp (cwa);
   }
   else {
@@ -1087,7 +1087,7 @@ sendwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
     count -= err;
     offst += err;
     if (err < 0) {
-      warn << "lbfs_condwrite: error: " << strerror (errno) << "(" << errno << ")\n";
+      warn << "sendwrite: error: " << strerror (errno) << "(" << errno << ")\n";
       return;
     }
     write3args wa;
@@ -1115,7 +1115,7 @@ lbfs_sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk,
       return;
     }
     cwa->blocks_written++;
-    if ( /*cwa->done && */ cwa->blocks_written == cwa->total_blocks)
+    if (cwa->blocks_written == cwa->total_blocks && cwa->eof)
       sendcommittmp (cwa);
   }
   else {
@@ -1150,16 +1150,18 @@ sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
 
   lseek (rfd, chunk->loc.pos (), SEEK_SET);
   char buf[cw.count];
-  int err = read (rfd, buf, cw.count);
-  if (err < 0) {
-    warn << "lbfs_condwrite: error: " << strerror (errno) << "(" << errno << ")\n";
-    return;
+  unsigned total_read = 0;
+  while (total_read < cw.count) {
+    int err = read (rfd, &buf[total_read], cw.count);
+    if (err < 0) {
+      warn << "lbfs_condwrite: error: " << strerror (errno) 
+           << "(" << errno << ")\n"; 
+      return;
+    }
+    total_read += err;
   }
-  else if (uint (err) != cw.count) {
-    warn << "reading: chunk size " << cw.count << " got " << err << "\n";
-    return;
-  }
-  sha1_hash (&cw.hash, buf, err);
+  assert(total_read == cw.count);
+  sha1_hash (&cw.hash, buf, total_read);
   close (rfd);
 
   ref<ex_write3res > res = New refcounted < ex_write3res >;
@@ -1209,27 +1211,25 @@ lbfs_mktmpfile (int fd, ref<struct xfs_message_putdata> h,
   while ((count = read(data_fd, buf, 4096)) > 0) {
     cwa->chunker->chunk(buf, count);
     if (cwa->chunker->chunk_vector().size() > v_size) {
-      //send condwrite request on last_index..size()
       v_size = cwa->chunker->chunk_vector().size();
       cwa->total_blocks = v_size;
-      warn << "chindex = " << index << " size = " << v_size << "\n";
-      sendcondwrite(cwa, cwa->chunker->chunk_vector()[index++]);
+      for (; index < v_size; index++) {
+        warn << "chindex = " << index << " size = " << v_size << "\n";
+        sendcondwrite(cwa, cwa->chunker->chunk_vector()[index]);
+      }
     }
   }
   cwa->chunker->stop();
+  v_size = cwa->chunker->chunk_vector().size();
   close(data_fd);
-  cwa->done = true;
   cwa->total_blocks = cwa->chunker->chunk_vector().size();
-  warn << "blocks written = " << cwa->blocks_written
-    << " total_blocks = " << cwa->total_blocks << "\n";
-  if (index + 1 != cwa->total_blocks) {
-    warn << "lbfs_mktmpfile: index = " << index << " total = " << cwa->total_blocks
-      << "still more chunks!!!\n";
+  for (; index < v_size; index++) {
+    warn << "chindex = " << index << " size = " <<  cwa->total_blocks<< "\n";
+    sendcondwrite(cwa, cwa->chunker->chunk_vector()[index]);
   }
-  for (uint i=index; i<cwa->total_blocks; i++) {
-    warn << "chindex = " << i << " size = " <<  cwa->total_blocks<< "\n";
-    sendcondwrite(cwa, cwa->chunker->chunk_vector()[i]);    
-  }
+  cwa->total_blocks = v_size;
+  cwa->eof = true;
+  warn << "total_blocks = "  << cwa->total_blocks << "\n";
 }
 
 int 

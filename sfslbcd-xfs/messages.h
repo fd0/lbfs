@@ -42,9 +42,10 @@
 
 class condwrite3args {
 public:
-  condwrite3args(int filedesc, ref<struct xfs_message_putdata> msg, nfs_fh3 tfh) :
-    fd(filedesc), h(msg), tmpfh(tfh), blocks_written(0), total_blocks(0), 
-    done(false), chunker(0) { 
+  condwrite3args(int filedesc, ref<struct xfs_message_putdata> msg, 
+                 nfs_fh3 tfh) 
+    : fd(filedesc), h(msg), tmpfh(tfh), 
+      blocks_written(0), total_blocks(0), chunker(0), eof(false) {
     fname = New char[MAXPATHLEN];
   }
   ~condwrite3args() { 
@@ -55,12 +56,11 @@ public:
   int fd;
   ref<struct xfs_message_putdata> h;
   nfs_fh3 tmpfh;
-  //int rfd;
   char *fname;
   uint blocks_written;
   uint total_blocks;
-  bool done;
   Chunker *chunker;
+  bool eof;
 };
 
 class getfp_args {

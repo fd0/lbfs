@@ -169,7 +169,7 @@ int
 xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 {
 
-  warn ("*********CLIENT: bytes SENT = %lu   bytes RECEIVED = %lu  ***********\n", xc->bytes_sent, xc->bytes_recv);
+  // warn ("*********CLIENT: bytes SENT = %lu   bytes RECEIVED = %lu  ***********\n", xc->bytes_sent, xc->bytes_recv);
 
   unsigned opcode = h->opcode;
   

@@ -579,8 +579,8 @@ client::client (ref<axprt_crypt> xx)
   nfssrv = asrv::alloc (x, lbfs_program_3,
 			wrap (mkref (this), &client::nfs3dispatch));
   nfscbc = aclnt::alloc (x, lbfscb_program_3);
-  authtab[0] = authunix_create ("localhost", (uid_t) -1,
-				(gid_t) -1, 0, NULL);
+  authtab[0] = authunix_create ("localhost", (uid_t) 32767,
+				(gid_t) 9999, 0, NULL);
   clienttab.insert (this);
 
   fpdb.open (FP_DB);
