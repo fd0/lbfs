@@ -37,7 +37,7 @@ mapfile (const u_char **bufp, size_t *sizep, const char *path)
 }
 
 int
-chunk_file(const char *path, vec<u_int64_t> *fvp, vec<lbfs_chunk *> *cvp)
+chunk_file(const char *path, vec<lbfs_chunk *> *cvp)
 {
   const u_char *fp;
   size_t fl;
@@ -45,26 +45,28 @@ chunk_file(const char *path, vec<u_int64_t> *fvp, vec<lbfs_chunk *> *cvp)
     return -1;
 
   u_int64_t poly = FINGERPRINT_PT;
+  u_int64_t f_break = 0;
+  u_int64_t f_chunk = 0;
   window w (poly);
-  u_int64_t f = 0;
   w.reset();
  
   size_t last_i = 0;
   size_t i = 0;
-  for (i = 0; i < fl;) {
-    f = w.slide8 (fp[i]);
-    if ((f % BREAKMARK_K) == BREAKMARK_X) {
-      lbfs_chunk *c = new lbfs_chunk(path, last_i, i-last_i);
-      fvp->push_back(f);
+  for (i = 0; i < fl; i++) {
+    f_break = w.slide8 (fp[i]);
+    f_chunk = w.append8 (f_chunk, fp[i]);
+    if ((f_break % BREAKMARK_K) == BREAKMARK_X) {
+      lbfs_chunk *c = new lbfs_chunk(path, last_i, i-last_i, f_chunk);
       cvp->push_back(c);
       w.reset();
+      f_chunk = 0;
       last_i = i;
     }
-    i++;
   }
-  lbfs_chunk *c = new lbfs_chunk(path, last_i, i-last_i); 
-  fvp->push_back(f);
+  lbfs_chunk *c = new lbfs_chunk(path, last_i, i-last_i, f_chunk); 
   cvp->push_back(c);
+
+  munmap((void*)fp, fl);
   return 0;
 }
 

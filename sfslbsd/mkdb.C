@@ -5,7 +5,6 @@
 #include <dirent.h>
 #include <unistd.h>
 
-#include "rabinpoly.h"
 #include "chunking.h"
 #include "lbfsdb.h"
 
@@ -32,12 +31,10 @@ add_directory(const char *path, lbfs_db &db)
     if (S_ISDIR(sb.st_mode))
       add_directory(fullpath, db);
     else if (S_ISREG(sb.st_mode)) {
-      vec<u_int64_t> fv;
       vec<lbfs_chunk *> cv;
-      if (chunk_file(fullpath, &fv, &cv) == 0) {
-        // printf("adding %d for %s\n", fv.size(), fullpath);
-        for(unsigned i=0; i<fv.size(); i++) {
-          db.add_chunk(fv[i], cv[i]);
+      if (chunk_file(fullpath, &cv) == 0) {
+        for(unsigned i=0; i<cv.size(); i++) {
+          db.add_chunk(cv[i]->fingerprint, cv[i]);
           delete cv[i];
         }
       }

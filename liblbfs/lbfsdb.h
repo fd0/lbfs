@@ -30,12 +30,14 @@ struct lbfs_chunk {
   char path[MY_PATH_MAX];
   off_t pos;
   size_t size;
+  u_int64_t fingerprint;
 
   lbfs_chunk() {}
-  lbfs_chunk(const char *p, off_t o, size_t s) {
+  lbfs_chunk(const char *p, off_t o, size_t s, u_int64_t f) {
     strncpy(path, p, (strlen(p)+1) > MY_PATH_MAX ? MY_PATH_MAX : (strlen(p)+1));
     pos = o;
     size = s;
+    fingerprint = f;
   }
 };
 
@@ -45,7 +47,8 @@ operator ==(const lbfs_chunk &a, const lbfs_chunk &b)
   return 
     ((strncmp(a.path, b.path, MY_PATH_MAX) == 0) && 
      a.pos == b.pos && 
-     a.size == b.size);
+     a.size == b.size &&
+     a.fingerprint == b.fingerprint);
 }
 
 
@@ -57,8 +60,8 @@ public:
   // open db, returns db3 errnos
   int open(); 
 
-  // search db, given fingerprint, writes chunk info, return db3 errnos
-  int search(u_int64_t fingerprint, lbfs_chunk *c);
+  // search db, given fingerprint, writes chunk ptr, return db3 errnos
+  int search(u_int64_t fingerprint, lbfs_chunk **cp);
 
   // returns db3 errnos
   int add_chunk(u_int64_t fingerprint, lbfs_chunk *c);
