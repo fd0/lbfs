@@ -1117,8 +1117,8 @@ void
 nfs3_write (ref<condwrite3args > cwa, lbfs_chunk *chunk, 
             ref<ex_write3res > res, clnt_stat err)
 {
+  if (outstanding_condwrites > 0) outstanding_condwrites--;
   if (!err && res->status == NFS3_OK) {
-    if (outstanding_condwrites > 0) outstanding_condwrites--;
     warn << cwa->h->header.sequence_num << " nfs3_write: @"
          << chunk->loc.pos() << ", "
          << res->resok->count << " total needed "
@@ -1213,8 +1213,8 @@ void
 lbfs_sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk,
 		    ref<ex_write3res > res, clnt_stat err)
 {
+  if (outstanding_condwrites > 0) outstanding_condwrites--;
   if (!err && res->status == NFS3_OK) {
-    if (outstanding_condwrites > 0) outstanding_condwrites--;
     if (res->resok->count != chunk->loc.count ()) {
       warn << "lbfs_sendcondwrite: did not write the whole chunk...\n";
       sendwrite (cwa, chunk);
