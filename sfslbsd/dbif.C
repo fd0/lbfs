@@ -27,7 +27,7 @@ main(int argc, char *argv[])
   if (ret < 0) printf("ret %d\n", ret);
   else printf("%s, offset %ld, size %d\n", c.path, c.pos, c.size);
       
-  lbfs_chunk c2("dbif2.o", 77102, 1551);
+  lbfs_chunk c2("dbif2.o", 77441, 1551);
   ret = db.remove_chunk(0x54b6fa377b896078LL, &c2); 
   if (ret < 0) printf("ret cdel %d\n", ret);
 

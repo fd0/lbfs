@@ -20,13 +20,11 @@ int
 lbfs_db::open()
 {
   int ret;
+  _dbp.set_flags(DB_DUP | DB_DUPSORT);
   if ((ret = _dbp.open(FMAP_DB, NULL, DB_BTREE, DB_CREATE, 0664)) != 0) { 
     _dbp.err(ret, "%s", FMAP_DB); 
     return ret;
   }
-  // this causes an Abort, not sure why. and apparently,
-  // we don't really need it.
-  // _dbp.set_flags(DB_DUP);
   return 0;
 }
 
@@ -66,10 +64,12 @@ lbfs_db::remove_chunk(u_int64_t f, lbfs_chunk *c)
     
   ret = cursor->get(&key, &data, DB_SET);
 
-  while (ret == 0 && !(*(reinterpret_cast<lbfs_chunk*>(data.get_data()))==*c))
+  while (ret == 0 && data.get_data() 
+         && !(*(reinterpret_cast<lbfs_chunk*>(data.get_data()))==*c))
     ret = cursor->get(&key, &data, DB_NEXT_DUP);
   
-  if (*(reinterpret_cast<lbfs_chunk*>(data.get_data())) == *c)
+  if (data.get_data() && 
+      *(reinterpret_cast<lbfs_chunk*>(data.get_data())) == *c)
     ret = cursor->del(0);
   return ret;
 }
