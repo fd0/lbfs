@@ -1,0 +1,123 @@
+Index: nfs/nfs.h
+===================================================================
+RCS file: /home/cr1/benjie/cvsroot/freebsd/nfs/nfs.h,v
+retrieving revision 1.1.1.1
+diff -c -r1.1.1.1 nfs.h
+*** nfs/nfs.h	20 May 2002 16:43:15 -0000	1.1.1.1
+--- nfs/nfs.h	22 May 2002 18:11:02 -0000
+***************
+*** 167,172 ****
+--- 167,173 ----
+  #define	NFSMNT_ACREGMAX		0x00080000
+  #define	NFSMNT_ACDIRMIN		0x00100000
+  #define	NFSMNT_ACDIRMAX		0x00200000
++ #define NFSMNT_SENDCLOSE        0x10000000  /* send CLOSE RPCs to server */
+  
+  #define NFSSTA_HASWRITEVERF	0x00040000  /* Has write verifier for V3 */
+  #define NFSSTA_GOTPATHCONF	0x00080000  /* Got the V3 pathconf info */
+***************
+*** 598,603 ****
+--- 599,606 ----
+  			  int *));
+  int	nfs_commit __P((struct vnode *vp, u_quad_t offset, int cnt, 
+  			struct ucred *cred, struct proc *procp));
++ int	nfs_send_close __P((struct vnode *vp, struct ucred *cred,
++                             struct proc *procp));
+  int	nfs_readdirrpc __P((struct vnode *, struct uio *, struct ucred *));
+  int	nfs_asyncio __P((struct buf *, struct ucred *, struct proc *));
+  int	nfs_doio __P((struct buf *, struct ucred *, struct proc *));
+Index: nfs/nfs_vnops.c
+===================================================================
+RCS file: /home/cr1/benjie/cvsroot/freebsd/nfs/nfs_vnops.c,v
+retrieving revision 1.1.1.1
+diff -c -r1.1.1.1 nfs_vnops.c
+*** nfs/nfs_vnops.c	20 May 2002 16:43:16 -0000	1.1.1.1
+--- nfs/nfs_vnops.c	22 May 2002 18:11:02 -0000
+***************
+*** 566,571 ****
+--- 566,576 ----
+  	register struct nfsnode *np = VTONFS(vp);
+  	int error = 0;
+  
++ #if 0
++ 	int fl = VFSTONFS(vp->v_mount)->nm_flag;
++ 	printf("in nfs_close 0x%x, type %d\n",fl, vp->v_type);
++ #endif
++ 
+  	if (vp->v_type == VREG) {
+  	    if ((VFSTONFS(vp->v_mount)->nm_flag & NFSMNT_NQNFS) == 0 &&
+  		(np->n_flag & NMODIFIED)) {
+***************
+*** 595,600 ****
+--- 600,607 ----
+  		np->n_flag &= ~NWRITEERR;
+  		error = np->n_error;
+  	    }
++ 	    if ((VFSTONFS(vp->v_mount)->nm_flag & NFSMNT_SENDCLOSE))
++ 	      nfs_send_close(vp, ap->a_cred, ap->a_p);
+  	}
+  	return (error);
+  }
+***************
+*** 2674,2679 ****
+--- 2681,2711 ----
+  			error = NFSERR_STALEWRITEVERF;
+  		}
+  	}
++ 	nfsm_reqdone;
++ 	return (error);
++ }
++ 
++ /*
++  * send a CLOSE RPC to servers that supports it
++  */
++ int
++ nfs_send_close(vp, cred, procp)
++ 	struct vnode *vp;
++ 	struct ucred *cred;
++ 	struct proc *procp;
++ {
++ 	register caddr_t cp;
++ 	register u_int32_t *tl;
++ 	register int32_t t2;
++ 	register struct nfsmount *nmp = VFSTONFS(vp->v_mount);
++ 	caddr_t bpos, dpos;
++ 	int error = 0;
++ 	struct mbuf *mreq, *mrep, *md, *mb, *mb2;
++ 	
++ 	nfsstats.rpccnt[NFSPROC_CLOSE]++;
++ 	nfsm_reqhead(vp, NFSPROC_CLOSE, NFSX_FH(1));
++ 	nfsm_fhtom(vp, 1);
++ 	nfsm_request(vp, NFSPROC_CLOSE, procp, cred);
+  	nfsm_reqdone;
+  	return (error);
+  }
+Index: nfs/nfsproto.h
+===================================================================
+RCS file: /home/cr1/benjie/cvsroot/freebsd/nfs/nfsproto.h,v
+retrieving revision 1.1.1.1
+diff -c -r1.1.1.1 nfsproto.h
+*** nfs/nfsproto.h	20 May 2002 16:43:16 -0000	1.1.1.1
+--- nfs/nfsproto.h	22 May 2002 18:11:02 -0000
+***************
+*** 175,182 ****
+  #define	NQNFSPROC_VACATED	23
+  #define	NQNFSPROC_EVICTED	24
+  
+! #define NFSPROC_NOOP		25
+! #define	NFS_NPROCS		26
+  
+  /* Actual Version 2 procedure numbers */
+  #define	NFSV2PROC_NULL		0
+--- 175,185 ----
+  #define	NQNFSPROC_VACATED	23
+  #define	NQNFSPROC_EVICTED	24
+  
+! /* Modified NFS3 protocol that sends CLOSE */
+! #define NFSPROC_CLOSE		25
+! 
+! #define NFSPROC_NOOP		26
+! #define	NFS_NPROCS		27
+  
+  /* Actual Version 2 procedure numbers */
+  #define	NFSV2PROC_NULL		0
