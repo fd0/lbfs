@@ -17,6 +17,13 @@ consistency
  3) if lease has expired, fetch attribute; if cache time does not
     match mtime, update cache
 
+single user relaxed consistency: 
+ - if mounted with "a" option, asynchrnous close is on. with
+   asynchronous close a CLOSE is replied with OK before data are
+   flushed to server. if during the flush server returned error, the
+   cached file is marked as error and subsequent operations can no
+   longer be performed on the cached file.
+
 
 operations on cached file:
 --------------------------
@@ -43,6 +50,10 @@ FETCH   FETCH      X      FETCH/XX  XX      XX       FETCH       X
 
 detailed semantics:
 -------------------
+
+keeps both a negative lookup cache and a lookup cache. we intercept
+RPC replies that may contain information that affect either cache. for
+example, CREATE, REMOVE, MKDIR, etc.
 
 fetch optimization: after each data block fetched from server, check
 if any one of the read or write RPC can be executed. a RPC can run if

@@ -178,6 +178,11 @@ public:
 
 };
 
+struct lookupres {
+  filename3 name;
+  nfs_fh3 fh;
+};
+
 class server : public sfsserver_auth {
   friend class read_obj;
   friend class write_obj;
@@ -188,6 +193,7 @@ protected:
   attr_cache ac;
   lrucache<nfs_fh3, file_cache *> fc;
   lrucache<nfs_fh3, vec<filename3>* > nlc;
+  lrucache<nfs_fh3, vec<lookupres>* > lc;
 
   void dispatch_dummy (svccb *sbp);
   void cbdispatch (svccb *sbp);
@@ -270,6 +276,66 @@ protected:
     }
   }
 
+  void lc_insert (nfs_fh3 dir, filename3 name, nfs_fh3 fh) {
+    vec<lookupres> *v;
+    vec<lookupres> **vp = lc[dir];
+    if (!vp) {
+      v = New vec<lookupres>;
+      lc.insert(dir, v);
+    }
+    else
+      v = *vp;
+    for (unsigned i=0; i<v->size(); i++) {
+      if ((*v)[i].name == "") {
+	(*v)[i].name = name;
+	(*v)[i].fh = fh;
+	return;
+      }
+    }
+    lookupres r;
+    r.name = name;
+    r.fh = fh;
+    v->push_back(r);
+  }
+
+  bool lc_lookup (nfs_fh3 dir) {
+    vec<lookupres> **vp = lc[dir];
+    return (vp != 0);
+  }
+
+  bool lc_lookup (nfs_fh3 dir, filename3 name, nfs_fh3 &fh) {
+    vec<lookupres> **vp = lc[dir];
+    if (vp) {
+      vec<lookupres> *v = *vp;
+      for (unsigned i=0; i<v->size(); i++) {
+        if ((*v)[i].name == name) {
+	  fh = (*v)[i].fh;
+	  return true;
+	}
+      }
+    }
+    return false;
+  }
+
+  void lc_remove (nfs_fh3 dir, filename3 name) {
+    vec<lookupres> **vp = lc[dir];
+    if (vp) {
+      vec<lookupres> *v = *vp;
+      for (unsigned i=0; i<v->size(); i++) {
+        if ((*v)[i].name == name)
+	  (*v)[i].name = "";
+      }
+    }
+  }
+
+  void lc_remove (nfs_fh3 dir) {
+    vec<lookupres> **vp = lc[dir];
+    if (vp) {
+      lc.remove(dir);
+      delete *vp;
+    }
+  }
+
   void file_cache_insert (nfs_fh3 fh) {
     file_cache *f = New file_cache(fh);
     fc.insert(fh,f);
@@ -286,6 +352,7 @@ protected:
 
   void file_cache_gc_remove (file_cache *e);
   void nlc_gc_remove (vec<filename3> *v);
+  void lc_gc_remove (vec<lookupres> *v);
 
 public:
   typedef sfsserver_auth super;
