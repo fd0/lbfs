@@ -88,7 +88,7 @@ getrootattr (int fd, struct xfs_message_getroot *h, ref<sfs_fsinfo> fsi,
   struct xfs_message_header *h0 = NULL;
   size_t h0_len = 0;
 
-  assert (res->status == NFS3_OK);
+  assert (!err && res->status == NFS3_OK);
 
   warn << "uid = " << getuid () << "\n";
 
@@ -107,7 +107,7 @@ nfs3_fsinfo (int fd, struct xfs_message_getroot *h, ref<sfs_fsinfo> fsi,
 	     ref<ex_fsinfo3res > res, clnt_stat err)
 {
 
-  assert (res->status == NFS3_OK);
+  assert (!err && res->status == NFS3_OK);
 
   fsinfo = *res->resok;
 
@@ -153,13 +153,13 @@ nfs3_lookup (int fd, struct xfs_message_getnode *h,
   size_t h0_len = 0;
   ex_post_op_attr a;
 
-  if (lres->status != NFS3_OK) {
-    struct xfs_message_header *h0 = NULL;
-    size_t h0_len = 0;
-    int error = lres->status;
-
-    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, error,
-				      h0, h0_len, NULL, 0);
+  if (err || lres->status != NFS3_OK) {
+    if (err)
+      warn << err << ":nfs3_lookup\n";
+    else {
+      warn << strerror(lres->status) << ":nfs3_lookup\n";
+      reply_err(fd, h->header.sequence_num, lres->status);
+    }
     return;
   }
   else {
@@ -309,8 +309,12 @@ nfs3_readdir (int fd, struct xfs_message_getdata *h, cache_entry *e,
 
   }
   else {
-    warn << "error: " << strerror (errno) << "(" << errno << ")\n";
-    reply_err (fd, h->header.sequence_num, res->status);
+    if (!err)
+      warn << "nfs3_readdir: " << err << "\n";
+    else {
+      warn << "nfs3_readdir: " << strerror (errno) << "(" << errno << ")\n";
+      reply_err (fd, h->header.sequence_num, res->status);
+    }
   }
 }
 
@@ -391,8 +395,12 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *e,
     }
   }
   else {
-    warn << "nfs3_read: " << strerror (res->status) << "\n";
-    reply_err (ga->fd, ga->h->header.sequence_num, res->status);
+    if (err)
+      warn << "nfs3_read: " << err << "\n";
+    else {
+      warn << "nfs3_read: " << strerror (res->status) << "\n";
+      reply_err (ga->fd, ga->h->header.sequence_num, res->status);
+    }
   }
 }
 
@@ -671,7 +679,6 @@ void
 comp_time (int fd, struct xfs_message_getdata *h, bool dirfile,
 	   ptr < ex_getattr3res > res, time_t rqtime, clnt_stat err)
 {
-
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
     warn << "comp_time: Can't find node handle\n";
@@ -679,9 +686,17 @@ comp_time (int fd, struct xfs_message_getdata *h, bool dirfile,
   }
 
   if (res != NULL) {
-    ex_fattr3 attr = *(res->attributes);
-    attr.expire += rqtime;
-    e->nfs_attr = attr;
+    if (!err && res->status == NFS3_OK) {
+      ex_fattr3 attr = *(res->attributes);
+      attr.expire += rqtime;
+      e->nfs_attr = attr;
+    } else {
+      if (err) 
+	warn << "comp_time: " << err << "\n";
+      else {
+	warn << "comp_time: " << strerror(res->status) << "\n";
+      }
+    }
   }
 
   nfstime3 maxtime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
@@ -759,6 +774,12 @@ nfs3_readlink (int fd, struct xfs_message_getdata *h, cache_entry *e,
 
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				      h0, h0_len, NULL, 0);
+  } else {
+    if (err) 
+      warn << "nfs3_readlink: " << err << "\n";
+    else {
+      warn << "nfs3_readlink: " << strerror(res->status) << "\n";
+    }
   }
 }
 
@@ -821,7 +842,7 @@ nfs3_getattr (int fd, struct xfs_message_getattr *h, cache_entry *e,
 	      ref<ex_getattr3res > res, time_t rqtime, clnt_stat err)
 {
 
-  assert (!err && res->status == NFS3_OK);
+  if (!err && res->status == NFS3_OK) {
 
   struct xfs_message_installattr msg;
   struct xfs_message_header *h0 = NULL;
@@ -835,6 +856,13 @@ nfs3_getattr (int fd, struct xfs_message_getattr *h, cache_entry *e,
 
   xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				    h0, h0_len, NULL, 0);
+  } else {
+    if (err) 
+      warn << "nfs3_getattr: " << err << "\n";
+    else {
+      warn << "nfs3_getattr: " << strerror(res->status) << "\n";
+    }
+  }
 }
 
 int 
@@ -879,8 +907,12 @@ committmp (ref<condwrite3args > cwa, ref<ex_commit3res > res, time_t rqtime,
     xfs_send_message_wakeup (cwa->fd, cwa->h->header.sequence_num, 0);
   }
   else {
-    warn << "nfs3_committmp: " << strerror (res->status) << "\n";
-    reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
+    if (err) 
+      warn << "nfs3_committmp: " << err << "\n";
+    else {
+      warn << "nfs3_committmp: " << strerror (res->status) << "\n";
+      reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
+    }
   }
 }
 
@@ -914,8 +946,12 @@ nfs3_write (ref<condwrite3args > cwa, ref<ex_write3res > res, clnt_stat err)
       sendcommittmp (cwa);
   }
   else {
-    warn << "nfs3_write: error: " << strerror (res->status) << "\n";
-    reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
+    if (err) 
+      warn << "nfs3_write: " << err << "\n";
+    else {
+      warn << "nfs3_write: error: " << strerror (res->status) << "\n";
+      reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
+    }
   }
 }
 
@@ -974,11 +1010,15 @@ lbfs_sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk,
       sendcommittmp (cwa);
   }
   else {
-    if (res->status == NFS3ERR_FPRINTNOTFOUND)
-      sendwrite (cwa, chunk);
+    if (err) 
+      warn << "lbfs_sendcondwrite: " << err << "\n";
     else {
-      warn << "lbfs_sendcondwrite: " << strerror (res->status) << "\n";
-      reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
+      if (res->status == NFS3ERR_FPRINTNOTFOUND)
+	sendwrite (cwa, chunk);
+      else {
+	warn << "lbfs_sendcondwrite: " << strerror (res->status) << "\n";
+	reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
+      }
     }
   }
 }
@@ -1023,15 +1063,20 @@ void
 lbfs_mktmpfile (int fd, struct xfs_message_putdata *h,
 		ref<ex_diropres3 > res, clnt_stat err)
 {
-
-  if (res->status != NFS3_OK) {
-    warn << "lbfs_mktmpfile: error: " << strerror (res->status) << "(" << res->status << ")\n";
-    reply_err (fd, h->header.sequence_num, res->status);
+  if (err) {
+    warn << "lbfs_mktmpfile: " << err << "\n";
     return;
   }
-  else if (!res->resok->obj.present) {
-    warn << "tmpfile handle not present\n";
-    return;
+  else {
+    if (res->status != NFS3_OK) {
+      warn << "lbfs_mktmpfile: error: " << strerror (res->status) << "(" << res->status << ")\n";
+      reply_err (fd, h->header.sequence_num, res->status);
+      return;
+    }
+    else if (!res->resok->obj.present) {
+      warn << "tmpfile handle not present\n";
+      return;
+    }
   }
   //send data to server
   cache_entry *e = xfsindex[h->handle];
@@ -1150,7 +1195,10 @@ nfs3_setattr (int fd, struct xfs_message_putattr *h, ref<ex_wccstat3 > res,
 
   }
   else {
-    warn << strerror (res->status) << ": nfs3_setattr\n";
+    if (err)
+      warn << err << ": nfs3_setattr\n";
+    else
+      warn << strerror (res->status) << ": nfs3_setattr\n";
     reply_err (fd, h->header.sequence_num, res->status);
   }
 }
@@ -1279,8 +1327,12 @@ nfs3_create (int fd, struct xfs_message_create *h, ref<ex_diropres3 > res,
 
   }
   else {
-    warn << strerror (res->status) << ": nfs3_create\n";
-    reply_err (fd, h->header.sequence_num, res->status);
+    if (err)
+      warn << err << ": nfs3_create\n";
+    else {
+      warn << strerror (res->status) << ": nfs3_create\n";
+      reply_err (fd, h->header.sequence_num, res->status);
+    }
   }
 }
 
@@ -1412,8 +1464,12 @@ nfs3_mkdir (int fd, struct xfs_message_mkdir *h, ref<ex_diropres3 > res,
 				      NULL, 0);
   }
   else {
-    warn << strerror (res->status) << ": nfs3_mkdir\n";
-    reply_err (fd, h->header.sequence_num, res->status);
+    if (err)
+      warn << err << ": nfs3_mkdir\n";
+    else {
+      warn << strerror (res->status) << ": nfs3_mkdir\n";
+      reply_err (fd, h->header.sequence_num, res->status);
+    }
   }
 }
 
@@ -1446,60 +1502,69 @@ nfs3_link (int fd, struct xfs_message_link *h, ref<ex_link3res > res,
 	   time_t rqtime, clnt_stat err)
 {
 
-  struct xfs_message_installdata msg1;	//update parent dir's data
+  if (!err && res->status == NFS3_OK) {
+    struct xfs_message_installdata msg1;	//update parent dir's data
+    
+    struct xfs_message_installnode msg2;	//update attr of from_handle
 
-  struct xfs_message_installnode msg2;	//update attr of from_handle
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+    struct xfs_message_header *h1 = NULL;
+    size_t h1_len = 0;
 
-  struct xfs_message_header *h0 = NULL;
-  size_t h0_len = 0;
-  struct xfs_message_header *h1 = NULL;
-  size_t h1_len = 0;
+    //change attributes of parent dir
+    //in the future implement local content change too..
+    cache_entry *e1 = xfsindex[h->parent_handle];
+    if (!e1) {
+      warn << "xfs_message_link: Can't find parent_handle\n";
+      return;
+    }
+    strcpy (msg1.cache_name, e1->cache_name);
+    
+    fhandle_t parent_fh;
+    if (getfh (msg1.cache_name, &parent_fh)) {
+      warn << "getfh failed\n";
+      return;
+    }
+    memmove (&msg1.cache_handle, &parent_fh, sizeof (parent_fh));
+    
+    assert (res->res->linkdir_wcc.after.present);
+    nfsobj2xfsnode (h->cred, e1->nh,
+		    *(res->res->linkdir_wcc.after.attributes), rqtime, &msg1.node);
+    
+    msg1.flag = 0;
+    msg1.header.opcode = XFS_MSG_INSTALLDATA;
+    h0 = (struct xfs_message_header *) &msg1;
+    h0_len = sizeof (msg1);
+    
+    cache_entry *e2 = xfsindex[h->from_handle];
+    if (!e2) {
+      warn << "xfs_message_link: Can't find from_handle\n";
+      return;
+    }
 
-  //change attributes of parent dir
-  //in the future implement local content change too..
-  cache_entry *e1 = xfsindex[h->parent_handle];
-  if (!e1) {
-    warn << "xfs_message_link: Can't find parent_handle\n";
-    return;
+    assert (res->res->file_attributes.present);
+    nfsobj2xfsnode (h->cred, e2->nh,
+		    *(res->res->file_attributes.attributes), rqtime, &msg2.node);
+    
+    msg2.node.tokens = XFS_ATTR_R;
+    msg2.parent_handle = h->parent_handle;
+    strcpy (msg2.name, h->name);
+
+    msg2.header.opcode = XFS_MSG_INSTALLNODE;
+    h1 = (struct xfs_message_header *) &msg2;
+    h1_len = sizeof (msg2);
+    
+    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+				      h0, h0_len, h1, h1_len, NULL, 0);
+  } else {
+    if (err)
+      warn << err << ": nfs3_link\n";
+    else {
+      warn << strerror (res->status) << ": nfs3_link\n";
+      reply_err (fd, h->header.sequence_num, res->status);
+    }
   }
-  strcpy (msg1.cache_name, e1->cache_name);
-
-  fhandle_t parent_fh;
-  if (getfh (msg1.cache_name, &parent_fh)) {
-    warn << "getfh failed\n";
-    return;
-  }
-  memmove (&msg1.cache_handle, &parent_fh, sizeof (parent_fh));
-
-  assert (res->res->linkdir_wcc.after.present);
-  nfsobj2xfsnode (h->cred, e1->nh,
-	     *(res->res->linkdir_wcc.after.attributes), rqtime, &msg1.node);
-
-  msg1.flag = 0;
-  msg1.header.opcode = XFS_MSG_INSTALLDATA;
-  h0 = (struct xfs_message_header *) &msg1;
-  h0_len = sizeof (msg1);
-
-  cache_entry *e2 = xfsindex[h->from_handle];
-  if (!e2) {
-    warn << "xfs_message_link: Can't find from_handle\n";
-    return;
-  }
-
-  assert (res->res->file_attributes.present);
-  nfsobj2xfsnode (h->cred, e2->nh,
-	       *(res->res->file_attributes.attributes), rqtime, &msg2.node);
-
-  msg2.node.tokens = XFS_ATTR_R;
-  msg2.parent_handle = h->parent_handle;
-  strcpy (msg2.name, h->name);
-
-  msg2.header.opcode = XFS_MSG_INSTALLNODE;
-  h1 = (struct xfs_message_header *) &msg2;
-  h1_len = sizeof (msg2);
-
-  xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
-				    h0, h0_len, h1, h1_len, NULL, 0);
 }
 
 int 
@@ -1585,8 +1650,12 @@ nfs3_symlink (int fd, struct xfs_message_symlink *h, cache_entry *e,
 
   }
   else {
-    warn << "nfs3_symlink: " << strerror (res->status) << "\n";
-    reply_err (fd, h->header.sequence_num, res->status);
+    if (err)
+      warn << err << ": nfs3_symlink\n";
+    else {
+      warn << "nfs3_symlink: " << strerror (res->status) << "\n";
+      reply_err (fd, h->header.sequence_num, res->status);
+    }
   }
 }
 
@@ -1620,6 +1689,12 @@ remove (int fd, struct xfs_message_remove *h, ref<ex_lookup3res > lres,
 	ref<ex_wccstat3 > wres, time_t rqtime, clnt_stat err)
 {
 
+  //remove entry from parent dir
+  cache_entry *e1 = xfsindex[h->parent_handle];
+  if (!e1) {
+    warn << "xfs_message_remove: Can't find parent_handle\n";
+    return;
+  }
   if (!err && wres->status == NFS3_OK) {
 
     assert (wres->wcc->after.present);
@@ -1630,14 +1705,14 @@ remove (int fd, struct xfs_message_remove *h, ref<ex_lookup3res > lres,
     struct xfs_message_installattr msg2;
     struct xfs_message_header *h1 = NULL;
     size_t h1_len = 0;
-
+#if 0
     //remove entry from parent dir
     cache_entry *e1 = xfsindex[h->parent_handle];
     if (!e1) {
       warn << "xfs_message_remove: Can't find parent_handle\n";
       return;
     }
-
+#endif
     strcpy (msg1.cache_name, e1->cache_name);
     fhandle_t cfh;
     if (getfh (msg1.cache_name, &cfh)) {
@@ -1712,8 +1787,21 @@ remove (int fd, struct xfs_message_remove *h, ref<ex_lookup3res > lres,
 
   }
   else {
-    warn << strerror (wres->status) << ": nfs3_lookup in remove\n";
-    reply_err (fd, h->header.sequence_num, wres->status);
+    if (wres->status == NFS3ERR_ISDIR) {
+      diropargs3 doa;
+      doa.dir = e1->nh;
+      doa.name = h->name;
+      
+      ref<ex_wccstat3 > rmdres = New refcounted < ex_wccstat3 >;
+      nfsc->call (lbfs_NFSPROC3_RMDIR, &doa, rmdres,
+		  wrap (&remove, fd, (struct xfs_message_remove *) h, lres, rmdres, timenow));      
+    } else 
+    if (err)
+      warn << err << ": nfs3_lookup in remove\n";
+    else {
+      warn << strerror (wres->status) << ": nfs3_lookup in remove\n";
+      reply_err (fd, h->header.sequence_num, wres->status);
+    }
   }
 }
 
@@ -1744,8 +1832,12 @@ nfs3_remove (int fd, struct xfs_message_remove *h, ref<ex_lookup3res > lres,
 
   }
   else {
-    warn << "nfs3_remove: lres->status = " << strerror (lres->status) << "\n";
-    reply_err (fd, h->header.sequence_num, lres->status);
+    if (err)
+      warn << err << ": nfs3_remove\n";
+    else {
+      warn << "nfs3_remove: lres->status = " << strerror (lres->status) << "\n";
+      reply_err (fd, h->header.sequence_num, lres->status);
+    }
   }
 }
 
@@ -1800,8 +1892,12 @@ nfs3_rmdir (int fd, struct xfs_message_rmdir *h, ref<ex_lookup3res > lres,
 
   }
   else {
-    warn << "nfs3_rmdir: lres->status = " << lres->status << "\n";
-    reply_err (fd, h->header.sequence_num, lres->status);
+    if (err)
+      warn << err << ": nfs3_rmdir\n";
+    else {
+      warn << "nfs3_rmdir: lres->status = " << lres->status << "\n";
+      reply_err (fd, h->header.sequence_num, lres->status);
+    }
   }
 }
 
@@ -1855,9 +1951,13 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
 {
 
 
-  if (rena->gares->status != NFS3_OK) {
-    warn << "nfs3_rename_getattr: gares->status = " << strerror (rena->gares->status) << "\n";
-    reply_err (rena->fd, rena->h->header.sequence_num, rena->gares->status);
+  if (err || rena->gares->status != NFS3_OK) {
+    if (err)
+      warn << err << ": nfs3_rename_getattr\n";
+    else {
+      warn << "nfs3_rename_getattr: gares->status = " << strerror (rena->gares->status) << "\n";
+      reply_err (rena->fd, rena->h->header.sequence_num, rena->gares->status);
+    }
     return;
   }
 
@@ -1954,12 +2054,16 @@ nfs3_rename_rename (ref<rename_args> rena, clnt_stat err)
 {
 
   warn << "rename_rename !!\n";
-
-  nfs_fh3 fh = rena->lres->resok->object;
-  //rena->gares = New refcounted<ex_getattr3res>;
-
-  nfsc->call (lbfs_NFSPROC3_GETATTR, &fh, rena->gares,
-	      wrap (&nfs3_rename_getattr, rena, timenow));
+  if (!err) {
+    nfs_fh3 fh = rena->lres->resok->object;
+    //rena->gares = New refcounted<ex_getattr3res>;
+    
+    nfsc->call (lbfs_NFSPROC3_GETATTR, &fh, rena->gares,
+		wrap (&nfs3_rename_getattr, rena, timenow));
+  } else {
+    if (err)
+      warn << err << ": nfs3_rename_rename\n";
+  }
 }
 
 void 
@@ -1968,9 +2072,13 @@ nfs3_rename_lookup (ref<rename_args> rena, time_t rqtime, clnt_stat err)
 
   warn << "rename_lookup !!\n";
 
-  if (rena->lres->status != NFS3_OK) {
-    warn << "nfs3_rename_lookup: lres->status = " << strerror (rena->lres->status) << "\n";
-    reply_err (rena->fd, rena->h->header.sequence_num, rena->lres->status);
+  if (err || rena->lres->status != NFS3_OK) {
+    if (err)
+      warn << err << ": nfs3_rename_lookup\n";
+    else {
+      warn << "nfs3_rename_lookup: lres->status = " << strerror (rena->lres->status) << "\n";
+      reply_err (rena->fd, rena->h->header.sequence_num, rena->lres->status);
+    }
     return;
   }
 

@@ -75,7 +75,8 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr, time_t rqtime,
   cache_entry *e = nfsindex[obj];
   if (!e) {
     e = New cache_entry(obj, attr);
-  }
+  } else
+    e->nfs_attr = attr;
 
   node->handle = e->xh; 
   warn << "nfsfh becomes node.handle (" 
