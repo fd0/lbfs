@@ -29,50 +29,43 @@ char *device_file = "/dev/xfs0";
 //char *hostpath = "new-york.lcs.mit.edu:85xq6pznt4mgfvj4mb23x6b8adak55ue";
 char *hostpath = "pastwatch.lcs.mit.edu:ksg8iisdfirs62ncwewt7jb7v7g3hrsd";
 
-int main(int argc, char **argv) {
+int main (int argc, char **argv) {
 
   int err;
 
+  setprogname (argv[0]);
   if (argc != 3) {
-    warn << "usage: " << argv[0] << " device_filename sfs_hostname:hostinfo\n";
+    warn << "usage: " << progname.cstr () 
+	 << " device_filename hostname:hostinfo\n";
     return -1;
   } else {
-    device_file = new char[MAXPATHLEN];
-    hostpath = new char[MAXPATHLEN];
-    strcpy(device_file, argv[1]);
-    strcpy(hostpath, argv[2]);
+    device_file = argv[1];
+    hostpath = argv[2];
   }
 
   sigcb (SIGINT, wrap (exit, 1));
   sigcb (SIGTERM, wrap (exit, 1));
 
   if (mount(MOUNT_XFS, "/mnt", /*MNT_UNION*/0, device_file)) {
-    if (errno == EOPNOTSUPP)
-      warn << strerror(errno) << ":" << errno << "\n";
+    //if (errno == EOPNOTSUPP)
+    warn << strerror(errno) << ":" << errno << "\n";
   }
 
   signal(SIGPIPE, SIG_IGN);
 
   xfs_message_init ();
 
-  err = kernel_opendevice(device_file);
-  if (err == -1) {
+  if ((err = kernel_opendevice(device_file)) == -1) {
     warn << "failed to open " << device_file << "\n";
     return -1;
   }
-  warn("Opened device file\n");
+  warn << "Opened device file " << argv[1] << "\n";
   
   sfsInit(hostpath); // or connect when usr sends a /sfs/hostname:hostid request
 
-#if 0
-  skernel();
-#else
   warn << "calling fdcb on kernel_fd " << kernel_fd << "\n";
   fdcb(kernel_fd, selread, wrap(&akernel));
   amain();
-#endif
 
-  delete device_file;
-  delete hostpath;
   return 0;
 }

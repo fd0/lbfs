@@ -21,7 +21,7 @@
 
 #include "messages.h"
 #include <xfs/xfs_pioctl.h>
-#include "pioctl.h"
+//#include "pioctl.h"
 #include "crypt.h"
 
 u_int64_t cache_entry::nextxh;
@@ -2808,7 +2808,7 @@ xfs_message_rename (int fd, ref<struct xfs_message_rename> h, u_int size)
 
 int
 xfs_message_pioctl (int fd, ref<struct xfs_message_pioctl> h, u_int size) {
-  
+
 #if DEBUG > 0
   warn << "pioctl!! return 0 no matter what!!!\n";
 #endif
@@ -2820,6 +2820,8 @@ xfs_message_pioctl (int fd, ref<struct xfs_message_pioctl> h, u_int size) {
   int error = 0;
 
   switch(h->opcode) {
+#if 0
+
 #ifdef KERBEROS
 #ifdef VIOCSETTOK_32
   case VIOCSETTOK_32:
@@ -3078,6 +3080,8 @@ xfs_message_pioctl (int fd, ref<struct xfs_message_pioctl> h, u_int size) {
 #endif	
 	error = vioc_breakcallback (fd, h, size);
 	break;
+#endif
+
     default:
 	warn << "unknown pioctl call \n";
       error = EINVAL ;

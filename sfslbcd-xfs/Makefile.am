@@ -3,15 +3,22 @@
 
 $(PROGRAMS): $(LDEPS)
 
-sfslib_PROGRAMS = sfslbcd cdtest
+sfslib_PROGRAMS = sfslbcd sfsrwcd #cdtest 
 
-noinst_HEADERS = sfslbcd.h kernel.h xfs.h messages.h xfs-sfs.h xfs-nfs.h fh_map.h pioctl.h
+noinst_HEADERS = sfslbcd.h kernel.h xfs.h messages.h xfs-sfs.h xfs-nfs.h fh_map.h \
+		 sfsrwcd.h
 
 sfslbcd_LDADD = $(LDADD) $(DB3_LIB) $(ZLIB_LIB)
 
-sfslbcd_SOURCES = sfslbcd.C kernel.C xfs.C messages.C xfs-sfs.C xfs-nfs.C fh_map.C pioctl.C
+sfslbcd_SOURCES = sfslbcd.C kernel.C xfs.C messages.C xfs-sfs.C xfs-nfs.C fh_map.C 
 
-cdtest_SOURCES = cdtest.C
+sfsrwcd_SOURCES = \
+attrcache.C server.C sfsrwcd.C
+sfsrwcd_LDFLAGS = $(NOPAGING) $(MALLOCK)
+
+$(exec_PROGRAMS): $(MALLOCK)
+
+#cdtest_SOURCES = cdtest.C
 
 EXTRA_DIST = .cvsignore
 CLEANFILES = core *.core *~ *.rpo

@@ -71,25 +71,6 @@
 #include <fcntl.h>
 #include <pwd.h>
 
-#if 0
-#include "async.h"
-#include "kernel.h"
-#include "xfs.h"
-#include "messages.h"
-#include "xfs-sfs.h"
-//#endif
-
-//#ifdef KERBEROS
-#include <des.h>
-#include <krb.h>
-#include <rxkad.h>
-
-#endif
-
-#ifdef USE_MMAPTIME
-#include <mmaptime.h>
-#endif
-
 #undef export
 
 #endif /* _SFSLBCD_H_ */

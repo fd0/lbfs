@@ -9,7 +9,7 @@ dirname (uint32 index)
 str 
 filename (uint32 index)
 {
-  return strbuf ("cache/%02X/%02X", index >> 8, index & 0xff);
+  return strbuf ("cache/%02X/ %02X", index >> 8, index & 0xff);
 }
 
 str 
