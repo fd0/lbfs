@@ -21,8 +21,6 @@
 
 #include "xfs-nfs.h"
 
-fh_map fht = fh_map();
-
 bool xfs_fheq(xfs_handle x1, xfs_handle x2) {
   if (xfs_handle_eq(&x1, &x2)) 
     return true;
@@ -73,8 +71,13 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr, time_t rqtime,
 
   //change expire to rpc_time + expire
   attr.expire += rqtime;
-  node->handle = fht.gethandle(obj, attr);
-  //deal with links (sym, hard)
+
+  cache_entry *e = nfsindex[obj];
+  if (!e) {
+    e = New cache_entry(obj, attr);
+  }
+
+  node->handle = e->xh; 
   warn << "nfsfh becomes node.handle (" 
        << (int)node->handle.a << ","
        << (int)node->handle.b << ","

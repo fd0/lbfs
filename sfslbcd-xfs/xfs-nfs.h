@@ -35,8 +35,6 @@
 #define xfs_dirent dirent
 #endif
 
-extern fh_map fht;
-
 struct write_dirent_args {
     int fd;
 #ifdef HAVE_OFF64_T

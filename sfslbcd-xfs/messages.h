@@ -40,8 +40,6 @@
 #define NFS_MAXDATA 8192
 #define LBFS_MAXDATA 262144
 
-extern fh_map fht;
-
 class condwrite3args {
 public:
   condwrite3args(int filedesc, struct xfs_message_putdata* msg, nfs_fh3 tfh) :

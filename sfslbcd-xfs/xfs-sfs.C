@@ -31,10 +31,7 @@ ptr<axprt_compress> x;
 ptr<axprt_crypt> xc;
 vec<sfs_extension> sfs_extensions;
 sfs_connectres conres;
-
-#if LBFS_READ
 fp_db lbfsdb;
-#endif
 
 bool
 cd_parsepath (str path, str *host, sfs_hash *hostid, u_int16_t *portp)
@@ -167,8 +164,6 @@ void sfsInit(const char* path) {
   warn << "path = " << path << " port = " << port << "\n";
   strcpy(sfs_path, path);
   tcpconnect(hostname, port, wrap(sfsConnect, hostname, hid));
-#if LBFS_READ
   lbfsdb.open_and_truncate(FP_DB);
-#endif
 }
 

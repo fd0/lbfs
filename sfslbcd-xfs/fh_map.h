@@ -25,25 +25,79 @@
 #include <xfs/xfs_message.h>
 #include "nfs3exp_prot.h"
 #include "xfs-nfs.h"
+#include "ihash.h"
+#include "nfstrans.h"
 
 #define MAX_FH 65535 //4000
 //#define MAX_FH MAXHANDLE //xfs constant for max file handles opened at any time
 //#define MAXPATHLEN (1024+4) //This is what arla used...
 
-extern bool xfs_fheq(xfs_handle, xfs_handle);
-extern bool nfs_fheq(nfs_fh3, nfs_fh3);
+bool xfs_fheq(xfs_handle, xfs_handle);
+bool nfs_fheq(nfs_fh3, nfs_fh3);
+str setcache_name(uint32 index);
+nfstime3 max(nfstime3 mtime, nfstime3 ctime);
 
-typedef struct fh_pair{
+template<>
+struct hashfn<xfs_handle> {
+  hash_t operator() (const xfs_handle &xh) const
+    { return xh.a; }
+};
+
+template<>
+struct equals<xfs_handle> {
+  bool operator() (const xfs_handle &a, const xfs_handle &b) const {
+    return xfs_handle_eq (&a, &b);
+  }
+};
+
+
+typedef struct cache_entry{
+  static u_int64_t nextxh;
+
   xfs_handle xh;
-  nfs_fh3 nh;
+  const nfs_fh3 nh;
   ex_fattr3 nfs_attr;
   nfstime3 ltime;
-  char *cache_name;
+  str cache_name;
   bool opened;
-} fh_pair;
+  ihash_entry<cache_entry> nlink;
+  ihash_entry<cache_entry> xlink;
 
+  cache_entry (const nfs_fh3 &n, ex_fattr3 &na);
+  ~cache_entry ();
+} cache_entry;
+
+extern ihash<const nfs_fh3, cache_entry, &cache_entry::nh,
+  &cache_entry::nlink> nfsindex;
+extern ihash<xfs_handle, cache_entry, &cache_entry::xh,
+  &cache_entry::xlink> xfsindex;
+
+inline
+cache_entry::cache_entry (const nfs_fh3 &n, ex_fattr3 &na)
+  : nh (n), nfs_attr(na), opened(false)
+{
+  bzero (&xh, sizeof (xh));
+  xh.a = ++nextxh;
+  xh.b = nextxh >> 32;
+  cache_name = setcache_name(xh.a); //check if NULL??
+  ltime = max(nfs_attr.mtime, nfs_attr.ctime);
+  nfsindex.insert (this);
+  xfsindex.insert (this);
+}
+
+
+inline
+cache_entry::~cache_entry ()
+{
+  nfsindex.remove (this);
+  xfsindex.remove (this);
+}
+
+#if 0
 class fh_map {
-  fh_pair entry[MAX_FH];
+
+
+  cache_entry entry[MAX_FH];
   int max_fh, cur_fh;
 
  public:
@@ -165,45 +219,6 @@ class fh_map {
     }
   }
 
-  int assign_dirname(char *dname, int index) {
-    return snprintf(dname, MAXPATHLEN, "cache/%02X", index / 0x100);
-  }
-  
-  int assign_filename(char *fname, int index) {
-    return snprintf(fname, MAXPATHLEN, "cache/%02X/%02X", 
-		    index / 0x100, index % 0x100);
-  }
-
-  int setcache_name(char *fname, int index) { 
-    
-    int fd;
-
-    assign_filename(fname, index);
-    fd = open(fname, O_CREAT | O_RDWR | O_TRUNC, 0666); 
-    if (fd < 0) { 
-      if (errno == ENOENT) {
-	char *dname = new char[MAXPATHLEN];
-	assign_dirname(dname, index);
-	warn << "Creating dir: " << dname << "\n";
-	if (mkdir(dname, 0777) < 0) {
-	  warn << strerror(errno) << "(" << errno << ") mkdir " << dname << "\n";
-	  return -1;
-	}
-	fd = open(fname, O_CREAT | O_RDWR | O_TRUNC, 0666); 
-	if (fd < 0) {
-	  warn << strerror(errno) << "(" << errno << ") on file =" << fname << "\n";
-	  return -1;
-	}
-	delete dname;
-      } else {
-	warn << strerror(errno) << "(" << errno << ") on file =" << fname << "\n";
-	return -1;
-      }
-    }
-    
-    return fd;
-  }
-
   xfs_handle gethandle(nfs_fh3 nfh, ex_fattr3 attr) {
     // if reaching end of max_fh, need to signal invalid node to xfs
     cur_fh = find(nfh);
@@ -227,5 +242,6 @@ class fh_map {
   }
   
 };
+#endif
 
 #endif /* _FHMAP_H_ */

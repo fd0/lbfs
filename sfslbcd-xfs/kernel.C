@@ -313,9 +313,11 @@ kernel_opendevice (const char *dev)
     return 0;
 }
 
+char data[MAX_XMSG_SIZE];
+
 void akernel() {
   u_int32_t data_size = MAX_XMSG_SIZE;
-  char* data = (char *) malloc(data_size);
+  //char* data = New char[data_size]; //(char *) malloc(data_size);
   int len = kern_read(kernel_fd, data, data_size);
 
   if ((len == -1) && (errno != EAGAIN)) { 
@@ -330,7 +332,7 @@ void akernel() {
     warn << "akernel: received data\n";
     process_message(len, data);
   }
-
+  //delete [] data;
   fdcb(kernel_fd, selread, wrap(&akernel));
 }
 

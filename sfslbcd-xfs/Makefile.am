@@ -9,7 +9,7 @@ noinst_HEADERS = sfslbcd.h kernel.h xfs.h messages.h xfs-sfs.h xfs-nfs.h fh_map.
 
 sfslbcd_LDADD = $(LDADD) $(DB3_LIB) $(ZLIB_LIB)
 
-sfslbcd_SOURCES = sfslbcd.C kernel.C xfs.C messages.C xfs-sfs.C xfs-nfs.C
+sfslbcd_SOURCES = sfslbcd.C kernel.C xfs.C messages.C xfs-sfs.C xfs-nfs.C fh_map.C
 
 cdtest_SOURCES = cdtest.C
 
