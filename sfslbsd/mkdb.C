@@ -39,13 +39,11 @@ unsigned total_chunks = 0;
 void done()
 {
   if (_requests == 0) {
-    extern unsigned min_size_chunks;
-    extern unsigned max_size_chunks;
     if (_totalfns > 0) {
       printf("# %d files\n", _totalfns);
       printf("# %u total chunks\n", total_chunks);
-      printf("# %u min size chunks\n", min_size_chunks);
-      printf("# %u max size chunks\n", max_size_chunks);
+      printf("# %u min size chunks\n", Chunker::min_size_suppress);
+      printf("# %u max size chunks\n", Chunker::max_size_suppress);
       for (int i=0; i<NBUCKETS; i++) {
         printf("%d %d\n", i<<7, buckets[i]);
       }
@@ -65,7 +63,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
     int fd = open(fspath, O_RDONLY);
     unsigned char buf[4096];
     int count;
-    Chunker chunker(8192);
+    Chunker chunker;
     while ((count = read(fd, buf, 4096))>0)
       chunker.chunk(buf, count);
     chunker.stop();

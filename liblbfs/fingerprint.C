@@ -6,39 +6,9 @@
 #include "chunk.h"
 #include "rabinpoly.h"
 #include "fingerprint.h"
-
-unsigned min_size_chunks = 0;
-unsigned max_size_chunks = 0;
-
-int
-mapfile (const u_char **bufp, size_t *sizep, const char *path)
-{
-  int fd = open (path, O_RDONLY);
-  if (fd < 0)
-    return -1;
-  struct stat sb;
-  if (fstat (fd, &sb) < 0) {
-    close (fd);
-    return -1;
-  }
-  if (!S_ISREG (sb.st_mode)) {
-    close (fd);
-    errno = EISDIR;		// XXX /dev/null
-    return -1;
-  }
-  if (!(*sizep = sb.st_size))
-    *bufp = NULL;
-  else {
-    void *vbp = mmap (NULL, *sizep, PROT_READ, MAP_FILE|MAP_SHARED, fd, 0);
-    if (vbp == reinterpret_cast<void *> (MAP_FAILED)) {
-      close (fd);
-      return -1;
-    }
-    *bufp = static_cast<u_char *> (vbp);
-  }
-  close (fd);
-  return 0;
-}
+  
+unsigned Chunker::min_size_suppress = 0;
+unsigned Chunker::max_size_suppress = 0;
 
 u_int64_t 
 fingerprint(const unsigned char *data, size_t count)
@@ -52,8 +22,8 @@ fingerprint(const unsigned char *data, size_t count)
   return fp;
 }
 
-Chunker::Chunker(unsigned s, bool hash)
-  : _w(FINGERPRINT_PT), _chunk_size(s), _hash(hash)
+Chunker::Chunker(bool hash)
+  : _w(FINGERPRINT_PT), _hash(hash)
 {
   _last_pos = 0;
   _cur_pos = 0;
@@ -120,11 +90,11 @@ Chunker::chunk(const unsigned char *data, size_t size)
   for (size_t i=0; i<size; i++, _cur_pos++) {
     f_break = _w.slide8 (data[i]);
     size_t cs = _cur_pos - _last_pos;
-    if ((f_break % _chunk_size) == BREAKMARK_VALUE && cs < MIN_CHUNK_SIZE) 
-      min_size_chunks++;
+    if ((f_break % chunk_size) == BREAKMARK_VALUE && cs < MIN_CHUNK_SIZE) 
+      min_size_suppress++;
     else if (cs == MAX_CHUNK_SIZE)
-      max_size_chunks++;
-    if (((f_break % _chunk_size) == BREAKMARK_VALUE && cs >= MIN_CHUNK_SIZE) 
+      max_size_suppress++;
+    if (((f_break % chunk_size) == BREAKMARK_VALUE && cs >= MIN_CHUNK_SIZE) 
 	|| cs >= MAX_CHUNK_SIZE) {
       lbfs_chunk *c = New lbfs_chunk(_last_pos, cs, _fp);
       _w.reset();
@@ -146,23 +116,27 @@ Chunker::chunk(const unsigned char *data, size_t size)
     handle_hash(data+start_i, size-start_i);
 }
 
-int chunk_file(unsigned chunk_size, vec<lbfs_chunk *>& cvp, const char *path)
+int chunk_file(vec<lbfs_chunk *>& cvp, const char *path)
 {
-  const u_char *fp;
-  size_t fl;
-  if (mapfile (&fp, &fl, path) != 0) return -1;
-  int r = chunk_data(chunk_size, cvp, fp, fl);
-  munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
-  return r;
+  int fd = open(path, O_RDONLY);
+  if (fd < 0) return -1;
+  unsigned char buf[4096];
+  int count;
+  Chunker chunker;
+  while ((count = read(fd, buf, 4096))>0)
+    chunker.chunk(buf, count);
+  chunker.stop();
+  close(fd);
+  chunker.copy_chunk_vector(cvp);
+  return 0;
 }
 
-int chunk_data(unsigned chunk_size, vec<lbfs_chunk *>& cvp,
-               const unsigned char *data, size_t size)
+int chunk_data(vec<lbfs_chunk *>& cvp, const unsigned char *data, size_t size)
 {
-  Chunker chunker(chunk_size);
+  Chunker chunker;
   chunker.chunk(data, size);
   chunker.stop();
-  chunker.get_chunk_vector(cvp);
+  chunker.copy_chunk_vector(cvp);
   return 0;
 }
 

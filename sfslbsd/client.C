@@ -142,7 +142,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     if (!iter->next(&c)) { 
       nfs_fh3 fh; 
       c.get_fh(fh); 
-      Chunker *chunker = New Chunker(CHUNK_SIZES(0), true);
+      Chunker *chunker = New Chunker(true);
       unsigned char *buf = New unsigned char[c.count()];
       nfs3_read
 	(fsrv->c, fh, 
@@ -211,7 +211,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
       if (!iter->get(&c)) { 
 	nfs_fh3 fh; 
 	c.get_fh(fh);
-        Chunker *chunker = New Chunker(CHUNK_SIZES(0), true);
+        Chunker *chunker = New Chunker(true);
 	unsigned char *buf = New unsigned char[c.count()];
 	nfs3_read
 	  (fsrv->c, fh,
@@ -359,7 +359,7 @@ void
 client::committmp (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
-  Chunker *chunker = New Chunker(CHUNK_SIZES(0));
+  Chunker *chunker = New Chunker();
   nfs3_copy (fsrv->c, cta->commit_from, cta->commit_to,
              wrap(mkref(this), &client::chunk_data, chunker),
              wrap(mkref(this), &client::committmp_cb, sbp, rqs, chunker));
@@ -435,7 +435,7 @@ client::getfp (svccb *sbp, filesrv::reqstate rqs)
 #if DEBUG > 1
   warn << "GETFP: ask @" << arg->offset << " +" << arg->count << "\n"; 
 #endif
-  Chunker *chunker = New Chunker(CHUNK_SIZES(0), true);
+  Chunker *chunker = New Chunker(true);
   nfs3_read 
     (fsrv->c, arg->file, 
      arg->offset, arg->count,

@@ -64,7 +64,7 @@ gotdata(u_int64_t fp, unsigned char *data, size_t count, read3res*, str err)
 {
   if (!err && count > 0) {
     vec<lbfs_chunk *> chunks;
-    chunk_data(CHUNK_SIZES(0), chunks, data, count);
+    chunk_data(chunks, data, count);
     for (unsigned i=0; i<chunks.size(); i++) {
       printf("0x%016qx %d 0x%016qx\n", fp, i, chunks[i]->fingerprint);
       delete chunks[i];
@@ -95,7 +95,7 @@ getnfsc(ptr<aclnt> nc, clnt_stat stat)
   _c = nc;
 
   vec<lbfs_chunk *> new_chunks;
-  if (chunk_file(CHUNK_SIZES(0), new_chunks, _file) < 0) {
+  if (chunk_file(new_chunks, _file) < 0) {
     printf("cannot open %s for chunking\n", _file);
     exit(-1);
   }

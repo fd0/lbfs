@@ -490,8 +490,7 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
 
       // add chunk to the database
       vec <lbfs_chunk *>cvp;
-      if (chunk_file(CHUNK_SIZES (0), cvp, (char const *) ga->msg.cache_name) 
-	  < 0) {
+      if (chunk_file(cvp, (char const *) ga->msg.cache_name) < 0) {
 #if DEBUG > 0
 	warn << strerror (errno) << "(" << errno << "): nfs3_read(chunkfile)\n";
 #endif
@@ -1531,7 +1530,7 @@ lbfs_mktmpfile (int fd, ref<struct xfs_message_putdata> h,
   ref<condwrite3args > cwa = 
     New refcounted < condwrite3args > (fd, h, *res->resok->obj.handle);
   strcpy (cwa->fname, e->cache_name);
-  cwa->chunker = New Chunker(CHUNK_SIZES(0));
+  cwa->chunker = New Chunker;
   cwa->cur_pos = 0;
   condwrite_chunk(cwa);
 }

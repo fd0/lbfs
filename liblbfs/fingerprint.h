@@ -19,31 +19,18 @@
 #include "chunk.h"
 #include "rabinpoly.h"
 
-#define FINGERPRINT_PT     0xbfe6b8a5bf378d83LL
-#define BREAKMARK_VALUE    0x78
-#define NUM_CHUNK_SIZES    4
-#define CHUNK_SIZES(i) \
-  (i == 0 ? 8192 : \
-   (i == 1 ? 32768 : \
-    (i == 2 ? 131072 : \
-     (i == 3 ? 524288 : 0))))
+#define FINGERPRINT_PT  0xbfe6b8a5bf378d83LL
+#define BREAKMARK_VALUE 0x78
+#define MIN_CHUNK_SIZE  2048
+#define MAX_CHUNK_SIZE  65535
 
-#define MIN_CHUNK_SIZE 2048
-#define MAX_CHUNK_SIZE 65535
-
-
-// map file into memory, pointed to by bufp
-int mapfile (const u_char **bufp, size_t *sizep, const char *path);
 u_int64_t fingerprint(const unsigned char *data, size_t count);
-
-int chunk_data(unsigned chunk_size, vec<lbfs_chunk *>& cvp,
-               const unsigned char *data, size_t count);
-int chunk_file(unsigned chunk_size, vec<lbfs_chunk *>& cvp, const char *path);
+int chunk_data(vec<lbfs_chunk *>& cvp, const unsigned char *data, size_t count);
+int chunk_file(vec<lbfs_chunk *>& cvp, const char *path);
 
 class Chunker {
 private:
   window _w;
-  unsigned _chunk_size;
   size_t _last_pos;
   size_t _cur_pos;
   u_int64_t _fp;
@@ -57,19 +44,22 @@ private:
   void handle_hash(const unsigned char *data, size_t size);
 
 public:
-
-  Chunker(unsigned s, bool hash=false); 
+  Chunker(bool hash=false); 
   ~Chunker();
 
   void stop();
   void chunk (const unsigned char *data, size_t size);
 
   const vec<lbfs_chunk*>& chunk_vector() { return _cv; }
-  void get_chunk_vector(vec<lbfs_chunk*>&);
+  void copy_chunk_vector(vec<lbfs_chunk*>&);
+  
+  static const unsigned chunk_size = 8192;
+  static unsigned min_size_suppress;
+  static unsigned max_size_suppress;
 };
 
 inline void
-Chunker::get_chunk_vector(vec<lbfs_chunk*>& cvp)
+Chunker::copy_chunk_vector(vec<lbfs_chunk*>& cvp)
 {
   cvp.setsize(_cv.size());
   for (unsigned i=0; i<_cv.size(); i++)

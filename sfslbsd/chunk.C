@@ -20,16 +20,14 @@ unsigned buckets[NBUCKETS];
 unsigned total_chunks = 0;
 unsigned total_size = 0;
 fp_db db;
-extern unsigned min_size_chunks;
-extern unsigned max_size_chunks;
 
 void done()
 {
   printf("# %u total chunks\n", total_chunks);
   if (total_chunks != 0) 
     printf("# %u bytes on average\n", total_size/total_chunks);
-  printf("# %u min size chunks\n", min_size_chunks);
-  printf("# %u max size chunks\n", max_size_chunks);
+  printf("# %u min size chunks\n", Chunker::min_size_suppress);
+  printf("# %u max size chunks\n", Chunker::max_size_suppress);
   for (int i=0; i<NBUCKETS; i++)
     printf("%d %d %d\n", i, i<<7, buckets[i]);
 }
@@ -40,7 +38,7 @@ chunk_file(const char *path)
   int fd = open(path, O_RDONLY);
   unsigned char buf[4096];
   int count;
-  Chunker chunker(8192);
+  Chunker chunker;
   while ((count = read(fd, buf, 4096))>0)
     chunker.chunk(buf, count);
   chunker.stop();
@@ -49,9 +47,6 @@ chunk_file(const char *path)
     lbfs_chunk *c = chunker.chunk_vector()[i];
     total_size += c->loc.count();
     buckets[(c->loc.count())>>7]++;
-    if (c->loc.count() == MAX_CHUNK_SIZE)
-      warn << "maximum chunk reached " << max_size_chunks << ", put in "
-	   << (c->loc.count()>>7) << "th bucket\n";
     fp_db::iterator *iter = 0;
     if (db.get_iterator(c->fingerprint, &iter) == 0) {
       iter->next(0);
