@@ -105,6 +105,7 @@ public:
   ptr<aclnt> authclnt;
 
   vec<filesys> fstab;
+  vec<nfs_fh3> sfs_trash_fhs;
   ihash<nfs_fh3, filesys, &filesys::fh_root, &filesys::rhl, hashfh3> root3tab;
   ihash<nfs_fh3, filesys, &filesys::fh_mntpt, &filesys::mphl, hashfh3> mp3tab;
 
@@ -130,6 +131,8 @@ private:
   void gotroot (ref<erraccum> ea, int i, const nfs_fh3 *fhp, str err);
   void gotroots (bool ok);
 
+  void gottrashdir (ref<erraccum> ea, int i,
+		    const nfs_fh3 *fhp, str err);
   void gotrootattr (ref<erraccum> ea, int i,
 		    const nfs_fh3 *fhp, const FATTR3 *attr, str err);
   void gotmp (ref<erraccum> ea, int i,

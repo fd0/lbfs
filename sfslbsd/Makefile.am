@@ -14,7 +14,7 @@ sfslbsd_LDADD = $(LDADD) $(DB3_LIB)
 mkdb_SOURCES = mkdb.C getfh3.C
 mkdb_LDADD = $(LDADD) $(DB3_LIB)
 
-dbtest_SOURCES = dbtest.C lbfs.C
+dbtest_SOURCES = dbtest.C lbfs.C getfh3.C
 dbtest_LDADD = $(LDADD) $(DB3_LIB)
 
 EXTRA_DIST = .cvsignore

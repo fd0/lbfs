@@ -209,7 +209,7 @@ client::mktmpfile (svccb *sbp, void *_res, filesrv::reqstate rqs)
   
   u_int32_t authno = sbp->getaui ();
   create3args c3arg;
-  c3arg.where.dir = mta->dir;
+  c3arg.where.dir = fsrv->sfs_trash_fhs[rqs.fsno];
   c3arg.where.name = tmpfile;
   c3arg.how.set_mode(GUARDED);
   *(c3arg.how.obj_attributes) = mta->obj_attributes;

@@ -21,6 +21,7 @@
  *
  */
 
+#include "lbfs.h"
 #include "sfsrwsd.h"
 
 class erraccum : public virtual refcount {
@@ -133,6 +134,7 @@ filesrv::gotroots (bool ok)
   }
 
   ref<erraccum> ea (New refcounted<erraccum> (wrap (this, &filesrv::gotmps)));
+  sfs_trash_fhs.setsize(fstab.size());
   for (size_t i = 0; i < fstab.size (); i++) {
     lookupfh3 (c, fstab[i].fh_root, "",
 	       wrap (this, &filesrv::gotrootattr, ea, i));
@@ -140,6 +142,26 @@ filesrv::gotroots (bool ok)
 	       substr (fstab[i].path_mntpt,
 		       fstab[i].parent->path_mntpt.len ()),
 	       wrap (this, &filesrv::gotmp, ea, i));
+    
+    sattr3 trash_attr;
+    trash_attr.mode.set_set(true);
+    *(trash_attr.mode.val) = 0700;
+    trash_attr.uid.set_set(true);
+    *(trash_attr.uid.val) = 0;
+    trash_attr.gid.set_set(true);
+    *(trash_attr.gid.val) = 0;
+    mkdir3 (c, fstab[i].fh_root, ".sfs.trash", trash_attr,
+	    wrap (this, &filesrv::gottrashdir, ea, i));
+  }
+}
+
+void
+filesrv::gottrashdir (ref<erraccum> ea, int i, const nfs_fh3 *fhp, str err)
+{
+  if (resok(ea, strbuf ("create trash dir for ") << fstab[i].path_mntpt, err)) {
+    sfs_trash_fhs[i] = *fhp;
+    warn << "trash dir for " << fstab[i].path_mntpt << ": " << 
+            armor32(fhp->data.base(), fhp->data.size()) << "\n";
   }
 }
 

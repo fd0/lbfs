@@ -9,8 +9,6 @@
 #include "sfsrwsd.h"
 #include "lbfs.h"
   
-AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
-
 lbfs_db _db;
 static int _requests = 0;
 static char *_host;
