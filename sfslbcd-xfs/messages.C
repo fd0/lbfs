@@ -585,7 +585,7 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
 #if DEBUG > 0
 	    warn << "chunk size != size from server..\n";
 #endif
-	    found = false;
+	    continue;
 	  }
 	  else {
 	    //read chunk c.pos() to c.count() from fh into buf 
@@ -595,7 +595,7 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
 	      warn << "compose_file: null fh or Can't find node handle\n";
 #endif
 	      found = false;
-	      goto chunk_not_found;
+	      continue;
 	    }
 #if DEBUG > 0
 	    warn << "reading chunks from " << e->cache_name << "\n";
@@ -607,7 +607,7 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
 		   << "(" << errno << ")\n";
 #endif
 	      found = false;
-	      goto chunk_not_found;
+	      continue;
 	    }
 	    if (lseek (chfd, c.pos (), SEEK_SET) < 0) {
 #if DEBUG > 0
@@ -615,7 +615,7 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
 		   << "(" << errno << ")\n";
 #endif
 	      found = false;
-	      goto chunk_not_found;
+	      continue;
 	    }
 	    if ((err = read (chfd, buf, c.count ())) > -1) {
 	      if ((uint32) err != c.count ()) {
@@ -624,7 +624,7 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
 		     << c.count () << "\n";
 #endif
 	        found = false;
-	        goto chunk_not_found;
+	        continue;
 	      }
 	      if (compare_sha1_hash (buf, c.count (),
 				     res->resok->fprints[i].hash)) {
@@ -632,7 +632,7 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
 		warn << "compose_file: sha1 hash mismatch\n";
 #endif
 		found = false;
-	        goto chunk_not_found;
+	        continue;
 	      }
 	    }
 	    else {
@@ -641,7 +641,7 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
 		   << "(" << errno << ")\n";
 #endif
 	      found = false;
-	      goto chunk_not_found;
+	      continue;
 	    }
 	    close (chfd);
 	  }
