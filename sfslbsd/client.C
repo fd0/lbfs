@@ -726,12 +726,12 @@ client::sfs_getfsinfo (svccb *sbp)
     sbp->reject (PROC_UNAVAIL);
 }
 
-ptr<rabin_priv>
+ptr<sfspriv>
 client::doconnect (const sfs_connectarg *ci, sfs_servinfo *si)
 {
   fsrv = defsrv;
   *si = fsrv->servinfo;
-  return fsrv->sk;
+  return fsrv->privkey;
 }
 
 void

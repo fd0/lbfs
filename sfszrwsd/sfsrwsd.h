@@ -26,6 +26,7 @@
 #include "arpc.h"
 #include "vec.h"
 #include "getfh3.h"
+#include "sfscrypt.h"
 #include "sfsmisc.h"
 #include "crypt.h"
 #include "rabin.h"
@@ -103,9 +104,10 @@ public:
     bool rootfh;
   };
 
+  ptr<sfs_servinfo_w> siw;
   sfs_servinfo servinfo;
   sfs_hash hostid;
-  ptr<rabin_priv> sk;
+  ptr<sfspriv> privkey;
 
   ptr<axprt_stream> authxprt;
   ptr<aclnt> authclnt;
@@ -195,7 +197,7 @@ class client : public virtual refcount, public sfsserv {
 protected:
   client (ref<axprt_zcrypt> x);
   ~client ();
-  ptr<rabin_priv> doconnect (const sfs_connectarg *, sfs_servinfo *);
+  ptr<sfspriv> doconnect (const sfs_connectarg *, sfs_servinfo *);
 
 public:
   ptr<aclnt> nfscbc;

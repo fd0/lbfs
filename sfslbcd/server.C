@@ -580,7 +580,7 @@ server::dont_run_rpc (nfscall *nc)
   nfs_fh3 *fh = static_cast<nfs_fh3 *> (nc->getvoidarg ());
   file_cache *e = file_cache_lookup(*fh);
 
-  if (nc->proc () == cl_NFSPROC3_CLOSE && !e->is_dirty())
+  if (nc->proc () == cl_NFSPROC3_CLOSE && !e->is_dirty() && !e->is_flush())
     return false;
 
   if (e) {
@@ -717,8 +717,9 @@ server::dispatch (nfscall *nc)
     nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
     file_cache *e = file_cache_lookup(*a);
     assert(!e->is_flush());
+    
     if (e && e->fd >= 0) {
-      close(e->fd);
+      close (e->fd);
       e->fd = -1;
     }
     if (e && e->is_dirty())

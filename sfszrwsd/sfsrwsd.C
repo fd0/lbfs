@@ -24,6 +24,7 @@
 #include "sfsrwsd.h"
 #include "parseopt.h"
 #include "rxx.h"
+#include "sfscrypt.h"
 
 #include "aios.h"
 
@@ -75,7 +76,7 @@ start_server (filesrv *fsrv, bool ok)
     fatal ("file server initialization failed\n");
   warn ("version %s, pid %d\n", VERSION, getpid ());
   warn << "serving " << sfsroot << "/"
-       << sfs_hostinfo2path (fsrv->servinfo.host) << "\n";
+       << fsrv->siw->mkpath () << "\n";
   if (opt_dumphandles) {
     for (size_t i = 0; i < fsrv->fstab.size (); i++) {
       aout << (strbuf () << " export " << fsrv->fstab[i].host << ":"
@@ -99,6 +100,9 @@ parseconfig (str cf)
   bool errors = false;
 
   filesrv *fsrv = New filesrv;
+  int sivers = 7;
+  fsrv->servinfo.set_sivers (sivers);
+  fsrv->servinfo.cr7->release = sfs_release;
 
   int line;
   vec<str> av;
@@ -158,7 +162,7 @@ parseconfig (str cf)
 	errors = true;
 	warn << cf << ":" << line << ": usage: hostname name\n";
       }
-      else if (fsrv->servinfo.host.hostname != "") {
+      else if (fsrv->servinfo.cr7->host.hostname != "") {
 	errors = true;
 	warn << cf << ":" << line << ": hostname already specified\n";
       }
@@ -167,10 +171,10 @@ parseconfig (str cf)
 	warn << cf << ":" << line << ": hostname must have domain\n";
       }
       else
-	fsrv->servinfo.host.hostname = av[1];
+	fsrv->servinfo.cr7->host.hostname = av[1];
     }
     else if (!strcasecmp (av[0], "keyfile")) {
-      if (fsrv->sk) {
+      if (fsrv->privkey) {
 	  errors = true;
 	  warn << cf << ":" << line << ": keyfile already specified\n";
       }
@@ -181,7 +185,8 @@ parseconfig (str cf)
 	  warn << av[1] << ": " << strerror (errno) << "\n";
 	  warn << cf << ":" << line << ": could not read keyfile\n";
 	}
-	else if (!(fsrv->sk = import_rabin_priv (key, NULL))) {
+	else if (!(fsrv->privkey 
+		   = sfscrypt.alloc_priv (key, SFS_ENCRYPT | SFS_DECRYPT))) { 
 	  errors = true;
 	  warn << cf << ":" << line << ": could not decode keyfile\n";
 	}
@@ -198,7 +203,7 @@ parseconfig (str cf)
     }
   }
 
-  if (!errors && !fsrv->sk) {
+  if (!errors && !fsrv->privkey) {
     str keyfile = sfsconst_etcfile ("sfs_host_key");
     if (!keyfile) {
       errors = true;
@@ -210,13 +215,13 @@ parseconfig (str cf)
 	errors = true;
 	warn << keyfile << ": " << strerror (errno) << "\n";
       }
-      else if (!(fsrv->sk = import_rabin_priv (key, NULL))) {
+      else if (!(fsrv->privkey = 
+		 sfscrypt.alloc_priv (key, SFS_DECRYPT | SFS_ENCRYPT))) {
 	errors = true;
 	warn << "could not decode " << keyfile << "\n";
       }
     }
   }
-
   if (errors)
     fatal ("errors in config file\n");
   if (!fsrv->fstab.size ())
@@ -224,20 +229,21 @@ parseconfig (str cf)
   if (fsrv->fstab[0].path_mntpt != "/")
     fatal ("first export point must be named '/'\n");
 
-  fsrv->servinfo.release = sfs_release;
-  fsrv->servinfo.host.type = SFS_HOSTINFO;
-  if ((fsrv->servinfo.host.hostname == "")
-      && !(fsrv->servinfo.host.hostname = myname ()))
+  fsrv->servinfo.cr7->host.type = SFS_HOSTINFO;
+  fsrv->servinfo.cr7->host.port = sfs_port;
+  if ((fsrv->servinfo.cr7->host.hostname == "")
+      && !(fsrv->servinfo.cr7->host.hostname = myname ()))
     fatal ("could not figure out my host name\n");
-  if (!strchr (fsrv->servinfo.host.hostname.cstr (), '.'))
+  if (!strchr (fsrv->servinfo.cr7->host.hostname.cstr (), '.'))
     fatal ("could not determine fully-qualified hostname; "
 	   "check /etc/resolv.conf\n");
-  fsrv->servinfo.host.pubkey = fsrv->sk->n;
-  if (!sfs_mkhostid (&fsrv->hostid, fsrv->servinfo.host))
-    fatal ("could not marshal my own hostinfo\n");
-  fsrv->servinfo.prog = ex_NFS_PROGRAM;
-  fsrv->servinfo.vers = ex_NFS_V3;
+  fsrv->privkey->export_pubkey (&fsrv->servinfo.cr7->host.pubkey);
+  fsrv->servinfo.cr7->prog = ex_NFS_PROGRAM;
+  fsrv->servinfo.cr7->vers = ex_NFS_V3;
 
+  fsrv->siw = sfs_servinfo_w::alloc (fsrv->servinfo);
+  if (!fsrv->siw->mkhostid (&fsrv->hostid))
+    fatal ("could not marshal my own hostinfo\n");
   return fsrv;
 }
 

@@ -224,15 +224,8 @@ filesrv::gotdds (bool ok)
     return;
   }
 
-  str p;
-  sha1ctx sc;
-  p = str2wstr (sk->p.getraw ());
-  sc.update (p, p.len ());
-  sc.update (hostid.base (), hostid.size ());
-  p = str2wstr (sk->q.getraw ());
-  sc.update (p, p.len ());
-  char key[sha1::hashsize];
-  sc.final (key);
+  u_int8_t key[sha1::hashsize];
+  privkey->get_privkey_hash (key, hostid);
   fhkey.setkey (key, sizeof (key));
   bzero (key, sizeof (key));
 

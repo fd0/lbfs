@@ -28,6 +28,7 @@
 #include "qhash.h"
 #include "arpc.h"
 #include "vec.h"
+#include "sfscrypt.h"
 #include "sfsmisc.h"
 #include "mount_prot.h"
 #include "crypt.h"
@@ -99,26 +100,34 @@ struct ufd_table {
 };
 
 struct filesys {
-  typedef qhash<u_int64_t, u_int64_t> inotab_t;
+  str host;
+  ptr<aclnt> c;
 
   filesys *parent;
-  str path_root;		// Local path corresponding to root
-  str path_mntpt;		// Mountpoint relative to exported namespace
-  nfs_fh3 fh_root;		// NFS File handle of root
-  nfs_fh3 fh_mntpt;		// NFS File handle of mount point
-  u_int64_t fsid;		// fsid of root
-  u_int64_t fileid_root;	// fileid of root
-  u_int64_t fileid_root_dd;	// fileid of root/..
-  u_int64_t fileid_mntpt;	// fileid of mntpt
-  u_int64_t fileid_mntpt_dd;	// fileid of mntpt/..
+  str path_root;                // Local path corresponding to root
+  str path_mntpt;               // Mountpoint relative to exported namespace
+  nfs_fh3 fh_root;              // NFS File handle of root
+  nfs_fh3 fh_mntpt;             // NFS File handle of mount point
+  u_int64_t fsid;               // fsid of root
+  u_int64_t fileid_root;        // fileid of root
+  u_int64_t fileid_root_dd;     // fileid of root/..
+  u_int64_t fileid_mntpt;       // fileid of mntpt
+  u_int64_t fileid_mntpt_dd;    // fileid of mntpt/..
   enum {
     ANON_READ = 1,
     ANON_READWRITE = 3,
   };
-  u_int options;		// Any of the above options
-  ihash_entry<filesys> rhl;
+  u_int options;                // Any of the above options
   ihash_entry<filesys> mphl;
+
+  typedef qhash<u_int64_t, u_int64_t> inotab_t;
+  typedef ihash<nfs_fh3, filesys, &filesys::fh_mntpt,
+                &filesys::mphl, hashfh3> mp3tab_t;
+
+  mp3tab_t &mp3tab;
   inotab_t *inotab;
+
+  filesys () : mp3tab (*New mp3tab_t), inotab (New inotab_t) {}
 };
 
 #define SFS_TRASH_DIR_BUCKETS   254 // number of buckets (256-2, for . and ..)
@@ -145,10 +154,11 @@ public:
   str host;
   ptr<aclnt> c;
   ptr<aclnt> mountc;
-  
+ 
+  ptr<sfs_servinfo_w> siw;
   sfs_servinfo servinfo;
   sfs_hash hostid;
-  ptr<rabin_priv> sk;
+  ptr<sfspriv> privkey;
 
   ptr<axprt_stream> authxprt;
   ptr<aclnt> authclnt;
@@ -159,9 +169,6 @@ public:
   int get_trashent(unsigned fsno);
   void clear_trashent(unsigned fsno, int srv_fd);
   void update_trashent(unsigned fsno);
-
-  ihash<nfs_fh3, filesys, &filesys::fh_root, &filesys::rhl, hashfh3> root3tab;
-  ihash<nfs_fh3, filesys, &filesys::fh_mntpt, &filesys::mphl, hashfh3> mp3tab;
 
   blowfish fhkey;
   sfs_fsinfo fsinfo;
@@ -200,7 +207,7 @@ private:
   void fixrdres (void *res, filesys *fsp, bool rootfh);
   void fixrdplusres (void *res, filesys *fsp, bool rootfh);
 
-  int fhsubst (bool *substp, nfs_fh3 *fhp, u_int32_t *fsnop);
+  int fhsubst (bool *substp, filesys *pfsp, nfs_fh3 *fhp, u_int32_t *fhnop);
   size_t getfsno (const filesys *fsp) const {
 #ifdef CHECK_BOUNDS
     assert (fstab.base () <= fsp && fsp < fstab.lim ());
@@ -333,7 +340,7 @@ class client : public virtual refcount, public sfsserv {
 protected:
   explicit client (ref<axprt_zcrypt> x);
   ~client ();
-  ptr<rabin_priv> doconnect (const sfs_connectarg *, sfs_servinfo *);
+  ptr<sfspriv> doconnect (const sfs_connectarg *, sfs_servinfo *);
 
 public:
   ptr<aclnt> nfscbc;

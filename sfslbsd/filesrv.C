@@ -474,9 +474,10 @@ void
 filesrv::gotmp (ref<erraccum> ea, int i,
 		const nfs_fh3 *fhp, const FATTR3 *attr, str err)
 {
-  if (resok (ea, strbuf ("lookup: ") << fstab[i].path_mntpt, err)) {
+  if (resok (ea, fstab[i].parent->path_root << fstab[i].path_mntpt, err)) {
     fstab[i].fh_mntpt = *fhp;
     fstab[i].fileid_mntpt = attr->fileid;
+    fstab[i].parent->mp3tab.insert (&fstab[i]);
   }
 }
 
@@ -561,22 +562,12 @@ filesrv::gotdds (bool ok)
     return;
   }
 
-  str p;
-  sha1ctx sc;
-  p = str2wstr (sk->p.getraw ());
-  sc.update (p, p.len ());
-  sc.update (hostid.base (), hostid.size ());
-  p = str2wstr (sk->q.getraw ());
-  sc.update (p, p.len ());
-  char key[sha1::hashsize];
-  sc.final (key);
+  u_int8_t key[sha1::hashsize];
+  privkey->get_privkey_hash (key, hostid);
   fhkey.setkey (key, sizeof (key));
   bzero (key, sizeof (key));
 
   for (filesys *fsp = fstab.base (); fsp < fstab.lim (); fsp++) {
-    mp3tab.insert (fsp);
-    root3tab.insert (fsp);
-    fsp->inotab = New filesys::inotab_t;
     if (fsp == fsp->parent)
       /* Make sure readdir returns unique fileid for /.., since an
        * accessible copy of /.. may reside somewhere else in the file
@@ -603,8 +594,8 @@ filesrv::gotdds (bool ok)
 
   fh3trans fht (fh3trans::ENCODE, fhkey, 0);
 
-  fsinfo.set_prog (LBFS_PROGRAM);
-  fsinfo.nfs->set_vers (LBFS_V3);
+  fsinfo.set_prog (ex_NFS_PROGRAM);
+  fsinfo.nfs->set_vers (ex_NFS_V3);
   fsinfo.nfs->v3->root = fstab[0].fh_root;
   if (!rpc_traverse (fht, fsinfo.nfs->v3->root))
     fatal ("filesrv::finish: nfs3_transres encode failed (err %d)\n", fht.err);
@@ -619,9 +610,9 @@ filesrv::gotdds (bool ok)
 	     fht.err);
   }
 
-  mountc = NULL;
-  (*cb) (true);
+  cb_t c = cb;
   cb = NULL;
+  (*c) (true);
 }
 
 bool
@@ -641,10 +632,10 @@ filesrv::getauthclnt ()
 }
 
 int
-filesrv::fhsubst (bool *substp, nfs_fh3 *fhp, u_int32_t *fhnop)
+filesrv::fhsubst (bool *substp, filesys *pfsp, nfs_fh3 *fhp, u_int32_t *fhnop)
 {
   filesys *fsp;
-  for (fsp = mp3tab[*fhp]; fsp; fsp = mp3tab.nextkeq (fsp))
+  for (fsp = pfsp->mp3tab[*fhp]; fsp; fsp = pfsp->mp3tab.nextkeq (fsp))
     if (fsp != fstab.base () && getfsno (fsp->parent) == *fhnop) {
       *fhp = fsp->fh_root;
       *fhnop = fsp - fstab.base ();
@@ -789,8 +780,8 @@ filesrv::fixrdplusres (void *_res, filesys *fsp, bool rootfh)
     }
     else {
       filesys *nfsp;
-      for (nfsp = mp3tab[*e->name_handle.handle];
-	   nfsp && nfsp->parent != fsp; nfsp = mp3tab.nextkeq (nfsp))
+      for (nfsp = fsp->mp3tab[*e->name_handle.handle];
+	   nfsp && nfsp->parent != fsp; nfsp = fsp->mp3tab.nextkeq (nfsp))
 	;
       if (nfsp)
 	e->name_attributes.set_present (false);
@@ -818,7 +809,7 @@ filesrv::fixres (svccb *sbp, void *res, reqstate *rqsp)
 
   bool subst = false;
   fh3trans fht (fh3trans::ENCODE, fhkey, rqsp->fsno,
-		wrap (this, &filesrv::fhsubst, &subst));
+		wrap (this, &filesrv::fhsubst, &subst, fsp));
 
   fht.fattr_hook = fhook;
   if (!lbfs_nfs3exp_transres (fht, res, sbp->proc ())) {

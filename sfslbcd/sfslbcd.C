@@ -49,14 +49,14 @@ strip_mountprot(sfs_connectarg &carg, str &proto)
 }
 
 void
-sfslbcd_connect(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
-                sfscd_mountarg *ma, sfsserver::fhcb cb, ptr<sfscon> c, str s)
+sfslbcd_connect (sfsprog*prog, ref<nfsserv> ns, int tcpfd,
+                 sfscd_mountarg *ma, sfsserver::fhcb cb, ptr<sfscon> c, str s)
 {
   if (c) {
     rpc_ptr<sfs_connectok> cres;
     cres.alloc();
     sfs_connectok *p = cres;
-    p->servinfo = c->servinfo;
+    p->servinfo = c->servinfo->get_xdr ();
     ma->cres = cres;
     vNew refcounted<server>(sfsserverargs (ns, tcpfd, prog, ma, cb));
   }
