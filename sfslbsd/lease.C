@@ -1,5 +1,3 @@
-/* $Id$ */
-
 /*
  *
  * Copyright (C) 1999 David Mazieres (dm@uun.org)

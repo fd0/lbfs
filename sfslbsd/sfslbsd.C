@@ -1,5 +1,3 @@
-/* $Id$ */
-
 /*
  *
  * Copyright (C) 1998 David Mazieres (dm@uun.org)
@@ -60,8 +58,6 @@ ufd_rec::use(const nfs_fh3 &f, const nfs_fh3 &d,
 
 ufd_rec::~ufd_rec()
 {
-  for(unsigned i=0; i<chunks.size(); i++) 
-    delete chunks[i];
   assert(sbps.size()==0);
 }
 

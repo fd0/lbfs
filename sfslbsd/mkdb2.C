@@ -1,4 +1,3 @@
-/* $Id$ */
 
 #include "fingerprint.h"
 #include "lbfsdb.h"

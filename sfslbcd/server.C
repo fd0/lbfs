@@ -645,6 +645,11 @@ server::fixlc (nfscall *nc, void *res)
       nlc_remove(a->to.dir, a->to.name);
       nlc_insert(a->from.dir, a->from.name);
       lc_remove(a->from.dir, a->from.name);
+      nfs_fh3 fh;
+      bool hit = lc_lookup(a->to.dir, a->to.name, fh);
+      if (hit)
+	// need to do this to make sure we fetch new link count
+        ac.attr_enter (fh, NULL, NULL);
       lc_remove(a->to.dir, a->to.name);
     }
   }
@@ -663,6 +668,11 @@ server::fixlc (nfscall *nc, void *res)
     ex_wccstat3 *r = static_cast<ex_wccstat3 *> (res);
     if (!r->status || r->status == NFS3ERR_NOENT) {
       nlc_insert(a->dir, a->name);
+      nfs_fh3 fh;
+      bool hit = lc_lookup(a->dir, a->name, fh);
+      if (hit)
+	// need to do this to make sure we fetch new link count
+        ac.attr_enter (fh, NULL, NULL);
       lc_remove(a->dir, a->name);
     }
   }
@@ -686,7 +696,6 @@ server::cbdispatch (svccb *sbp)
 	a = xa->attributes.attributes.addr ();
 	a->expire += timenow;
       }
-      warn << "invalidate " << xa->handle << "\n";
       ac.attr_enter (xa->handle, a, NULL);
       if (lc[xa->handle])
 	lc_clear(xa->handle);
@@ -1050,7 +1059,6 @@ server::dispatch (nfscall *nc)
           bool hit = lc_lookup(a->dir, a->name, fh);
 	  if (hit) {
 	    const ex_fattr3 *objf = ac.attr_lookup (fh);
-	    warn << "positive hit " << a->name << ": " << fh << "\n";
 	    if (objf) {
               lookup3res res(NFS3_OK);
 	      res.resok->object = fh;

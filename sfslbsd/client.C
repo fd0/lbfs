@@ -43,6 +43,15 @@ static inline unsigned timediff()
 
 ihash<const u_int64_t, client, &client::generation, &client::glink> clienttab;
 
+inline
+const strbuf &
+strbuf_cat(const strbuf &b, nfs_fh3 fh)
+{
+  str s = armor32(fh.data.base(), fh.data.size());
+  b << s;
+  return b;
+}
+
 void
 client::fail ()
 {
@@ -72,74 +81,8 @@ client::nfs3reply (svccb *sbp, void *res, filesrv::reqstate rqs, clnt_stat err)
 }
 
 void
-client::removecb_3 (svccb *sbp, getattr3res *gres, filesrv::reqstate rqs,
-                    nfs_fh3 fh, void *res, clnt_stat err)
-{
-  if (!err && !gres->status) {
-    xattr xa;
-    xa.fh = &fh;
-    xa.fattr = reinterpret_cast<ex_fattr3 *> (gres->attributes.addr ());
-    dolease (fsrv, 0, static_cast<u_int32_t> (-1), &xa);
-  }
-  nfs3reply (sbp, res, rqs, RPC_SUCCESS);
-  delete gres;
-}
-
-void
-client::removecb_2 (svccb *sbp, void *_res, filesrv::reqstate rqs,
-                    lookup3res *ares, clnt_stat err)
-{
-  wccstat3 *res = static_cast<wccstat3 *> (_res);
-  AUTH *auth;
-  if (err || res->status || !(auth = authtab[sbp->getaui ()]) || !ares) {
-    if (ares) {
-      delete ares;
-      ares = 0;
-    }
-    nfs3reply (sbp, res, rqs, err);
-    return;
-  }
-
-  getattr3res *gres = New getattr3res;
-  rqs.c->call (NFSPROC3_GETATTR, &ares->resok->object, gres,
-               wrap (mkref (this), &client::removecb_3, sbp, gres, rqs,
-                     ares->resok->object, _res), auth);
-  delete ares;
-}
-
-void
-client::removecb_1 (svccb *sbp, lookup3res *ares, filesrv::reqstate rqs,
-                    clnt_stat err)
-{
-  AUTH *auth = authtab[sbp->getaui ()];
-  if (err || ares->status || !auth) {
-    delete ares;
-    ares = 0;
-  }
-
-  void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
-  rqs.c->call (sbp->proc (), sbp->template getarg<void> (), res,
-               wrap (mkref (this), &client::removecb_2, sbp, res, rqs, ares),
-               auth);
-}
-
-void
-client::renamecb_3 (svccb *sbp, getattr3res *gres, filesrv::reqstate rqs,
-                    nfs_fh3 fh, void *res, clnt_stat err)
-{
-  if (!err && !gres->status) {
-    xattr xa;
-    xa.fh = &fh;
-    xa.fattr = reinterpret_cast<ex_fattr3 *> (gres->attributes.addr ());
-    dolease (fsrv, 0, static_cast<u_int32_t> (-1), &xa);
-  }
-  nfs3reply (sbp, res, rqs, RPC_SUCCESS);
-  delete gres;
-}
-
-void
 client::renamecb_2 (svccb *sbp, rename3res *rres, filesrv::reqstate rqs,
-		    lookup3res *ares_old, lookup3res *ares, clnt_stat err)
+		    lookup3res *ares, clnt_stat err)
 {
   if (!err && !ares->status) {
     xattr xa;
@@ -150,30 +93,16 @@ client::renamecb_2 (svccb *sbp, rename3res *rres, filesrv::reqstate rqs,
     dolease (fsrv, 0, static_cast<u_int32_t> (-1), &xa);
   }
   delete ares;
-
-  if (ares_old) {
-    AUTH *auth = authtab[sbp->getaui ()];
-    getattr3res *gres = New getattr3res;
-    rqs.c->call (NFSPROC3_GETATTR, &ares_old->resok->object, gres,
-                 wrap (mkref (this), &client::renamecb_3, sbp, gres, rqs,
-                       ares_old->resok->object, rres), auth);
-    delete ares_old;
-  }
-  else
-    nfs3reply (sbp, rres, rqs, RPC_SUCCESS);
+  nfs3reply (sbp, rres, rqs, RPC_SUCCESS);
 }
 
 void
 client::renamecb_1 (svccb *sbp, void *_res, filesrv::reqstate rqs,
-		    lookup3res *ares_old, clnt_stat err)
+		    clnt_stat err)
 {
   rename3res *res = static_cast<rename3res *> (_res);
   AUTH *auth;
   if (err || res->status || !(auth = authtab[sbp->getaui ()])) {
-    if (ares_old) {
-      delete ares_old;
-      ares_old = 0;
-    }
     nfs3reply (sbp, res, rqs, err);
     return;
   }
@@ -181,23 +110,7 @@ client::renamecb_1 (svccb *sbp, void *_res, filesrv::reqstate rqs,
   lookup3res *ares = New lookup3res;
   rqs.c->call (NFSPROC3_LOOKUP, &sbp->template getarg<rename3args> ()->to,
                ares, wrap (mkref (this), &client::renamecb_2,
-		           sbp, res, rqs, ares_old, ares), auth);
-}
-
-void
-client::renamecb_0 (svccb *sbp, lookup3res *ares, filesrv::reqstate rqs,
-                    clnt_stat err)
-{
-  AUTH *auth = authtab[sbp->getaui ()];
-  if (err || ares->status || !auth) {
-    delete ares;
-    ares = 0;
-  }
-
-  void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
-  rqs.c->call (sbp->proc (), sbp->template getarg<void> (), res,
-               wrap (mkref (this), &client::renamecb_1, sbp, res, rqs, ares),
-	       authtab[sbp->getaui ()]);
+		           sbp, res, rqs, ares), auth);
 }
 
 static inline int
@@ -237,9 +150,12 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     delete chunker0;
     iter->del(); 
     chunk_location c;
-    if (!iter->next(&c)) {
+    ufd_rec *u = ufdtab.tab[cwa->fd];
+    while (!iter->next(&c)) {
       nfs_fh3 fh; 
-      c.get_fh(fh); 
+      c.get_fh(fh);
+      if (fh == u->fh)
+	continue;
       Chunker *chunker = New Chunker;
       unsigned char *buf = New unsigned char[c.count()];
       nfs3_read
@@ -327,9 +243,12 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
     
   ufd_rec *u = ufdtab.tab[cwa->fd]; 
   if (u) {
-    if (u->inuse)
-      u->chunks.push_back
-        (New chunk(cwa->offset, cwa->count, cwa->hash));
+    if (u->inuse) {
+      chunk c (cwa->offset, cwa->count, cwa->hash);
+      c.location ().set_fh (u->fh);
+      fsrv->fpdb.add_entry(c.hashidx (),
+	                   &(c.location ()), c.location ().size ());
+    }
     else {
       warn << "u not in use, sbp queued\n";
       u->sbps.push_back(sbp);
@@ -345,11 +264,13 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
   u_int64_t index;
   memmove(&index, cwa->hash.base(), sizeof(index));
   if (fsrv->fpdb.get_iterator(index, &iter) == 0) {
-    if (iter) { 
-      chunk_location c; 
-      if (!iter->get(&c)) { 
+    chunk_location c;
+    if (iter && !iter->get(&c)) {
+      do {
 	nfs_fh3 fh; 
 	c.get_fh(fh);
+        if (fh == u->fh)
+	  continue;
         Chunker *chunker = New Chunker;
 	unsigned char *buf = New unsigned char[c.count()];
 	nfs3_read
@@ -359,7 +280,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 	   wrap(mkref(this), &client::condwrite_got_chunk,
 	        sbp, rqs, iter, chunker, buf));
 	return;
-      } 
+      } while (!iter->next(&c));
       delete iter; 
     }
   }
@@ -517,22 +438,6 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
 
   ufd_rec *u = ufdtab.tab[cta->fd];
   if (u) {
-    for (unsigned i=0; i<u->chunks.size(); i++) {
-      chunk *c = u->chunks[i];
-      c->location().set_fh(u->fh);
-      fsrv->fpdb.add_entry(c->hashidx(),
-	                   &(c->location()), c->location().size());
-      c->location().set_fh(fh);
-      fsrv->fpdb.add_entry(c->hashidx(), 
-	                   &(c->location()), c->location().size());
-      if (lbsd_trace > 2) 
-      {
-        warn << "COMMITTMP: adding " << c->hashidx() << " @"
-	     << c->location().pos() << " " 
-	     << c->location().count() << " to database "
-	     << c->location().size() << " bytes\n";
-      }
-    }
     u->name[u->len] = '\0';
     fsrv->clear_trashent(rqs.fsno, u->srv_fd);
     ufdtab.tab.remove(u);
@@ -571,20 +476,7 @@ client::aborttmp (svccb *sbp, filesrv::reqstate rqs)
   
   ufd_rec *u = ufdtab.tab[cta->fd]; 
   if (u) {
-    if (u->inuse) {
-      for (unsigned i=0; i<u->chunks.size(); i++) {
-        chunk *c = u->chunks[i];
-        c->location().set_fh(u->fh);
-        fsrv->fpdb.add_entry
-	  (c->hashidx(), &(c->location()), c->location().size());
-        if (lbsd_trace > 2) {
-          warn << "ABORTTMP: adding " << c->hashidx() << " @"
-	       << c->location().pos() << " " 
-	       << c->location().count() << " to database\n";
-        }
-      }
-    }
-    else {
+    if (!u->inuse) {
       for (size_t i=0; i<u->sbps.size(); i++)
         lbfs_nfs3exp_err (u->sbps[i], NFS3ERR_ABORTED);
       u->sbps.setsize(0);
@@ -783,27 +675,14 @@ void
 client::normal_demux (svccb *sbp, filesrv::reqstate rqs)
 {
   u_int32_t authno = sbp->getaui ();
+  void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
 
-  if (sbp->proc () == NFSPROC3_REMOVE) {
-    // change REMOVE to LOOKUP,REMOVE,GETATTR, so we can invalidate
-    // the fh whose linkcount changed
-    lookup3res *ares = New lookup3res;
-    rqs.c->call (NFSPROC3_LOOKUP, sbp->template getarg<void> (), ares,
-                 wrap (mkref (this), &client::removecb_1, sbp, ares, rqs),
-                 authtab[authno]);
-  }
-  else if (sbp->proc () == NFSPROC3_RENAME) {
-    // change RENAME to LOOKUP,RENAME,LOOKUP,GETATTR, so we can
-    // invalidate both the old fh for the destination file and the new
-    // fh for the destination file, if needed
-    lookup3res *ares = New lookup3res;
-    rqs.c->call (NFSPROC3_LOOKUP,
-	         &sbp->template getarg<rename3args> ()->to, ares,
-                 wrap (mkref (this), &client::renamecb_0, sbp, ares, rqs),
+  if (sbp->proc () == NFSPROC3_RENAME) {
+    rqs.c->call (sbp->proc (), sbp->template getarg<void> (), res,
+                 wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
                  authtab[authno]);
   }
   else {
-    void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
     rqs.c->call (sbp->proc (), sbp->template getarg<void> (), res,
 		 wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
 		 authtab[authno]);
