@@ -432,7 +432,7 @@ normal_read (ref<getfp_args> ga, uint64 offset, uint32 count)
   read3args ra;
   ra.file = e->nh;
   ra.offset = offset;
-  ra.count = count;
+  ra.count = count < NFS_MAXDATA ? count : NFS_MAXDATA;
 
   ref<ex_read3res > rres = New refcounted < ex_read3res >;
   nfsc->call (lbfs_NFSPROC3_READ, &ra, rres,
