@@ -78,16 +78,16 @@ axprt_compress::sendv (const iovec *iov, int iovcnt, const sockaddr *sa)
 }
 
 void
-axprt_compress::rcb(const char *buf, ssize_t len, const sockaddr *sa)
+axprt_compress::rcb(const char *pkt, ssize_t len, const sockaddr *sa)
 {
   if (!docompress || len <= 0) {
-    (*cb) (buf, len, sa);
+    (*cb) (pkt, len, sa);
     return;
   }
 
   zin.next_out = (Bytef *) buf;
   zin.avail_out = bufsize;
-  zin.next_in = (Bytef *) buf;
+  zin.next_in = (Bytef *) pkt;
   zin.avail_in = len;
 
   if (int zerr = inflate (&zin, Z_SYNC_FLUSH)) {
