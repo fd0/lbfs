@@ -29,11 +29,11 @@ int kernel_fd = -1;
 
 /* count of the number of messages in a read */
 
-static unsigned recv_count[20];
+//static unsigned recv_count[20];
 
 /* for more than above... */
 
-static unsigned recv_count_overflow;
+//static unsigned recv_count_overflow;
 
 static int
 process_message (int msg_length, char *msg)

@@ -1571,6 +1571,8 @@ void condwrite_chunk(ref<condwrite3args> cwa)
 	cwa->chunker->chunk_vector()[index]->aux_count = 0;
 	outstanding_condwrites++;
         sendcondwrite(cwa, cwa->chunker->chunk_vector()[index]);
+	lbfsdb.add_entry (cwa->chunker->chunk_vector()[index]->fingerprint,
+			  &(cwa->chunker->chunk_vector()[index]->loc));
       }
       if (outstanding_condwrites >= OUTSTANDING_CONDWRITES) break;
     }

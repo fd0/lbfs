@@ -54,8 +54,8 @@ void nfsobj2xfsnode(xfs_cred, nfs_fh3, ex_fattr3, time_t, xfs_msg_node *,
                     bool update_dir_expire = false);
 int flushbuf(write_dirent_args *);
 int nfsdir2xfsfile(ex_readdir3res *, write_dirent_args *);
-int nfsdirent2xfsfile(int, const char*, uint64);
-int xfsfile_rm_dirent(int, const char* fname);
+int nfsdirent2xfsfile(const char *, const char*, uint64);
+int xfsfile_rm_dirent(const char *, const char* fname);
 int xfsattr2nfsattr(uint32 opcode, xfs_attr, sattr3 *);
 int fattr2sattr(ex_fattr3, sattr3 *);
 
