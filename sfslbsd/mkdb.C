@@ -59,7 +59,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
 	  for(unsigned i=0; i<cv.size(); i++) { 
 	    cv[i]->loc.set_fh(*fhp);
 	    cv[i]->loc.set_mtime(attr->mtime);
-	    int r = _db.add_chunk(cv[i]->fingerprint, &(cv[i]->loc)); 
+	    _db.add_chunk(cv[i]->fingerprint, &(cv[i]->loc)); 
 	    delete cv[i];
 	  }
         }
@@ -127,7 +127,7 @@ gotrootfh(const nfs_fh3 *fhp, str err)
 {
   if (!err) {
     _rootfh = *fhp;
-    int r = _db.open(); 
+    _db.open(); 
     read_directory("");
   }
   done();

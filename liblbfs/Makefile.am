@@ -9,11 +9,11 @@ sfsinclude_HEADERS = lbfs_prot.x lbfs_prot.h rabinpoly.h lbfsdb.h fingerprint.h
 
 lbfs_prot.h: $(srcdir)/lbfs_prot.x
 	@rm -f $@
-	-$(RPCC) -h $(srcdir)/lbfs_prot.x || rm -f $@
+	-$(RPCC) -h -DSFSSVC $(srcdir)/lbfs_prot.x || rm -f $@
 
 lbfs_prot.C: $(srcdir)/lbfs_prot.x
 	@rm -f $@
-	-$(RPCC) -c $(srcdir)/lbfs_prot.x || rm -f $@
+	-$(RPCC) -c -DSFSSVC $(srcdir)/lbfs_prot.x || rm -f $@
 
 dist-hook:
 	cd $(distdir) && rm -f lbfs_prot.h lbfs_prot.C

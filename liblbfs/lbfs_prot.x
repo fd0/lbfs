@@ -29,13 +29,6 @@ struct lbfs_condwrite3args {
   sfs_hash hash;
 };
 
-union lbfs_condwrite3res switch (nfsstat3 status) {
-case NFS3_OK:
-  write3resok resok;
-default:
-  wcc_data resfail;
-};
-
 struct lbfs_mktmpfile3args {
   nfs_fh3 commit_to;
   sattr3 obj_attributes;
@@ -109,7 +102,7 @@ program LBFS_PROGRAM {
 		ex_commit3res
 		lbfs_NFSPROC3_COMMIT (commit3args) = 21;
 		
-		lbfs_condwrite3res
+		ex_write3res
 		lbfs_NFSPROC3_CONDWRITE (lbfs_condwrite3args) = 22;
 		
 		ex_diropres3

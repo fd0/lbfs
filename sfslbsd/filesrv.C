@@ -21,6 +21,7 @@
  *
  */
 
+#include "nfs3_nonnul.h"
 #include "lbfs.h"
 #include "sfsrwsd.h"
 
@@ -406,11 +407,45 @@ anon_checkperm (svccb *sbp, u_int options, bool isroot)
   return false;
 }
 
+
+#define lbfs_trans(proc, type)                                  \
+  case proc:                                                    \
+    if (rpc_traverse (fht, *static_cast<type *> (objp)))        \
+      return true;                                              \
+    if (!fht.err)                                               \
+      fht.err = NFS3ERR_INVAL;                                  \
+    return false;
+#define lbfs_transarg(proc, arg, res) lbfs_trans (proc, arg)
+#define lbfs_transres(proc, arg, res) lbfs_trans (proc, res)
+
+#define LBFS_PROGRAM_3_APPLY_NONULL(macro) \
+    LBFS_PROGRAM_3_APPLY_NOVOID (macro, nfs3void)
+
+static bool
+lbfs_nfs3_transarg (fh3trans &fht, void *objp, u_int32_t proc)
+{
+  switch (proc) {
+    LBFS_PROGRAM_3_APPLY_NONULL (lbfs_transarg);
+  default:
+    panic ("lbfs_nfs3_transarg: bad proc %d\n", proc);
+  }
+}
+
+static bool
+lbfs_nfs3exp_transres (fh3trans &fht, void *objp, u_int32_t proc)
+{
+  switch (proc) {
+    LBFS_PROGRAM_3_APPLY_NONULL (lbfs_transres);
+  default:
+    panic ("lbfs_nfs3exp_transres: bad proc %d\n", proc);
+  }
+}
+
 bool
 filesrv::fixarg (svccb *sbp, reqstate *rqsp)
 {
   fh3trans fht (fh3trans::DECODE, fhkey);
-  if (!nfs3_transarg (fht, sbp->template getarg<void> (), sbp->proc ())) {
+  if (!lbfs_nfs3_transarg (fht, sbp->template getarg<void> (), sbp->proc ())) {
     nfs3exp_err (sbp, nfsstat3 (fht.err));
     return false;
   }
@@ -525,7 +560,7 @@ filesrv::fixres (svccb *sbp, void *res, reqstate *rqsp)
 		wrap (this, &filesrv::fhsubst, &subst));
 
   fht.fattr_hook = fhook;
-  if (!nfs3exp_transres (fht, res, sbp->proc ())) {
+  if (!lbfs_nfs3exp_transres (fht, res, sbp->proc ())) {
     warn ("nfs3reply: nfs3_transres encode failed (err %d)\n", fht.err);
     nfs3exp_err (sbp, nfsstat3 (fht.err));
     return false;

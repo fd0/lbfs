@@ -42,10 +42,12 @@ client::fail ()
   nfscbc = NULL;
 }
 
+
 void
 client::nfs3reply (svccb *sbp, void *res, filesrv::reqstate rqs, clnt_stat err)
 {
-  xdrproc_t xdr = nfs_program_3.tbl[sbp->proc ()].xdr_res;
+  xdrproc_t xdr = nfs_program_3.tbl[LBFS_PROC_RES_TRANS(sbp->proc ())].xdr_res;
+
   if (err) {
     xdr_delete (xdr, res);
     sbp->reject (SYSTEM_ERR);
@@ -54,7 +56,7 @@ client::nfs3reply (svccb *sbp, void *res, filesrv::reqstate rqs, clnt_stat err)
   doleases (fsrv, generation, rqs.fsno, sbp, res);
 
   if (fsrv->fixres (sbp, res, &rqs)) {
-    nfs3_exp_enable (sbp->proc (), res);
+    nfs3_exp_enable (LBFS_PROC_RES_TRANS(sbp->proc ()), res);
     sbp->reply (res);
     xdr_delete (xdr, res);
   }
@@ -105,7 +107,7 @@ compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
 }
 
 void
-client::condwrite_read_cb (svccb *sbp, void *_res, filesrv::reqstate rqs,
+client::condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
                            lbfs_db::chunk_iterator *iter, 
 			   unsigned char *data, size_t count, str err)
 {
@@ -126,7 +128,7 @@ client::condwrite_read_cb (svccb *sbp, void *_res, filesrv::reqstate rqs,
       c.get_fh(fh); 
       readfh3(fsrv->c, fh,
 	      wrap(mkref(this), &client::condwrite_read_cb, 
-		   sbp, _res, rqs, iter), c.pos(), c.count());
+		   sbp, rqs, iter), c.pos(), c.count());
       return; 
     }
   }
@@ -140,21 +142,20 @@ client::condwrite_read_cb (svccb *sbp, void *_res, filesrv::reqstate rqs,
     w3arg.count = cwa->count;
     w3arg.stable = UNSTABLE;  // is this correct?
     w3arg.data.set(reinterpret_cast<char*>(data), count, freemode::DELETE);
-    fsrv->c->call (NFSPROC3_WRITE, &w3arg, _res,
-		   wrap (mkref (this), &client::nfs3reply, sbp, _res, rqs),
+    void *res = nfs_program_3.tbl[NFSPROC3_WRITE].alloc_res ();
+    fsrv->c->call (NFSPROC3_WRITE, &w3arg, res,
+		   wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
 		   authtab[authno]);
     delete iter;
     return;
   }
 
-  lbfs_condwrite3res *res = static_cast<lbfs_condwrite3res *>(_res);
-  delete res;
   delete iter;
   nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
 
 void
-client::condwrite (svccb *sbp, void *_res, filesrv::reqstate rqs)
+client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
   lbfs_db::chunk_iterator *iter = 0;
@@ -166,37 +167,36 @@ client::condwrite (svccb *sbp, void *_res, filesrv::reqstate rqs)
 	c.get_fh(fh); 
 	readfh3(fsrv->c, fh,
 	        wrap(mkref(this), &client::condwrite_read_cb, 
-		     sbp, _res, rqs, iter), c.pos(), c.count());
+		     sbp, rqs, iter), c.pos(), c.count());
 	return;
       } 
       delete iter; 
     }
   }
-  lbfs_condwrite3res *res = static_cast<lbfs_condwrite3res *>(_res);
-  delete res;
   nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
 
 void
-client::mktmpfile_cb (svccb *sbp, void *_res, filesrv::reqstate rqs, 
-                      clnt_stat err)
+client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, 
+                      void *_cres, clnt_stat err)
 {
-  ex_diropres3 *res = static_cast<ex_diropres3 *>(_res);
+  diropres3 *cres = static_cast<diropres3 *>(_cres);
   if (err) 
-    nfs3reply (sbp, _res, rqs, RPC_FAILED);
+    nfs3reply (sbp, _cres, rqs, RPC_SUCCESS);
   else {
-    switch(res->status) {
+    switch(cres->status) {
       case NFS3ERR_EXIST:
-	mktmpfile(sbp, _res, rqs);
+	delete cres;
+	mktmpfile(sbp, rqs);
 	break;
       default:
-	nfs3reply (sbp, _res, rqs, RPC_SUCCESS);
+	nfs3reply (sbp, _cres, rqs, RPC_SUCCESS);
     }
   }
 }
 
 void
-client::mktmpfile (svccb *sbp, void *_res, filesrv::reqstate rqs)
+client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_mktmpfile3args *mta = sbp->template getarg<lbfs_mktmpfile3args> ();
 
@@ -214,8 +214,10 @@ client::mktmpfile (svccb *sbp, void *_res, filesrv::reqstate rqs)
   c3arg.how.set_mode(GUARDED);
   *(c3arg.how.obj_attributes) = mta->obj_attributes;
 
-  fsrv->c->call (NFSPROC3_CREATE, &c3arg, _res,
-		 wrap (mkref (this), &client::mktmpfile_cb, sbp, _res, rqs),
+  void *cres = nfs_program_3.tbl[NFSPROC3_CREATE].alloc_res ();
+  fsrv->c->call (NFSPROC3_CREATE, &c3arg, cres,
+		 wrap (mkref (this),
+		       &client::mktmpfile_cb, sbp, rqs, cres),
 		 authtab[authno]);
 }
 
@@ -245,22 +247,21 @@ client::nfs3dispatch (svccb *sbp)
   if (!fsrv->fixarg (sbp, &rqs))
     return;
 
-  void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
-  if (sbp->proc () == NFSPROC3_RENAME)
-    fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
-		   wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
-		   authtab[authno]);
-
-  else if (sbp->proc () == lbfs_NFSPROC3_MKTMPFILE)
-    mktmpfile(sbp, res, rqs);
-
+  if (sbp->proc () == lbfs_NFSPROC3_MKTMPFILE)
+    mktmpfile(sbp, rqs);
   else if (sbp->proc () == lbfs_NFSPROC3_CONDWRITE)
-    condwrite(sbp, res, rqs);
-  
-  else
-    fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
-		   wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
-		   authtab[authno]);
+    condwrite(sbp, rqs);
+  else {
+    void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
+    if (sbp->proc () == NFSPROC3_RENAME)
+      fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
+		     wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
+		     authtab[authno]);
+    else
+      fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
+		     wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
+		     authtab[authno]);
+  }
 }
 
 u_int64_t
