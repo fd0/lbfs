@@ -93,6 +93,9 @@ void cbdispatch(svccb *sbp);
 /* server.C */
 
 /* helper.C */
+#define NFS_MAXDATA 8192
+#define LBFS_MAXDATA 65536
+
 void lbfs_getroot (int, xfs_message_getroot &, sfs_aid, 
 		   ref<aclnt> sc1, ref<aclnt> nc1);
 void lbfs_getnode (int, xfs_message_getnode &, sfs_aid, ref<aclnt>);

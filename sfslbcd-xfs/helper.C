@@ -495,7 +495,7 @@ struct readdir_obj {
   }
 
   readdir_obj (int fd1, const xfs_message_open &h1, cache_entry *e1, sfs_aid sa1, 
-	       ref<aclnt> c1, readdir_obj::cb_t cb1) :
+     	       ref<aclnt> c1, readdir_obj::cb_t cb1) :
     cb(cb1), fd(fd1), c(c1), h(h1), sa(sa1), e(e1)    
   {
 #if DEBUG > 0
@@ -527,7 +527,7 @@ struct readdir_obj {
 #endif
 	if (e->nfs_attr.expire < (uint32) timenow) {
 	  const struct xfs_message_getattr *h1 = (xfs_message_getattr *) &h;
-	  lbfs_getattr (fd, *h1, sa, e->nh, c,
+	  lbfs_getattr (fd, *h1, sa, e->nh, c, 
 			wrap (this, &readdir_obj::get_updated_copy));
 	} else get_updated_copy (NULL, 0, clnt_stat (0));
       }
@@ -537,9 +537,55 @@ struct readdir_obj {
 
 void 
 lbfs_readdir (int fd, const xfs_message_open &h, cache_entry *e, sfs_aid sa, 
-	      ref<aclnt> c, readdir_obj::cb_t cb) 
+	      ref<aclnt> c, readdir_obj::cb_t cb)
 {
   vNew readdir_obj (fd, h, e, sa, c, cb);
+}
+
+struct getfp_obj {
+
+  int fd;
+  ref<aclnt> c;
+  
+  const struct xfs_message_open h;
+  sfs_aid sa;
+  cache_entry *e;
+  ptr<lbfs_getfp3res> res;
+  
+  void gotfp (time_t rqt, clnt_stat err) 
+  {
+    if (!err && res->status == NFS3_OK) {
+      
+    } 
+  }
+
+  getfp_obj (int fd1, const xfs_message_open &h1, cache_entry *e1, sfs_aid sa1, 
+	     ref<aclnt> c1) :
+    fd(fd1), c(c1), h(h1), sa(sa1), e(e1)    
+  {
+#if 0
+    nfsobj2xfsnode (h->cred, e, &msg.node);
+    msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R; // | XFS_OPEN_NW | XFS_DATA_W;
+    int cfd = assign_cachefile ();
+				
+#endif
+    lbfs_getfp3args gfa;
+    gfa.file = e->nh;
+    gfa.offset = 0;
+    gfa.count = LBFS_MAXDATA;
+
+    res = New refcounted <lbfs_getfp3res>;
+
+    nfsc->call (lbfs_GETFP, &gfa, res,
+		wrap (this, &getfp_obj::gotfp, timenow));
+  }
+};
+
+void
+lbfs_getfp (int fd, const xfs_message_open &h, cache_entry *e, sfs_aid sa, 
+	    ref<aclnt> c)
+{
+  vNew getfp_obj (fd, h, e, sa, c);
 }
 
 struct readfile_obj {
@@ -553,13 +599,62 @@ struct readfile_obj {
   cache_entry *e;
   ptr<ex_read3res> res;
 
+  void get_updated_copy (ptr<ex_getattr3res> res, time_t rqt, clnt_stat err) {
+    if (res) {
+      if (!err && res->status == NFS3_OK) {
+	e->nfs_attr = *(res->attributes);
+	e->set_exp (rqt, true);
+      } else {
+	xfs_reply_err (fd, h.header.sequence_num, err ? err : res->status);
+	delete this;
+      }
+    } 
+    nfstime3 maxtime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
+    if (greater (maxtime, e->ltime)) 
+      ;
+      //getfp ();
+    else {
+      xfs_message_getdata *h1 = (xfs_message_getdata *) &h;
+      lbfs_readexist (fd, *h1, e);
+      delete this;
+    }
+  }
+  
+  readfile_obj (int fd1, const xfs_message_open &h1, cache_entry *e1, sfs_aid sa1, 
+		ref<aclnt> c1, readfile_obj::cb_t cb1) :
+    cb(cb1), fd(fd1), c(c1), h(h1), sa(sa1), e(e1)    
+  {
+    uint32 owriters = e->writers;
+    if ((h.tokens & XFS_OPEN_MASK) & (XFS_OPEN_NW|XFS_OPEN_EW)) {
+      e->writers = 1;
+#if DEBUG > 0
+      warn << "open for write: " << e->writers << " writers\n";
+#endif
+    }
+    
+    if (!e->incache)
+      ;
+      //getfp ();
+    else {
+      if (owriters > 0) {
+	xfs_message_getdata *h1 = (xfs_message_getdata *) &h;
+	lbfs_readexist (fd, *h1, e);
+	delete this;
+      } else 
+	if (e->nfs_attr.expire < (uint32) timenow) {
+	  const struct xfs_message_getattr *h1 = (xfs_message_getattr *) &h;
+	  lbfs_getattr (fd, *h1, sa, e->nh, c,
+	  		wrap (this, &readfile_obj::get_updated_copy));
+	} else get_updated_copy (NULL, 0, clnt_stat (0));
+    }
+  }
 };
 
 void 
 lbfs_readfile (int fd, const xfs_message_open &h, cache_entry *e, sfs_aid sa, 
 	      ref<aclnt> c, readfile_obj::cb_t cb) 
 {
-
+  vNew readfile_obj (fd, h, e, sa, c, cb);
 }
 
 struct open_obj {
@@ -589,7 +684,7 @@ struct open_obj {
     } else {
       switch (e->nfs_attr.type) {
       case NF3DIR:
-	lbfs_readdir (fd, h, e, sa, c, wrap (this, &open_obj::done)); 
+	lbfs_readdir (fd, h, e, sa, c, wrap (this, &open_obj::done));
 	break;
       case NF3LNK:
 	lbfs_readlink (fd, h, e, sa, c, wrap (this, &open_obj::done)); 
