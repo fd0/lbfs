@@ -219,14 +219,88 @@ xfs_message_getnode (int fd, struct xfs_message_getnode *h, u_int size)
   return 0;
 }
 
+int assign_dirname(char *dname, int index) {
+  return snprintf(dname, MAXPATHLEN, "cache/%02X", index / 0x100);
+}
+
+int assign_filename(char *fname, int index) {
+  return snprintf(fname, MAXPATHLEN, "cache/%02X/%02X", 
+		  index / 0x100, index % 0x100);
+}
+
+int assign_file(char *fname, int index) { //move this to a cache class soon
+  
+  int fd;
+
+  assign_filename(fname, index);
+  fd = open(fname, O_CREAT | O_RDWR | O_TRUNC, 0666); 
+  if (fd < 0) { 
+    if (errno == ENOENT) {
+      char *dname = new char[MAXPATHLEN];
+      assign_dirname(dname, index);
+      warn << "Creating dir: " << dname << "\n";
+      if (mkdir(dname, 0777) < 0) {
+	warn << strerror(errno) << "(" << errno << ") mkdir " << dname << "\n";
+	return -1;
+      }
+      fd = open(fname, O_CREAT | O_RDWR | O_TRUNC, 0666); 
+      if (fd < 0) {
+	warn << strerror(errno) << "(" << errno << ") on file =" << fname << "\n";
+	return -1;
+      }
+    } else {
+      warn << strerror(errno) << "(" << errno << ") on file =" << fname << "\n";
+      return -1;
+    }
+  }
+    
+  return fd;
+}
+
+void write_dirfile(int fd, struct xfs_message_getdata *h, ex_readdir3res *res,
+		   write_dirent_args args, struct xfs_message_installdata msg, 
+		   clnt_stat cl_err) {
+
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+
+    nfsdir2xfsfile(res, &args); 
+    if (args.last) 
+      flushbuf(&args);
+    free (args.buf);
+
+    if (!res->resok->reply.eof) {
+      //rda->dir = fht.getnh(fht.getcur());
+      entry3 *e = res->resok->reply.entries;
+      while (e->nextentry != NULL) e = e->nextentry;
+      rda->cookie = e->cookie;
+      rda->cookieverf = res->resok->cookieverf;
+      //rda->count = 2000; //GUESS!! should use dtpres
+
+      ex_readdir3res *rdres = new ex_readdir3res;
+      nfsc->call(ex_NFSPROC3_READDIR, rda, rdres,
+		 wrap (&write_dirfile, fd, h, rdres, args, msg));
+    } else {
+
+      close(args.fd);
+
+      msg.header.opcode = XFS_MSG_INSTALLDATA;
+      h0 = (struct xfs_message_header *)&msg;
+      h0_len = sizeof(msg);
+      
+      xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+					h0, h0_len, NULL, 0);
+
+    }
+
+}
+
 void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res, 
 	     clnt_stat err) {
   
   if (res->status == NFS3_OK) {
 
     struct xfs_message_installdata msg; 
-    struct xfs_message_header *h0 = NULL;
-    size_t h0_len = 0;
     struct write_dirent_args args;
 
     if (fht.setcur(h->handle)) {
@@ -240,12 +314,10 @@ void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res,
     msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R;
 
     //fill in cache_name, cache_handle, flag
-    strcpy(msg.cache_name, "dir_file");
-    args.fd = open(msg.cache_name, O_CREAT | O_RDWR, 0666); 
-    if (args.fd < 0) { 
-      warn << strerror(errno) << "(" << errno << ") on args.fd=" << args.fd << "\n";
+    //strcpy(msg.cache_name, "dir_file"); 
+    args.fd = assign_file(msg.cache_name, fht.getcur());
+    if (args.fd < 0) 
       return;
-    }
   
     fhandle_t cfh;
     if (getfh(msg.cache_name, &cfh)) {
@@ -253,32 +325,8 @@ void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res,
       return;
     }
     memmove(&msg.cache_handle, &cfh, sizeof(cfh));
-    nfsdir2xfsfile(res, &args); 
-    if (args.last) 
-      flushbuf(&args);
-    free (args.buf);
-    close(args.fd);
+    write_dirfile(fd, h, res, args, msg, clnt_stat(0));
     
-    msg.header.opcode = XFS_MSG_INSTALLDATA;
-    h0 = (struct xfs_message_header *)&msg;
-    h0_len = sizeof(msg);
-
-    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
-				    h0, h0_len, NULL, 0);
-
-    if (!res->resok->reply.eof) {
-      rda->dir = fht.getnh(fht.getcur());
-      entry3 *e = res->resok->reply.entries;
-      while (e->nextentry != NULL) e = e->nextentry;
-      rda->cookie = e->cookie;
-      rda->cookieverf = res->resok->cookieverf;
-      rda->count = 2000; //GUESS!! should use dtpres
-
-      ex_readdir3res *rdres = new ex_readdir3res;
-      nfsc->call(ex_NFSPROC3_READDIR, rda, rdres,
-		 wrap (&nfs3_readdir, fd, h, rdres));
-    }
-
   } else {
     warn << "error: " << strerror(errno) << "(" << errno << ")\n";
     if (res->resfail->present) 
@@ -287,16 +335,47 @@ void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res,
   }
 }
 
+void write_file(int fd, struct xfs_message_getdata *h, ex_read3res *res, 
+		int cfd, struct xfs_message_installdata msg, clnt_stat cl_err) {
+
+  int err = write(cfd, res->resok->data.base(), res->resok->data.size());
+  if (err != (int)res->resok->data.size()) {
+    warn << "write error or short write!!\n";
+  }
+
+  if (!res->resok->eof) {
+    //ra->file = fht.getnh(fht.getcur());
+    ra->offset += res->resok->count;
+    //ra->count = NFS_MAXDATA;
+    
+    ex_read3res *rres = new ex_read3res;
+    nfsc->call(ex_NFSPROC3_READ, ra, rres,
+	       wrap(&write_file, fd, h, rres, cfd, msg));
+  } else {
+
+    close(cfd);
+
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+
+    msg.header.opcode = XFS_MSG_INSTALLDATA;
+    h0 = (struct xfs_message_header *)&msg;
+    h0_len = sizeof(msg);
+    
+    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+				      h0, h0_len, NULL, 0);
+  }
+  
+}
+
 void nfs3_read(int fd, struct xfs_message_getdata *h, ex_read3res *res, 
 	     clnt_stat err) {
   
   if (res->status == NFS3_OK && res->resok->file_attributes.present) {
 
-    struct xfs_message_installdata msg; 
-    struct xfs_message_header *h0 = NULL;
-    size_t h0_len = 0;
     int cfd;
-
+    struct xfs_message_installdata msg; 
+ 
     if (fht.setcur(h->handle)) {
       warn << "nfs3_read: Can't find node handle\n";
       return;
@@ -306,12 +385,10 @@ void nfs3_read(int fd, struct xfs_message_getdata *h, ex_read3res *res,
 		   *res->resok->file_attributes.attributes, &msg.node);
 
     msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R;
-    strcpy(msg.cache_name,"file");
-    cfd = open(msg.cache_name, O_CREAT | O_RDWR, 0666); 
-    if (cfd < 0) { 
-      warn << strerror(errno) << "(" << errno << ") on cfd=" << cfd << "\n";
+    //strcpy(msg.cache_name,"file");    
+    cfd = assign_file(msg.cache_name, fht.getcur());
+    if (cfd < 0) 
       return;
-    }
       
     fhandle_t cfh;
     if (getfh(msg.cache_name, &cfh)) {
@@ -319,27 +396,7 @@ void nfs3_read(int fd, struct xfs_message_getdata *h, ex_read3res *res,
       return;
     }
     memmove(&msg.cache_handle, &cfh, sizeof(cfh));
-    int err = write(cfd, res->resok->data.base(), res->resok->data.size());
-    if (err != (int)res->resok->data.size()) {
-      warn << "write error or short write!!\n";
-    }
-
-    msg.header.opcode = XFS_MSG_INSTALLDATA;
-    h0 = (struct xfs_message_header *)&msg;
-    h0_len = sizeof(msg);
-    
-    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
-				      h0, h0_len, NULL, 0);
-
-    if (!res->resok->eof) {
-      ra->file = fht.getnh(fht.getcur());
-      ra->offset += res->resok->count;
-      ra->count = NFS_MAXDATA;
-      
-      ex_read3res *rres = new ex_read3res;
-      nfsc->call(ex_NFSPROC3_READ, ra, rres,
-		 wrap(&nfs3_read, fd, h, rres));
-    }
+    write_file(fd, h, res, cfd, msg, clnt_stat(0));
   } else {
     warn << "error: " << strerror(errno) << "(" << errno << ")\n";
     if (res->resfail->present) 
