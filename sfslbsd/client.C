@@ -542,7 +542,8 @@ client::nextgen ()
 }
 
 client::client (ref<axprt_crypt> x)
-  : sfsserv (x), fsrv (NULL), generation (nextgen ())
+  : sfsserv (x, axprt_compress::alloc (x)), fsrv (NULL),
+    generation (nextgen ())
 {
   nfssrv = asrv::alloc (x, lbfs_program_3,
 			wrap (mkref (this), &client::nfs3dispatch));
@@ -564,10 +565,10 @@ client::sfs_getfsinfo (svccb *sbp)
 {
   if (fsrv) {
     sbp->replyref (fsrv->fsinfo);
-#if 0
+#if 1
     if (typeid (*x) != typeid (axprt_compress))
       panic ("client::sfs_getfsinfo %s != %s\n",
-	     typeid (*x).name (), typeid (axprt_compress).name ());
+	     typeid (*x).name (), typeid (refcounted<axprt_compress>).name ());
     static_cast<axprt_compress *> (x.get ())->compress ();
 #endif
   }
@@ -581,6 +582,12 @@ client::doconnect (const sfs_connectarg *ci, sfs_servinfo *si)
   fsrv = defsrv;
   *si = fsrv->servinfo;
   return fsrv->sk;
+}
+
+void
+client::launch (ref<axprt_crypt> xc)
+{
+  vNew refcounted<client> (xc);
 }
 
 void

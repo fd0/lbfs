@@ -282,10 +282,9 @@ class client : public virtual refcount, public sfsserv {
   void getfp (svccb *sbp, filesrv::reqstate rqs);
 
 protected:
-  client (ref<axprt_crypt> x);
+  explicit client (ref<axprt_crypt> x);
   ~client ();
   ptr<rabin_priv> doconnect (const sfs_connectarg *, sfs_servinfo *);
-  ref<axprt> getx (ref<axprt_crypt> xx) { return axprt_compress::alloc (xx); }
 
 public:
   ptr<aclnt> nfscbc;
@@ -294,7 +293,7 @@ public:
 
   void sfs_getfsinfo (svccb *sbp);
 
-  static void launch (ref<axprt_crypt> x) { vNew refcounted<client> (x); }
+  static void launch (ref<axprt_crypt> x);
   filesrv *getfilesrv () const { return fsrv; }
 };
 

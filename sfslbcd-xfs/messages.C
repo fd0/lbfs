@@ -122,7 +122,7 @@ sfs_getfsinfo (int fd, struct xfs_message_getroot *h, ref<sfs_fsinfo> fsi, clnt_
 {
 
   assert (fsi->prog == ex_NFS_PROGRAM && fsi->nfs->vers == ex_NFS_V3);
-  //x->compress ();
+  x->compress ();
   ref<ex_fsinfo3res > res = New refcounted < ex_fsinfo3res >;
 
   nfsc->call (lbfs_NFSPROC3_FSINFO, &fsi->nfs->v3->root, res,
