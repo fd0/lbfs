@@ -86,9 +86,6 @@ struct tmpfh_table {
         &tmpfh_record::fh, &tmpfh_record::hlink> tab;
 };
 
-#define SFS_TRASH_DIR_SIZE 10000 // number of files
-#define SFS_TRASH_WIN_SIZE 32    // 32 empty slots to nfs3_link to
-
 struct filesys {
   typedef qhash<u_int64_t, u_int64_t> inotab_t;
 
@@ -112,6 +109,16 @@ struct filesys {
   inotab_t *inotab;
 };
 
+#define SFS_TRASH_DIR_BUCKETS   100 // number of buckets
+#define SFS_TRASH_DIR_SIZE    10000 // total number of trash files
+#define SFS_TRASH_WIN_SIZE      100 // empty slots to nfs3_link to
+
+struct trash_dir {
+  nfs_fh3  topdir;
+  nfs_fh3  subdirs[SFS_TRASH_DIR_BUCKETS];
+  unsigned window[SFS_TRASH_WIN_SIZE];
+};
+
 class erraccum;
 struct synctab;
 class filesrv {
@@ -133,7 +140,7 @@ public:
   ptr<aclnt> authclnt;
 
   vec<filesys> fstab;
-  vec<nfs_fh3> sfs_trash_fhs;
+  vec<struct trash_dir> sfs_trash;
   unsigned get_oscar(unsigned fsno);
   void update_oscar(unsigned fsno);
 
@@ -162,7 +169,7 @@ private:
   void gotroot (ref<erraccum> ea, int i, const nfs_fh3 *fhp, str err);
   void gotroots (bool ok);
 
-  void gottrashdir (ref<erraccum> ea, int i,
+  void gottrashdir (ref<erraccum> ea, int i, int j, bool root,
 		    const nfs_fh3 *fhp, str err);
   void gotrootattr (ref<erraccum> ea, int i,
 		    const nfs_fh3 *fhp, const FATTR3 *attr, str err);
@@ -185,7 +192,6 @@ private:
     return fsp - fstab.base ();
   }
 
-  vec<unsigned*> sfs_trash_next;
   void make_oscar(unsigned fsno, unsigned trash_idx);
   void make_oscar_cb(wccstat3 *res, clnt_stat err);
 

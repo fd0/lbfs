@@ -276,7 +276,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   
   u_int32_t authno = sbp->getaui ();
   create3args c3arg;
-  c3arg.where.dir = fsrv->sfs_trash_fhs[rqs.fsno];
+  c3arg.where.dir = fsrv->sfs_trash[rqs.fsno].topdir;
   c3arg.where.name = tmpfile;
   c3arg.how.set_mode(GUARDED);
   *(c3arg.how.obj_attributes) = mta->obj_attributes;
@@ -336,7 +336,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
 #endif
     wccstat3 *rres = New wccstat3;
     diropargs3 rarg;
-    rarg.dir = fsrv->sfs_trash_fhs[fsno];
+    rarg.dir = fsrv->sfs_trash[fsno].topdir;
     rarg.name = tfh_rec->name;
     fsrv->c->call (NFSPROC3_REMOVE, &rarg, rres,
 	           wrap (mkref (this), &client::removetmp_cb, rres),
@@ -478,7 +478,7 @@ client::oscar_add (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh)
   char tmpfile[7+rstr.len()+1];
   sprintf(tmpfile, "oscar.%s", rstr.cstr());
   lnarg.link.name = tmpfile;
-  lnarg.link.dir = fsrv->sfs_trash_fhs[rqs.fsno];
+  lnarg.link.dir = fsrv->sfs_trash[rqs.fsno].subdirs[r%SFS_TRASH_DIR_BUCKETS];
   link3res *lnres = New link3res;
   fsrv->c->call (NFSPROC3_LINK, &lnarg, lnres,
 	         wrap (mkref (this), &client::oscar_add_cb, sbp, rqs, lnres),
