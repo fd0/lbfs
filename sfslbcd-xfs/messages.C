@@ -1594,7 +1594,10 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
     h1_len = sizeof (msg2);
 
     e1->incache = true;
-    e1->writers++;
+    // XXX - benjie: again, xfs screws us: current xfs implementation does not
+    // set mode on create, so we can't tell if file is created for writing or
+    // reading...
+    // e1->writers++;
     msg3.node = msg2.node;
     msg3.flag = 0;
     msg3.header.opcode = XFS_MSG_INSTALLDATA;
