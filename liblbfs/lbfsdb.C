@@ -29,14 +29,14 @@ lbfs_db::open()
 }
 
 int
-lbfs_db::search(u_int64_t fingerprint, lbfs_chunk **cp)
+lbfs_db::search(u_int64_t fingerprint, lbfs_chunk *cp)
 {
   Dbt key(&fingerprint, sizeof(fingerprint));
   Dbt data;
 
   int ret;
   if ((ret = _dbp.get(NULL, &key, &data, 0)) == 0)
-    *cp = reinterpret_cast<lbfs_chunk*>(data.get_data());
+    *cp = *reinterpret_cast<lbfs_chunk*>(data.get_data());
   return ret;
 }
 

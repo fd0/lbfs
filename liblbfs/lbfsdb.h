@@ -22,18 +22,17 @@
 #define FINGERPRINT_PT     0xbfe6b8a5bf378d83LL
 #define BREAKMARK_X        0x78
 #define BREAKMARK_K        8192
-#define BREAKMARK_CHUNK_SZ 64
 
 #define MY_PATH_MAX 1024
 
 struct lbfs_chunk {
   char path[MY_PATH_MAX];
   off_t pos;
-  size_t size;
+  ssize_t size;
   u_int64_t fingerprint;
 
   lbfs_chunk() {}
-  lbfs_chunk(const char *p, off_t o, size_t s, u_int64_t f) {
+  lbfs_chunk(const char *p, off_t o, ssize_t s, u_int64_t f) {
     strncpy(path, p, (strlen(p)+1) > MY_PATH_MAX ? MY_PATH_MAX : (strlen(p)+1));
     pos = o;
     size = s;
@@ -61,11 +60,13 @@ public:
   int open(); 
 
   // search db, given fingerprint, writes chunk ptr, return db3 errnos
-  int search(u_int64_t fingerprint, lbfs_chunk **cp);
+  int search(u_int64_t fingerprint, lbfs_chunk *cp);
 
   // returns db3 errnos
   int add_chunk(u_int64_t fingerprint, lbfs_chunk *c);
   int remove_chunk(u_int64_t fingerprint, lbfs_chunk *c);
+
+  // XXX iterator function for a fingerprint
 
 private: 
   Db _dbp;
