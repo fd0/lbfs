@@ -26,7 +26,7 @@
 #include "lbfs.h"
 #include "sfsrwsd.h"
 
-#define LBSD_GC_PERIOD 60
+#define LBSD_GC_PERIOD 300
 #define CHUNKS_PER_GC  1024
 
 extern int lbsd_trace;
