@@ -35,7 +35,7 @@ chunk_file(const char *path)
 {
   int fd = open(path, O_RDONLY);
   unsigned char buf[4096];
-  unsigned count;
+  int count;
   Chunker chunker(8192);
   while ((count = read(fd, buf, 4096))>0)
     chunker.chunk(buf, count);
