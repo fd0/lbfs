@@ -745,9 +745,10 @@ server::dispatch (nfscall *nc)
   else if (nc->proc () == NFSPROC3_SETATTR) {
     // for a set-size SETATTR: truncate cache file to the appropriate
     // size. set size attribute on the cache file, but not mtime. do
-    // wcc checking. don't mark the file dirty. if it wasn't dirty
-    // before, and will not be modified, we should not flush it back
-    // to the server, because SETATTR may not always follow ACCESS.
+    // wcc checking. don't mark the file dirty: if it wasn't dirty
+    // before, and will not be modified, we cannot flush file content
+    // to server because SETATTR may not always follow ACCESS, so file
+    // content may not be up to date.
     setattr3args *a = nc->template getarg<setattr3args> ();
     file_cache *e = file_cache_lookup(a->object);
     if (a->new_attributes.size.set && e) {
