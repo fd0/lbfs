@@ -634,8 +634,8 @@ struct getfp_obj {
   lbfs_getfp3args gfa;
   int out_fd;
   str out_fname;
-  uint blocks_written;
-  uint total_blocks;
+  uint bytes_written;
+  uint total_bytes;
   bool eof;
   int retries;
   uint64 bytes_recv;
@@ -684,42 +684,48 @@ struct getfp_obj {
     int err;
     if ((err = lseek (out_fd, cur_offst, SEEK_SET)) < 0) {
       if (lbcd_trace > 1)
-	warn << "getfp_obj::write_file1: " << out_fname << " " << strerror (errno) << "\n";
-      delete this; return;
+	warn << "getfp_obj::write_file1: "
+	     << out_fname << " " << strerror (errno) << "\n";
+      delete this;
+      return;
     } 
 
     if ((err = write (out_fd, rres->resok->data.base (), 
 		      rres->resok->count)) < 0) {
       if (lbcd_trace > 1)
-	warn << "getfp_obj::write_file2: " << out_fname << " " << strerror (errno) << "\n";
-      delete this; return;
+	warn << "getfp_obj::write_file2: " 
+	     << out_fname << " " << strerror (errno) << "\n";
+      delete this;
+      return;
     } else
       if (err != (int) rres->resok->count) {
 	if (lbcd_trace > 1)
 	  warn << "write error or short write!!\n";
-	delete this; return;
+	delete this;
+	return;
       }
 
+    bytes_written += rres->resok->count;
     if (rres->resok->count < size)
-      nfs3_read (cur_offst + rres->resok->count, size - rres->resok->count);
-    else
-      blocks_written++;
+      nfs3_read (cur_offst+rres->resok->count, size-rres->resok->count);
   }
   
-  void gotdata (uint64 cur_offst, uint32 size, ref<ex_read3res> rres, clnt_stat err) 
+  void gotdata
+    (uint64 cur_offst, uint32 size, ref<ex_read3res> rres, clnt_stat err) 
   {
     if (!err && rres->status == NFS3_OK) {
       assert (rres->resok->file_attributes.present);
       bytes_recv += rres->resok->count;
       write_file (cur_offst, size, rres);
-      if (blocks_written == total_blocks && eof) {
+      if (bytes_written == total_bytes && eof) {
 	installdata ();
-	// add chunk to the database --Why add every chunk in the file??
 	vec <chunk *> cvp;
 	if (chunk_file(cvp, (char const *) out_fname) < 0) {
 	  if (lbcd_trace > 1)
-	    warn << "getfp::gotdata: " << strerror (errno) << "(" << errno << ")\n";
-	  delete this; return;
+	    warn << "getfp::gotdata: " 
+	         << strerror (errno) << "(" << errno << ")\n";
+	  delete this;
+	  return;
 	}
 	for (uint i = 0; i < cvp.size (); i++) {
 	  if (lbcd_trace > 1)
@@ -729,7 +735,8 @@ struct getfp_obj {
 	  delete cvp[i];
 	}
 	lbfsdb.sync ();
-	delete this; return;
+	delete this;
+	return;
       }
     } else {
       if (err && (retries++ < 1))
@@ -749,7 +756,6 @@ struct getfp_obj {
     ra.count = size < NFS_MAXDATA ? size : NFS_MAXDATA;
     if (lbcd_trace > 1)
       warn << "getfp_obj::nfs3_read @" << cur_offst << " +" << ra.count << "\n";
-
 
     reads_sent++;
     ref<ex_read3res> rres = New refcounted <ex_read3res>;
@@ -775,9 +781,8 @@ struct getfp_obj {
 	     << c->count () << " or " << strerror (errno) << "\n";
       xfs_reply_err (fd, h->header.sequence_num, EIO);
       delete this; return;
-    }     
-
-    blocks_written++;
+    }
+    bytes_written += c->count();
   }
 
   void compose_file (int offset, ref<lbfs_getfp3res> fpres) 
@@ -853,7 +858,8 @@ struct getfp_obj {
 	    if (found) {
 	      if (lbcd_trace > 1)
 		warn << "FOUND!! getfp_obj::compose_file: fp = " 
-		     << fpres->resok->fprints[i].fingerprint << " in client DB\n";
+		     << fpres->resok->fprints[i].fingerprint 
+		     << " in client DB\n";
 	      copy_block (cur_offst, buf, &c);
 	    }
 	  } while (!found && !(ci->next (&c)));
@@ -862,30 +868,46 @@ struct getfp_obj {
       }
       if (!found) {
 	if (lbcd_trace > 1)
-	  warn << "compose_file: fp = " << fpres->resok->fprints[i].fingerprint 
-	       << " not in DB\n";
-	nfs3_read (cur_offst, fpres->resok->fprints[i].count);
+	  warn << "compose_file: fp = "
+	       << fpres->resok->fprints[i].fingerprint << " not in DB\n";
+#if 1
+	int want = fpres->resok->fprints[i].count;
+	uint64 want_pos = cur_offst;
+	while(want > 0) {
+	  int get = want > NFS_MAXDATA ? NFS_MAXDATA : want;
+	  warn << "reading " << want_pos << "+" << get << "\n";
+	  nfs3_read (want_pos, get);
+	  want_pos += get;
+	  want -= get;
+	}
+#else
+	warn << "reading " << cur_offst << "+"
+	     << fpres->resok->fprints[i].count << "\n";
+	nfs3_read(cur_offst, fpres->resok->fprints[i].count);
+#endif
       }
       cur_offst += fpres->resok->fprints[i].count;
     }
-    if (blocks_written == total_blocks && eof) {
+    if (bytes_written == total_bytes && eof) {
       installdata ();
       delete this; return;
     }
   }
 
-  void gotfp (uint64 offset, ref<lbfs_getfp3res> fpres, time_t rqt, clnt_stat err) 
+  void gotfp(uint64 offset, ref<lbfs_getfp3res> fpres,
+             time_t rqt, clnt_stat err) 
   {
     if (!err && fpres->status == NFS3_OK) {
       e->nfs_attr = *(fpres->resok->file_attributes.attributes);
       e->set_exp (rqt);
       e->ltime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
       
-      total_blocks += fpres->resok->fprints.size ();
       eof = fpres->resok->eof;
       int prev_offset = offset;
-      for (uint i=0; i < fpres->resok->fprints.size (); i++)
-       offset += fpres->resok->fprints[i].count;
+      for (uint i=0; i < fpres->resok->fprints.size (); i++) {
+        offset += fpres->resok->fprints[i].count;
+	total_bytes += fpres->resok->fprints[i].count;
+      }
       
       if (!eof) {
 	gfa.offset = offset;
@@ -895,7 +917,8 @@ struct getfp_obj {
 	getfps_sent++;
 	ref<lbfs_getfp3res> res = New refcounted <lbfs_getfp3res>;
 	c->call (lbfs_GETFP, &gfa, res, 
-		 wrap (this, &getfp_obj::gotfp, gfa.offset, res, timenow), lbfs_authof (sa));
+		 wrap (this, &getfp_obj::gotfp, gfa.offset, res, timenow),
+		 lbfs_authof (sa));
       }
       compose_file (prev_offset, fpres);
     } else {
@@ -912,9 +935,9 @@ struct getfp_obj {
 
   getfp_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
 	     ref<aclnt> c1, getfp_obj::cb_t cb1) :
-    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1), blocks_written(0), 
-    total_blocks(0), eof(false), retries(0), 
-    bytes_recv(0), getfps_sent(0), reads_sent(0)    
+    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1), bytes_written(0),
+    total_bytes(0), eof(false), retries(0), bytes_recv(0), getfps_sent(0),
+    reads_sent(0)    
   {
     h = msgcast<xfs_message_open> (hh);
     str fhstr = armor32(e->nh.data.base(), e->nh.data.size());
@@ -1021,8 +1044,8 @@ struct read_obj {
   }
 
   read_obj (int fd1, ref< xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
-	    ref<aclnt> c1, read_obj::cb_t cb1) : cb(cb1), fd(fd1), c(c1), hh(h1), 
-	      sa(sa1), e(e1)
+	    ref<aclnt> c1, read_obj::cb_t cb1)
+    : cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1)
   {
     h = msgcast<xfs_message_open> (hh);
     out_fd = assign_cachefile (fd, h->header.sequence_num, e, 
@@ -1031,13 +1054,11 @@ struct read_obj {
     ra.file = e->nh;
     ra.offset = 0;
     ra.count = NFS_MAXDATA;
-
     ref<ex_read3res> rres = New refcounted <ex_read3res>;
     c->call (lbfs_NFSPROC3_READ, &ra, rres,
 	     wrap (this, &read_obj::gotdata, ra.offset, rres, timenow),
 	     lbfs_authof (sa));
   }
-  
 };
 
 void 
@@ -1178,7 +1199,8 @@ public:
       default:
 	if (lbcd_trace > 1)
 	  warn << h->header.sequence_num << ":"  
-	       << "open_obj: File type " << e->nfs_attr.type << " not handled\n";
+	       << "open_obj: File type " << e->nfs_attr.type
+	       << " not handled\n";
 	break;
       }
     }
