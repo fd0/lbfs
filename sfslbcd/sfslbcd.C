@@ -39,7 +39,7 @@ sfslbcd_connect(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
     sfs_connectok *p = cres;
     p->servinfo = c->servinfo;
     ma->cres = cres;
-    vNew refcounted<server>(sfsserverargs (ns, tcpfd, prog, ma, cb));
+    vNew refcounted<server>(sfsserverargs (ns, tcpfd, prog, ma, cb, true));
   }
   else {
     warn <<  s;
@@ -62,7 +62,8 @@ sfslbcd_alloc(sfsprog *prog, ref<nfsserv> ns, int tcpfd,
     }
     if (i<path.len() && substr(path,0,i) == "lbfs") {
       ma->carg.ci5->sname = substr(path,i+1);
-      sfs_connect(ma->carg, wrap(&sfslbcd_connect, prog, ns, tcpfd, ma, cb));
+      sfs_connect(ma->carg, wrap(&sfslbcd_connect, prog, ns, tcpfd, ma, cb),
+	          true, true, true);
       return;
     }
   }

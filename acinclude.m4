@@ -773,7 +773,7 @@ if test "$with_zlib" != no; then
     else
 	libzrx='^libz.la$'
 	if test "$with_zlib" = yes; then
-	    for dir in /lib /usr/lib /usr/local/lib; do
+	    for dir in /usr/lib /usr/local/lib; do
 		if test -f $dir/libz.a \
 			|| ls $dir | egrep -q "$libzrx"; then
 		    with_zlib="$dir"
