@@ -75,16 +75,19 @@ lbfs_add_file(const char *path, const char *tmppath)
   bool remove_old_chunks = false;
   
   if (mapfile (&fp, &fl, path) == 0) {
-    for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++)
+    for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
       chunk_data(path, CHUNK_SIZES(j), fp, fl, &(old_chunks[j]));
+      if (old_chunks[j].size() <= 1) 
+	break;
+    }
     munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
     remove_old_chunks = true;
   }
   
   if (rename(tmppath, path)) {
     for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++)
-      for (unsigned i = 0; i < old_chunks[j].size(); i++)
-        delete old_chunks[j][i];
+      for (unsigned i = 0; i < old_chunks[j].size(); i++) 
+	delete old_chunks[j][i];
     return -1;
   }
 
@@ -94,8 +97,7 @@ lbfs_add_file(const char *path, const char *tmppath)
   if (remove_old_chunks) {
     for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
       for (unsigned i = 0; i < old_chunks[j].size(); i++) { 
-        if (db.remove_chunk(old_chunks[j][i]->fingerprint, old_chunks[j][i]))
-          printf("db inconsistent: old chunk for %s does not exist!\n", path);
+        db.remove_chunk(old_chunks[j][i]->fingerprint, old_chunks[j][i]);
         delete old_chunks[j][i];
       }
     }
@@ -111,10 +113,10 @@ lbfs_add_file(const char *path, const char *tmppath)
       db.add_chunk(new_chunks[i]->fingerprint, &c);
       delete new_chunks[i];
     }
+    if (new_chunks.size() <= 1) 
+      break;
   }
   munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
-
   return 0;
 }
-
 
