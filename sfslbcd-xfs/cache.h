@@ -73,6 +73,8 @@ extern ihash<nfs_fh3, cache_entry, &cache_entry::nh,
 extern ihash<xfs_handle, cache_entry, &cache_entry::xh,
   &cache_entry::xlink> xfsindex;
 cache_entry *update_cache (nfs_fh3, ex_fattr3);
+int assign_cachefile (int fd, int seqnum, cache_entry *, char *filename, 
+		      xfs_cache_handle *);
 
 inline
 cache_entry::cache_entry (nfs_fh3 &n, ex_fattr3 &na)

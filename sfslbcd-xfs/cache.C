@@ -1,4 +1,6 @@
 #include "cache.h"
+#include "xfs-nfs.h"
+#include "sfslbcd.h"
 
 bool 
 xfs_fheq (xfs_handle x1, xfs_handle x2) 
@@ -103,4 +105,32 @@ greater (nfstime3 a, nfstime3 b)
     return true;
   else
     return false;
+}
+
+int 
+assign_cachefile (int fd, int seqnum, cache_entry *e, 
+			char *name, xfs_cache_handle *ch) 
+{
+  strcpy (name, e->cache_name);
+  
+  int cfd = open (name, O_CREAT | O_WRONLY | O_TRUNC, 0666);
+  if (cfd < 0) {
+#if DEBUG > 0
+    warn << seqnum << ":" << "open cachefile failed\n";
+#endif
+    xfs_reply_err(fd, seqnum, EIO);
+    return -1;
+  }
+
+  fhandle_t cfh;
+  if (getfh (name, &cfh)) {
+#if DEBUG > 0
+    warn << seqnum << ":" << "getfh failed\n";
+#endif
+    xfs_reply_err(fd, seqnum, EIO);
+    return -1;
+  }
+
+  memmove (ch, &cfh, sizeof (cfh));
+  return cfd;
 }

@@ -47,7 +47,7 @@ xfs_getroot (ref<xfscall> xfsc)
   warn << "Received xfs_getroot\n";
 #endif
   
-  lbfs_getroot (xfsc->fd, (xfs_message_getroot *) xfsc->argp, 
+  lbfs_getroot (xfsc->fd, *((xfs_message_getroot *) xfsc->argp), 
 		xfsc->getaid (), sfsc, nfsc);
 
 }
@@ -65,7 +65,7 @@ xfs_getnode (ref<xfscall> xfsc)
     << (int) h->parent_handle.d << ")\n";
 #endif
   
-  lbfs_getnode (xfsc->fd, h, xfsc->getaid (), nfsc);
+  lbfs_getnode (xfsc->fd, *h, xfsc->getaid (), nfsc);
 }
 
 void 
