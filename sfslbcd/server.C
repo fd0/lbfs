@@ -497,6 +497,8 @@ server::cbdispatch (svccb *sbp)
 	a->expire += timenow;
       }
       ac.attr_enter (xa->handle, a, NULL);
+      if (lc[xa->handle])
+	lc_clear(xa->handle);
       sbp->reply (NULL);
       break;
     }
@@ -737,8 +739,7 @@ server::dispatch (nfscall *nc)
     dir_lc **dp = lc[a->dir];
     const ex_fattr3 *f = ac.attr_lookup (a->dir);
 
-    if (dp && f && (*dp)->attr.mtime < f->mtime)
-      // directory newer
+    if (dp && f && (*dp)->attr.mtime < f->mtime) // directory is newer
       lc_clear(a->dir);
     else if (dp) {
       bool has_negative = nlc_lookup(a->dir, a->name);
