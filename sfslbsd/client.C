@@ -33,7 +33,7 @@
 #include "fingerprint.h"
 #include "lbfs.h"
 
-#define DEBUG 1
+#define DEBUG 2
 
 
 ihash<const u_int64_t, client, &client::generation, &client::glink> clienttab;
@@ -148,7 +148,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   }
  
   else {
-#if DEBUG > 1
+#if DEBUG > 2
     // fingerprint matches, do write
     warn << "CONDWRITE: bingo, found a condwrite candidate\n";
 #endif
@@ -211,7 +211,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
       delete iter; 
     }
   }
-#if DEBUG > 1
+#if DEBUG > 2
   warn << "CONDWRITE: " << cwa->fingerprint << " not in DB\n";
 #endif
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
@@ -349,6 +349,7 @@ void
 client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
                   size_t count, read3res *rres, str err)
 {
+  lbfs_getfp3args *arg = sbp->template getarg<lbfs_getfp3args> ();
   if (!err && rres->resok->eof) 
     chunker->stop();
   vec<lbfs_chunk *> *cv = chunker->cvp;
@@ -364,8 +365,8 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       x.fingerprint = (*cv)[i]->fingerprint;
       x.hash = *(chunker->hv[i]);
       res->resok->fprints[i] = x;
-#if DEBUG > 1
-      warn << "GETFP: " << off << " " << (*cv)[i]->fingerprint 
+#if DEBUG > 2
+      warn << "GETFP: " << off+arg->offset << " " << (*cv)[i]->fingerprint 
 	   << " " << armor32(x.hash.base(), sha1::hashsize) << "\n";
 #endif
       off += x.count;
@@ -373,6 +374,10 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     res->resok->eof=rres->resok->eof;
     res->resok->file_attributes = 
       *(reinterpret_cast<ex_post_op_attr*>(&(rres->resok->file_attributes)));
+#if DEBUG > 1
+    warn << "GETFP: " << arg->offset << " returned " << n 
+         << " eof " << res->resok->eof << "\n";
+#endif
     nfs3reply (sbp, res, rqs, RPC_SUCCESS);
   }
   else {
@@ -398,6 +403,9 @@ void
 client::getfp (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_getfp3args *arg = sbp->template getarg<lbfs_getfp3args> ();
+#if DEBUG > 1
+  warn << "GETFP: ask for " << arg->offset << " and " << arg->count << "\n"; 
+#endif
   vec<lbfs_chunk *> *v = New vec<lbfs_chunk*>;
   Chunker *chunker = New Chunker(CHUNK_SIZES(0), v, true);
   nfs3_read 
