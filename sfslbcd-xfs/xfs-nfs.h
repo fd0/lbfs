@@ -23,10 +23,16 @@
 #define _XFS_NFS_H
 
 #include <sys/types.h>
-#include <sys/dir.h>
 #include "nfs3exp_prot.h"
 #include <xfs/xfs_message.h>
 #include "cache.h"
+
+//#if defined(HAVE_DIRENT_H)
+#include <dirent.h>          /* Should work for both Open and Free BSDs */
+//#endif
+#if DIRENT_AND_SYS_DIR_H
+#include <sys/dir.h>
+#endif
 
 #ifdef __linux__
 #include <xfs/xfs_dirent.h>

@@ -37,15 +37,20 @@
 
 #define export _export		/* C++ keyword gets used in C */
 
-//#if defined(HAVE_DIRENT_H)
-//#define _KERNEL
-//#include <dirent.h>
-//#undef _KERNEL
-//#if DIRENT_AND_SYS_DIR_H
+#if defined(HAVE_DIRENT_H)
+#include <dirent.h>
+#endif
+#if DIRENT_AND_SYS_DIR_H
+#include <sys/dir.h>
+#endif
+//#elif defined(HAVE_SYS_DIR_H)
 //#include <sys/dir.h>
 //#endif
-//#elif defined(HAVE_SYS_DIR_H)
-#include <sys/dir.h>
+
+#ifndef MOUNT_XFS
+#define MOUNT_XFS       "xfs"           /* xfs */
+#endif
+
 #include <unistd.h>
 #include <sys/types.h>
 #ifdef HAVE_LINUX_TYPES_H
