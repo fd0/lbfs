@@ -55,7 +55,7 @@ int flushbuf(write_dirent_args *);
 int nfsdir2xfsfile(ex_readdir3res *, write_dirent_args *);
 int nfsdirent2xfsfile(int, const char*, uint64);
 int xfsfile_rm_dirent(int, const char* fname);
-int xfsattr2nfsattr(xfs_attr, sattr3 *);
+int xfsattr2nfsattr(uint32 opcode, xfs_attr, sattr3 *);
 int fattr2sattr(ex_fattr3, sattr3 *);
 
 #endif /* _XFS_NFS_H */

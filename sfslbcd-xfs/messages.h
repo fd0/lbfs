@@ -152,11 +152,7 @@ int xfs_message_rmdir (int fd, struct xfs_message_rmdir *h, u_int size);
 
 int xfs_message_rename (int fd, struct xfs_message_rename *h, u_int size);
 
-#if 0
-
 int xfs_message_pioctl (int fd, struct xfs_message_pioctl *h, u_int size) ;
-
-#endif /* if 0 */
 
 void cbdispatch(svccb *sbp);
 

@@ -251,23 +251,25 @@ int xfsfile_rm_dirent(int fd, const char* fname) {
   return 0;
 }
 
-int xfsattr2nfsattr(xfs_attr xa, sattr3 *na) {
+int xfsattr2nfsattr(uint32 opcode, xfs_attr xa, sattr3 *na) {
 
   if (XA_VALID_MODE(&xa)) {
     na->mode.set_set(true);
     *na->mode.val = xa.xa_mode;
   }
 
-  if (XA_VALID_UID(&xa)) {
-    na->uid.set_set(true);
-    warn << "xfs_uid = " << xa.xa_uid << "\n";
-    *na->uid.val = xa.xa_uid;
-  }
-
-  if (XA_VALID_GID(&xa)) {
-    na->gid.set_set(true);
-    warn << "xfs_gid = " << xa.xa_gid << "\n";
-    *na->gid.val = xa.xa_gid;
+  if (opcode != XFS_MSG_CREATE) {
+    if (XA_VALID_UID(&xa)) {
+      na->uid.set_set(true);
+      warn << "xfs_uid = " << xa.xa_uid << "\n";
+      *na->uid.val = xa.xa_uid;
+    }
+    
+    if (XA_VALID_GID(&xa)) {
+      na->gid.set_set(true);
+      warn << "xfs_gid = " << xa.xa_gid << "\n";
+      *na->gid.val = xa.xa_gid;
+    }
   }
 
   if (XA_VALID_SIZE(&xa)) {

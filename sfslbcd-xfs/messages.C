@@ -55,13 +55,11 @@ NULL,						/* invalidnode */
 (xfs_message_function)xfs_message_remove,	/* remove */
 (xfs_message_function)xfs_message_rmdir,	/* rmdir */
 (xfs_message_function)xfs_message_rename,	/* rename */
-#if 0
 (xfs_message_function)xfs_message_pioctl,	/* pioctl */
 NULL,	                                        /* wakeup_data */
 NULL,						/* updatefid */
 NULL,						/* advlock */
 NULL						/* gc nodes */
-#endif
 
 };
 
@@ -1139,7 +1137,7 @@ xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size)
   //get temp file handle so the update will be atomic
   lbfs_mktmpfile3args mt;
   mt.commit_to = e->nh;
-  xfsattr2nfsattr (h->attr, &mt.obj_attributes);
+  xfsattr2nfsattr (h->header.opcode, h->attr, &mt.obj_attributes);
 
   ref<ex_diropres3 > res = New refcounted < ex_diropres3 >;
 
@@ -1159,8 +1157,10 @@ xfs_message_inactivenode (int fd, struct xfs_message_inactivenode *h, u_int size
   if (h->flag == XFS_DELETE ||	//Node is no longer in kernel cache. Delete immediately!!
        h->flag == XFS_NOREFS) {	//Node is still in kernel cache. Delete when convenient.
     cache_entry *e = xfsindex[h->handle];
-    delete e;
+    if (e)
+      delete e;
   }
+  //  xfs_send_message_wakeup (fd, h->header.sequence_num, 0);
 
   return 0;
 
@@ -1218,7 +1218,7 @@ xfs_message_putattr (int fd, struct xfs_message_putattr *h, u_int size)
 
   setattr3args sa;
   sa.object = e->nh;
-  xfsattr2nfsattr (h->attr, &sa.new_attributes);
+  xfsattr2nfsattr (h->header.opcode, h->attr, &sa.new_attributes);
   sa.guard.set_check (false);
 #if 0
   if (sa->guard.check)
@@ -1354,7 +1354,7 @@ xfs_message_create (int fd, struct xfs_message_create *h, u_int size)
   ca.where.name = h->name;
   ca.how.set_mode (GUARDED);
   if (ca.how.mode == UNCHECKED || ca.how.mode == GUARDED)
-    xfsattr2nfsattr (h->attr, &(*ca.how.obj_attributes));
+    xfsattr2nfsattr (h->header.opcode, h->attr, &(*ca.how.obj_attributes));
   else
     warn << "xfs_message_create: create mode not UNCHECKED or GUARDED\n";
 
@@ -1489,7 +1489,7 @@ xfs_message_mkdir (int fd, struct xfs_message_mkdir *h, u_int size)
   mkdir3args ma;
   ma.where.dir = e->nh;
   ma.where.name = h->name;
-  xfsattr2nfsattr (h->attr, &ma.attributes);
+  xfsattr2nfsattr (h->header.opcode, h->attr, &ma.attributes);
 
   ref<ex_diropres3 > res = New refcounted < ex_diropres3 >;
   nfsc->call (lbfs_NFSPROC3_MKDIR, &ma, res,
@@ -1675,7 +1675,7 @@ xfs_message_symlink (int fd, struct xfs_message_symlink *h, u_int size)
   symlink3args sla;
   sla.where.dir = e->nh;
   sla.where.name = h->name;
-  xfsattr2nfsattr (h->attr, &(sla.symlink.symlink_attributes));
+  xfsattr2nfsattr (h->header.opcode, h->attr, &(sla.symlink.symlink_attributes));
   sla.symlink.symlink_data.setbuf (h->contents, strlen (h->contents));
 
   ref<ex_diropres3 > res = New refcounted < ex_diropres3 >;
@@ -2130,6 +2130,18 @@ xfs_message_rename (int fd, struct xfs_message_rename *h, u_int size)
   nfsc->call (lbfs_NFSPROC3_LOOKUP, &doa, rena->lres,
 	      wrap (&nfs3_rename_lookup, rena, timenow));
   return 0;
+}
+
+int
+xfs_message_pioctl (int fd, struct xfs_message_pioctl *h, u_int size) {
+  
+  warn << "pioctl!! return EINVAL no matter what!!!\n";
+  
+  int error = EINVAL;
+  xfs_send_message_wakeup (fd, h->header.sequence_num, error);
+    
+  return 0;
+
 }
 
 void 
