@@ -297,7 +297,7 @@ struct open_obj {
   int fd;
   ref<aclnt> c;
 
-  struct xfs_message_open *h;
+  const struct xfs_message_open h;
   sfs_aid sa;
   cache_entry *e;
   ptr<ex_readlink3res> rlres;
@@ -311,7 +311,7 @@ struct open_obj {
     int cfd = open (name, O_CREAT | O_WRONLY | O_TRUNC, 0666);
     if (cfd < 0) {
 #if DEBUG > 0
-      warn << seqnum << ":" << "readlink failed\n";
+      warn << seqnum << ":" << "open cachefile failed\n";
 #endif
       xfs_reply_err(fd, seqnum, EIO);
       return -1;
@@ -343,7 +343,7 @@ struct open_obj {
       e->ltime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
       msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R | XFS_OPEN_NW | XFS_DATA_W;
 
-      int lfd = assign_cachefile (fd, h->header.sequence_num, e, 
+      int lfd = assign_cachefile (fd, h.header.sequence_num, e, 
 				  msg.cache_name, &msg.cache_handle);
       if (lfd < 0) 
 	return;
@@ -355,10 +355,10 @@ struct open_obj {
       h0 = (struct xfs_message_header *) &msg;
       h0_len = sizeof (msg);
 
-      xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+      xfs_send_message_wakeup_multiple (fd, h.header.sequence_num, 0,
 					h0, h0_len, NULL, 0);
     } else 
-      xfs_reply_err (fd, h->header.sequence_num, err ? EIO : rlres->status);      
+      xfs_reply_err (fd, h.header.sequence_num, err ? EIO : rlres->status);      
 
     delete this;
   }
@@ -374,7 +374,7 @@ struct open_obj {
 		      clnt_stat err)
   {
     if (nfsdir2xfsfile (rdres, &args) < 0) {
-      xfs_reply_err(fd, h->header.sequence_num, ENOENT);
+      xfs_reply_err(fd, h.header.sequence_num, ENOENT);
       return;
     }
 
@@ -405,7 +405,8 @@ struct open_obj {
       h0 = (struct xfs_message_header *) &msg;
       h0_len = sizeof (msg);
       
-      xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+      warn << "write_dirfile: seq_num = " << h.header.sequence_num << "\n";
+      xfs_send_message_wakeup_multiple (fd, h.header.sequence_num, 0,
 					h0, h0_len, NULL, 0);
       delete this;
     }      
@@ -421,31 +422,33 @@ struct open_obj {
       e->nfs_attr = *rdres->resok->dir_attributes.attributes;
       e->set_exp (rqt, true);
       e->ltime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
+      nfsobj2xfsnode (h.cred, e, &msg.node);
       msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R;
       
-      args.fd = assign_cachefile (fd, h->header.sequence_num, e, 
+      warn << "installdir: seq_num = " << h.header.sequence_num << "\n";
+      args.fd = assign_cachefile (fd, h.header.sequence_num, e, 
 				  msg.cache_name, &msg.cache_handle);
       if (args.fd < 0)
 	return;
       write_dirfile (args, msg, clnt_stat (0));
-    } else 
-      xfs_reply_err (fd, h->header.sequence_num, err ? EIO : rdres->status);      
-
-    delete this;
+    } else {
+      xfs_reply_err (fd, h.header.sequence_num, err ? EIO : rdres->status);      
+      delete this;
+    }
   }
 
   //readdir (also used by getdata)
   void readdir () 
   {
 #if DEBUG > 0
-    warn << h->header.sequence_num << ":"
+    warn << h.header.sequence_num << ":"
 	 << "xfs_message_open on directory: " << e->writers << "\n";
 #endif
     uint32 owriters = e->writers;
-    if ((h->tokens & XFS_OPEN_MASK) & (XFS_OPEN_NW|XFS_OPEN_EW)) {
+    if ((h.tokens & XFS_OPEN_MASK) & (XFS_OPEN_NW|XFS_OPEN_EW)) {
       e->writers = 1;
 #if DEBUG > 0
-      warn << h->header.sequence_num << ":"  
+      warn << h.header.sequence_num << ":"  
 	   << "open for write: " << e->writers << " writers\n";
 #endif      
     }
@@ -463,16 +466,17 @@ struct open_obj {
     }
   }
   
-  open_obj (int fd1, xfs_message_open *h1, sfs_aid sa1, ref<aclnt> c1) :
+  open_obj (int fd1, const xfs_message_open &h1, sfs_aid sa1, ref<aclnt> c1) :
     fd(fd1), c(c1), h(h1), sa(sa1)
   {
-    e = xfsindex[h->handle];
+    e = xfsindex[h.handle];
     if (!e) {
 #if DEBUG > 0
-      warn << h->header.sequence_num << ":"  
+      warn << h.header.sequence_num << ":"  
 	   << "open_obj: Can't find node handle\n";
 #endif
-    xfs_reply_err(fd, h->header.sequence_num, ENOENT);
+      xfs_reply_err(fd, h.header.sequence_num, ENOENT);
+      delete this;
     } else {
       switch (e->nfs_attr.type) {
       case NF3DIR:
@@ -485,7 +489,7 @@ struct open_obj {
 	break;
       default:
 #if DEBUG > 0
-	warn << h->header.sequence_num << ":"  
+	warn << h.header.sequence_num << ":"  
 	     << "open_obj: File type " << e->nfs_attr.type << " not handled\n";
 #endif	
 	break;
@@ -495,7 +499,7 @@ struct open_obj {
 };
 
 void 
-lbfs_open (int fd, xfs_message_open *h, sfs_aid sa, ref<aclnt> c) 
+lbfs_open (int fd, const xfs_message_open &h, sfs_aid sa, ref<aclnt> c) 
 {
   vNew open_obj (fd, h, sa, c);
 } 

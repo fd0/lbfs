@@ -344,7 +344,7 @@ xfs_reply_err (int fd, u_int seqnum, int err)
 #if DEBUG > 0
   if (err == EIO)
     warn << seqnum << ": sending EIO to xfs\n";
-  else warn << seqnum << ": " << strerror(err);
+  else warn << seqnum << ": " << strerror(err) << "\n";
 #endif
   xfs_send_message_wakeup_multiple (fd, seqnum, err, h0, h0_len, NULL, 0);
 }

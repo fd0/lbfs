@@ -422,7 +422,8 @@ add_new_msg (int fd,
   ++sent_stat[h->opcode];
 
 #if DEBUG > 0
-  warn << "Multi-send: opcode = " << h->opcode << "(" 
+  warn << h->sequence_num << ":" 
+       << "Multi-send: opcode = " << h->opcode << "(" 
        << rcvfuncs_name[h->opcode]
        << ") size = " << h->size << "\n";
 #endif
@@ -436,7 +437,7 @@ add_new_msg (int fd,
 static int
 send_msg (int fd, struct write_buf *buf)
 {
-  u_int ret;
+  int ret;
   
   if (buf->len == 0)
     return 0;
@@ -445,14 +446,14 @@ send_msg (int fd, struct write_buf *buf)
 #if DEBUG > 0
   warn << "ret = " << ret << " buf->len = " << buf->len << "\n";
 #endif
-  if (ret != buf->len) {
+  if ((u_int)ret != buf->len) {
     if (errno == EBADF) 
       warn << "EBADF: ";
     else 
       if (errno == EAGAIN)
 	warn << "EAGAIN: ";
 #if DEBUG > 0
-    warn << strerror(errno) << "(" << errno << ") :send_msg: write to fd=" 
+    warn << strerror(errno) << "(" << errno << ") send_msg: write to fd=" 
 	 << fd << "\n";
 #endif
     buf->len = 0;

@@ -101,7 +101,7 @@ xfs_open (ref<xfscall> xfsc)
     << (int) h->handle.d << ")\n";
 #endif
   
-  lbfs_open (xfsc->fd, h, xfsc->getaid (), nfsc);
+  lbfs_open (xfsc->fd, *h, xfsc->getaid (), nfsc);
 }
 
 void 
