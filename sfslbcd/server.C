@@ -28,7 +28,30 @@
 
 int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 2);
 
-/* #define NO_ACACHE 1 */
+void
+server::cache_file(time_t rqtime, nfscall *nc, void *res, clnt_stat err)
+{
+  ex_access3res *ares = static_cast<ex_access3res *> (res);
+  if (!err && ares->status == NFS3_OK) {
+    access3args *a = nc->template getarg<access3args> ();
+    ex_fattr3 fa = *ares->resok->obj_attributes.attributes;
+    if (fa.type == NF3REG) {
+      lbfs_read(a->object, fa.size, nfsc, authof(nc->getaid()),
+	        wrap(mkref(this), &server::cache_file_reply, rqtime, nc, res));
+      return;
+    }
+  }
+  getreply(rqtime, nc, res, err);
+}
+
+void
+server::cache_file_reply(time_t rqtime, nfscall *nc, void *res, bool ok)
+{
+  if (ok)
+    getreply(rqtime, nc, res, RPC_SUCCESS);
+  else
+    getreply(rqtime, nc, res, RPC_SYSTEMERROR);
+}
 
 void
 server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
@@ -41,7 +64,6 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
       nc->reject (SYSTEM_ERR);
     return;
   }
-#ifndef NO_ACACHE
   xattrvec xv;
   nfs3_getxattr (&xv, nc->proc (), nc->getvoidarg (), res);
   for (xattr *x = xv.base (); x < xv.lim (); x++) {
@@ -59,7 +81,6 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 			 a->access, ares->resok->access);
     }
   }
-#endif /* !NO_ACACHE */
   nfs3_exp_disable (nc->proc (), res);
   nc->reply (res);
 }
@@ -117,12 +138,11 @@ server::dispatch_dummy(svccb* sbp)
 void
 server::setfd(int fd)
 {
-  warn << "setfd in sfslbcd called\n";
   assert (fd >= 0);
   x = New refcounted<axprt_zcrypt>(fd, axprt_zcrypt::ps());
   sfsc = aclnt::alloc (x, sfs_program_1);
   sfscbs = asrv::alloc (x, sfscb_program_1,
-                        wrap (this, &server::dispatch_dummy));
+                        wrap (mkref(this), &server::dispatch_dummy));
 }
 
 void
@@ -142,7 +162,7 @@ server::setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_cb)
   static_cast<axprt_zcrypt *> (x.get ())->compress ();
   nfsc = aclnt::alloc (x, lbfs_program_3);
   nfscbs = asrv::alloc (x, ex_nfscb_program_3,
-			wrap (this, &server::cbdispatch));
+			wrap (mkref(this), &server::cbdispatch));
   err_cb (false);
 }
 
@@ -150,12 +170,12 @@ void
 server::dispatch (nfscall *nc)
 {
   if (nc->proc() == cl_NFSPROC3_CLOSE) {
-    warn << "close\n";
+    nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
+    warn << "close " << *a << "\n";
     nc->error (NFS3_OK);
     return;
   }
 
-#ifndef NO_ACACHE
   if (nc->proc () == NFSPROC3_GETATTR) {
     const ex_fattr3 *f = ac.attr_lookup (*nc->template getarg<nfs_fh3> ());
     if (f) {
@@ -168,6 +188,7 @@ server::dispatch (nfscall *nc)
   else if (nc->proc () == NFSPROC3_ACCESS) {
     access3args *a = nc->template getarg<access3args> ();
     int32_t perm = ac.access_lookup (a->object, nc->getaid (), a->access);
+    warn << "access " << a->object << "\n";
     if (perm > 0) {
       access3res res (NFS3_OK);
       res.resok->obj_attributes.set_present (true);
@@ -177,11 +198,16 @@ server::dispatch (nfscall *nc)
       nc->reply (&res);
       return;
     }
+  
+    void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
+    nfsc->call (nc->proc (), nc->getvoidarg (), res,
+	        wrap (mkref(this), &server::cache_file, timenow, nc, res),
+	        authof (nc->getaid ()));
+    return;
   }
-#endif /* !NO_ACACHE */
 
   void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
   nfsc->call (nc->proc (), nc->getvoidarg (), res,
-	      wrap (mkref (this), &server::getreply, timenow, nc, res),
+	      wrap (mkref(this), &server::getreply, timenow, nc, res),
 	      authof (nc->getaid ()));
 }

@@ -9,7 +9,7 @@ noinst_HEADERS = \
 sfslbcd.h
 
 sfslbcd_SOURCES = \
-attrcache.C server.C sfslbcd.C
+attrcache.C server.C sfslbcd.C read.C
 sfslbcd_LDFLAGS = $(NOPAGING) $(MALLOCK)
 
 $(sfslib_PROGRAMS): $(MALLOCK)

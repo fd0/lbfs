@@ -29,6 +29,15 @@
 #include "crypt.h"
 #include "list.h"
 
+inline
+const strbuf &
+strbuf_cat(const strbuf &b, nfs_fh3 fh)
+{
+  str s = armor32(fh.data.base(), fh.data.size());
+  b << s;
+  return b;
+}
+
 class attr_cache {
   struct access_dat {
     u_int32_t mask;
@@ -81,8 +90,10 @@ class server : public sfsserver_auth {
   void dispatch_dummy (svccb *sbp);
   void cbdispatch (svccb *sbp);
   void getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
-
   void setfd(int fd);
+
+  void cache_file(time_t rqtime, nfscall *nc, void *res, clnt_stat err);
+  void cache_file_reply(time_t rqtime, nfscall *nc, void *res, bool ok);
 
 public:
   typedef sfsserver_auth super;
@@ -97,7 +108,6 @@ public:
   void dispatch (nfscall *nc);
 };
 
-#if 0
-void sfsctl_accept (ptr<axprt_unix> x, const authunix_parms *aup);
-bool sfsctl_intercept (server *s, u_int32_t srvno, svccb *sbp);
-#endif
+void lbfs_read(nfs_fh3 fh, size_t size, ref<aclnt> c, AUTH *a,
+               callback<void, bool>::ref cb);
+
