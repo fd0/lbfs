@@ -10,7 +10,7 @@ AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
 AUTH *auth_default = 
   authunix_create ("localhost", (uid_t) 14228, (gid_t) 100, 0, NULL);
 
-int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 0);
+int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 2);
 int lbcd_trace (getenv("LBCD_TRACE") ? atoi (getenv ("LBCD_TRACE")) : 0);
 
 struct attr_obj {
@@ -1166,7 +1166,7 @@ struct create_obj {
       assert (res->resok->obj.present && res->resok->obj_attributes.present);
       cache_entry *e1 = update_cache (*res->resok->obj.handle, 
 				      *res->resok->obj_attributes.attributes);
-      e1->set_exp (rqt);
+      e1->set_exp (rqt, true);
       xfs_cred cred = h->cred;
       if (e1->nfs_attr.type == NF3DIR) {
 	struct xfs_message_mkdir *hm = (xfs_message_mkdir *) h;
@@ -1516,7 +1516,7 @@ struct remove_obj {
       int pfd1 = assign_cachefile (fd, h->header.sequence_num, e1, 
 					msg1.cache_name, &msg1.cache_handle,
 					O_CREAT | O_RDWR);
-      int pfd2 = open (msg1.cache_name, O_WRONLY, 0666);
+      //int pfd2 = open (msg1.cache_name, O_WRONLY, 0666);
 #if 0
       if (dir_remove_name (pfd1, h->name)) {
 	if (lbcd_trace)
@@ -1527,7 +1527,7 @@ struct remove_obj {
       e1->incache = false;
 #endif
       close (pfd1);
-      close (pfd2);
+      //close (pfd2);
 
       nfsobj2xfsnode (h->cred, e1, &msg1.node);
       e1->nfs_attr = *(wres->wcc->after.attributes);
