@@ -318,18 +318,14 @@ client::tmpwrite (svccb *sbp, filesrv::reqstate rqs)
 
 void
 client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, 
-                      nfs_fh3 dir, char *path,
-		      void *_cres, clnt_stat err)
+                      nfs_fh3 dir, int sfd, void *_cres, clnt_stat err)
 {
   diropres3 *cres = static_cast<diropres3 *>(_cres);
-  if (err) {
-    delete[] path;
+  if (err)
     nfs3reply (sbp, _cres, rqs, err);
-  }
   else {
     switch(cres->status) {
       case NFS3ERR_EXIST:
-        delete[] path;
 	delete cres;
 	mktmpfile(sbp, rqs);
 	break;
@@ -339,12 +335,14 @@ client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs,
 	    sbp->template getarg<lbfs_mktmpfile3args> ();
 	  ufd_rec *u = ufdtab.tab[mta->fd];
 	  assert(u);
-	  u->use(*(cres->resok->obj.handle),dir,path,strlen(path));
+	  str rstr = armor32((void*)&sfd, sizeof(sfd));
+          char tmpfile[7+rstr.len()+1];
+          sprintf(tmpfile, "oscar.%s", rstr.cstr());
+	  u->use(*(cres->resok->obj.handle),dir,tmpfile,strlen(tmpfile),sfd);
 	  for (size_t i=0; i<u->sbps.size(); i++)
 	    demux(u->sbps[i],rqs);
 	  u->sbps.setsize(0);
 	}
-	delete[] path;
 	nfs3reply (sbp, _cres, rqs, RPC_SUCCESS);
     }
   }
@@ -359,9 +357,14 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   if (!u)
     ufdtab.tab.insert(New ufd_rec (mta->fd));
 
-  unsigned r = fsrv->get_trashent(rqs.fsno);
+  int r = fsrv->get_trashent(rqs.fsno);
+  if (r < 0) {
+    warn << "sfslbsd: cannot create tmp file!\n";
+    fsrv->update_trashent(rqs.fsno);
+    return;
+  }
   str rstr = armor32((void*)&r, sizeof(r));
-  char *tmpfile = New char[7+rstr.len()+1];
+  char tmpfile[7+rstr.len()+1];
   sprintf(tmpfile, "oscar.%s", rstr.cstr());
   if (lbsd_trace > 2)
     warn << "MKTMPFILE: " << tmpfile << "\n";
@@ -378,7 +381,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   void *cres = nfs_program_3.tbl[NFSPROC3_CREATE].alloc_res ();
   fsrv->c->call (NFSPROC3_CREATE, &c3arg, cres,
 		 wrap (mkref (this), &client::mktmpfile_cb, 
-		       sbp, rqs, c3arg.where.dir, tmpfile, cres),
+		       sbp, rqs, c3arg.where.dir, r, cres),
 		 authtab[authno]);
   fsrv->update_trashent(rqs.fsno);
 }
@@ -424,6 +427,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
     }
     fsrv->fpdb.sync();
     u->name[u->len] = '\0';
+    fsrv->clear_trashent(rqs.fsno, u->srv_fd);
     ufdtab.tab.remove(u);
     delete u;
   }
@@ -477,6 +481,7 @@ client::aborttmp (svccb *sbp, filesrv::reqstate rqs)
         lbfs_nfs3exp_err (u->sbps[i], NFS3ERR_ABORTED);
       u->sbps.setsize(0);
     }
+    fsrv->clear_trashent(rqs.fsno, u->srv_fd);
     ufdtab.tab.remove(u);
     delete u;
     sbp->reply (NULL);
@@ -584,7 +589,12 @@ client::trashent_link (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh)
   u_int32_t authno = sbp->getaui ();
   link3args lnarg;
   lnarg.file = fh;
-  unsigned r = fsrv->get_trashent(rqs.fsno);
+  int r = fsrv->get_trashent(rqs.fsno);
+  if (r < 0) {
+    warn << "sfslbsd: cannot link into trash directory!\n";
+    fsrv->update_trashent(rqs.fsno);
+    return;
+  }
   str rstr = armor32((void*)&r, sizeof(r));
   char tmpfile[7+rstr.len()+1];
   sprintf(tmpfile, "oscar.%s", rstr.cstr());

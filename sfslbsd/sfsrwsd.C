@@ -39,12 +39,14 @@ ufd_rec::ufd_rec (unsigned ufd)
 {
   fd = ufd;
   writes = 0;
+  srv_fd = -1;
   inuse = false;
   error = false;
 }
 
 void
-ufd_rec::use(const nfs_fh3 &f, const nfs_fh3 &d, const char *s, unsigned l)
+ufd_rec::use(const nfs_fh3 &f, const nfs_fh3 &d, 
+             const char *s, unsigned l, int sfd)
 {
   fh = f;
   dir = d;
@@ -52,6 +54,7 @@ ufd_rec::use(const nfs_fh3 &f, const nfs_fh3 &d, const char *s, unsigned l)
   memmove(&name[0], s, l);
   name[l] = '\0';
   len = l;
+  srv_fd = sfd;
   inuse = true;
 }
 

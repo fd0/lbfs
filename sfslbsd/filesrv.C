@@ -292,6 +292,9 @@ filesrv::gottrashdir (ref<erraccum> ea, int i, int j, bool root,
 	            wrap(this, &filesrv::gottrashdir, ea, i, j+1, false));
       } else {
         sfs_trash[i].window[0] = 0;
+        sfs_trash[i].nactive = 0;
+        for (unsigned j = 0; j < SFS_TRASH_DIR_SIZE; j++)
+          sfs_trash[i].used[j] = 0;
         for (unsigned j = 0; j < SFS_TRASH_WIN_SIZE; j++)
           make_trashent(i, j);
       }
@@ -299,30 +302,53 @@ filesrv::gottrashdir (ref<erraccum> ea, int i, int j, bool root,
   }
 }
 
-unsigned
+int
 filesrv::get_trashent(unsigned fsno)
 {
-  unsigned i = sfs_trash[fsno].window[0];
-  unsigned r = sfs_trash[fsno].window[i+1];
+  int i = sfs_trash[fsno].window[0];
+  int r = sfs_trash[fsno].window[i+1];
   return r;
 }
 
 void
 filesrv::update_trashent(unsigned fsno)
 {
-  unsigned i = sfs_trash[fsno].window[0];
+  int i = sfs_trash[fsno].window[0];
   if (sfs_trash[fsno].window[0] == SFS_TRASH_WIN_SIZE-1)
     sfs_trash[fsno].window[0] = 0;
   else
     sfs_trash[fsno].window[0]++;
   make_trashent(fsno, i);
 }
+  
+void
+filesrv::clear_trashent(unsigned fsno, int srv_fd)
+{
+  assert(srv_fd >= 0 && srv_fd < SFS_TRASH_DIR_SIZE);
+  if (sfs_trash[fsno].used[srv_fd]) {
+    sfs_trash[fsno].used[srv_fd] = false;
+    sfs_trash[fsno].nactive--;
+  }
+}
 
 void
 filesrv::make_trashent(unsigned fsno, unsigned trash_idx)
 {
-  sfs_trash[fsno].window[trash_idx+1] = rnd.getword() % SFS_TRASH_DIR_SIZE;
-  unsigned r = sfs_trash[fsno].window[trash_idx+1];
+  int r = -1; 
+  int tries = 0;
+  for (tries = 0; tries < 20; tries++) {
+    r = (rnd.getword() % SFS_TRASH_DIR_SIZE);
+    if (!sfs_trash[fsno].used[r]) {
+      sfs_trash[fsno].used[r] = true;
+      sfs_trash[fsno].nactive++;
+      break;
+    }
+  }
+  if (tries == 20) {
+    sfs_trash[fsno].window[trash_idx+1] = -1;
+    return;
+  }
+  sfs_trash[fsno].window[trash_idx+1] = r;
   str rstr = armor32((void*)&r, sizeof(r));
   char tmpfile[7+rstr.len()+1];
   sprintf(tmpfile, "oscar.%s", rstr.cstr());
@@ -419,6 +445,10 @@ end:
     delete iter;
   removed_fhs.setsize(0);
   db_gc_on = false;
+
+  for(size_t i=0; i<sfs_trash.size(); i++)
+    warn << "volume " << i << " has " 
+         << sfs_trash[i].nactive << " active tmp files\n";
 }
 
 void

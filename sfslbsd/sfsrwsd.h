@@ -73,6 +73,7 @@ struct hashfh3 {
 
 struct ufd_rec {
   unsigned fd;
+  int srv_fd;
   nfs_fh3 fh;
   nfs_fh3 dir;
   bool inuse;
@@ -89,7 +90,8 @@ struct ufd_rec {
 
   ufd_rec (unsigned d);
   ~ufd_rec ();
-  void use (const nfs_fh3 &fh, const nfs_fh3 &dir, const char *s, unsigned l);
+  void use (const nfs_fh3 &fh, const nfs_fh3 &dir, 
+            const char *s, unsigned l, int sfd);
 };
 
 struct ufd_table {
@@ -126,7 +128,9 @@ struct filesys {
 struct trash_dir {
   nfs_fh3  topdir;
   nfs_fh3  subdirs[SFS_TRASH_DIR_BUCKETS];
-  unsigned window[SFS_TRASH_WIN_SIZE];
+  bool used[SFS_TRASH_DIR_SIZE];
+  int window[SFS_TRASH_WIN_SIZE+1];
+  unsigned nactive;
 };
 
 class erraccum;
@@ -152,7 +156,8 @@ public:
   vec<filesys> fstab;
   vec<struct trash_dir> sfs_trash;
   vec<nfs_fh3> removed_fhs;
-  unsigned get_trashent(unsigned fsno);
+  int get_trashent(unsigned fsno);
+  void clear_trashent(unsigned fsno, int srv_fd);
   void update_trashent(unsigned fsno);
 
   ihash<nfs_fh3, filesys, &filesys::fh_root, &filesys::rhl, hashfh3> root3tab;
@@ -307,7 +312,7 @@ class client : public virtual refcount, public sfsserv {
   void tmpwrite (svccb *sbp, filesrv::reqstate rqs);
 
   void mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 dir, 
-                     char *path, void *_cres, clnt_stat err);
+                     int sfd, void *_cres, clnt_stat err);
   void mktmpfile (svccb *sbp, filesrv::reqstate rqs);
   
   void chunk_data (Chunker *, const unsigned char *data, 
