@@ -37,8 +37,9 @@ extern lbfs_db lbfsdb;
 extern int server_fd;
 extern ptr<aclnt> sfsc;
 extern ptr<aclnt> nfsc;
+extern ptr<asrv> nfscbs;
+extern ref<axprt> *x;
 
 
 void sfsInit(const char* hostpath);
-
 #endif

@@ -71,6 +71,18 @@ class getfp_args {
 
 };
 
+// returns 0 if sha1 hash of data is equals to the given hash
+static inline int
+compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
+{
+  char h[sha1::hashsize];
+  sha1_hash(h, data, count);
+  warn << "f(h) = " << fingerprint(data, count) << "\n";
+  warn << "h = " << armor32(h, sha1::hashsize) << "\n";
+  warn << "hash = " << armor32(hash.base(), sha1::hashsize) << "\n";
+  return strncmp(h, hash.base(), sha1::hashsize);
+}
+
 #if 0
 class xfs_message {
  public: xfs_message
@@ -110,5 +122,7 @@ int xfs_message_rename (int fd, struct xfs_message_rename *h, u_int size);
 int xfs_message_pioctl (int fd, struct xfs_message_pioctl *h, u_int size) ;
 
 #endif /* if 0 */
+
+void cbdispatch(svccb *sbp);
 
 #endif /* _MESSAGES_H_ */

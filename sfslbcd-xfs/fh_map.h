@@ -33,16 +33,11 @@
 extern bool xfs_fheq(xfs_handle, xfs_handle);
 extern bool nfs_fheq(nfs_fh3, nfs_fh3);
 
-#if 0
-int assign_dirname(char *, int);
-int assign_filename(char *, int);
-int assign_cachefile(char *, int);
-#endif
-
 typedef struct fh_pair{
   xfs_handle xh;
   nfs_fh3 nh;
   ex_fattr3 nfs_attr;
+  nfstime3 ltime;
   char *cache_name;
   bool opened;
 } fh_pair;
@@ -80,6 +75,20 @@ class fh_map {
   int getcur() {return cur_fh;}
   int getmax() {return max_fh;}
 
+  int find(xfs_handle x) {
+    for (int i=0; i<=max_fh; i++)
+      if (/*entry[i].opened && */xfs_fheq(entry[i].xh, x))
+	return i;
+    return -1;
+  }
+
+  int find(nfs_fh3 n) {
+    for (int i=0; i<=max_fh; i++) 
+      if (/*entry[i].opened && */nfs_fheq(entry[i].nh, n)) 
+	return i;
+    return -1;
+  }
+
   int setcur(xfs_handle xfh) {
     int fh = find(xfh);
     if (fh > -1) {
@@ -101,23 +110,26 @@ class fh_map {
   
   xfs_handle getxh(int i) { return entry[i].xh; }
   nfs_fh3 getnh(int i) { return entry[i].nh; }
-  ex_fattr3 getattr(int i) {return entry[i].nfs_attr; }
+  void set_nfsattr(ex_fattr3 nattr) { entry[cur_fh].nfs_attr = nattr; }
+  ex_fattr3 get_nfsattr() {return entry[cur_fh].nfs_attr; }
+
+  nfstime3 max(nfstime3 mtime, nfstime3 ctime) {
+    if (mtime.seconds > ctime.seconds)
+      return mtime;
+    else 
+      if (mtime.seconds < ctime.seconds) 
+	return ctime;
+      else 
+	if (mtime.nseconds > ctime.nseconds)
+	  return mtime;
+	else return ctime;
+  }
+
+  void set_ltime(nfstime3 a, nfstime3 b) { entry[cur_fh].ltime = max(a,b); }
+  nfstime3 get_ltime() { return entry[cur_fh].ltime; }
+
   char *getcache_name() { return entry[cur_fh].cache_name; }
   bool opened() { return entry[cur_fh].opened; }
-
-  int find(xfs_handle x) {
-    for (int i=0; i<=max_fh; i++)
-      if (/*entry[i].opened && */xfs_fheq(entry[i].xh, x))
-	return i;
-    return -1;
-  }
-
-  int find(nfs_fh3 n) {
-    for (int i=0; i<=max_fh; i++) 
-      if (/*entry[i].opened && */nfs_fheq(entry[i].nh, n)) 
-	return i;
-    return -1;
-  }
 
   void remove(nfs_fh3 n) {
     int i = find(n);
@@ -192,8 +204,10 @@ class fh_map {
   xfs_handle gethandle(nfs_fh3 nfh, ex_fattr3 attr) {
     // if reaching end of max_fh, need to signal invalid node to xfs
     cur_fh = find(nfh);
-    if (cur_fh > -1)
+    if (cur_fh > -1) {
+      entry[cur_fh].nfs_attr = attr;
       return entry[cur_fh].xh;
+    }
     else {
       xfs_handle xfh;
       xfh.a = 0; xfh.b = 0; xfh.c = 0;
@@ -202,6 +216,7 @@ class fh_map {
       entry[max_fh].xh = xfh;
       entry[max_fh].nh = nfh;
       entry[max_fh].nfs_attr = attr;
+      entry[max_fh].ltime = max(entry[max_fh].nfs_attr.mtime, entry[max_fh].nfs_attr.ctime);
       setcache_name(entry[max_fh].cache_name, max_fh);
       cur_fh = max_fh;
       return xfh;
