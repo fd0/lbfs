@@ -26,7 +26,7 @@
 typedef callback<void, ptr<aiobuf>, ssize_t, int>::ref aiofh_cbrw;
 
 struct write_obj {
-  static const int PARALLEL_WRITES = 16;
+  static const int PARALLEL_WRITES = 8;
   typedef callback<void,fattr3,bool>::ref cb_t;
 
   cb_t cb;
@@ -127,7 +127,6 @@ struct write_obj {
 
   void tmpwrite_reply (ref<ex_write3res> res, clnt_stat err) {
     outstanding_writes--;
-    warn << "tmpwrite reply, counter " << outstanding_writes << "\n";
     if (!callback && !err && res->status == NFS3_OK) {
       do_write();
       ok();
@@ -145,17 +144,14 @@ struct write_obj {
         unsigned s = cnt;
         s = s > srv->wtpref ? srv->wtpref : s;
         nfs3_read (off, s, wrap (this, &write_obj::lbfs_tmpwrite, off, s));
-	warn << "do real write, counter " << outstanding_writes << "\n";
         off += s;
 	cnt -= s;
       }
       outstanding_writes--;
-      warn << "condwrite reply, counter " << outstanding_writes << "\n";
       return;
     }
 
     outstanding_writes--;
-    warn << "condwrite fail, counter " << outstanding_writes << "\n";
     if (!callback && !err && res->status == NFS3_OK) {
       warn << "hash found\n";
       do_write();
@@ -170,7 +166,6 @@ struct write_obj {
   void nfs3_read (uint64 off, uint32 cnt, aiofh_cbrw cb)
   {
     outstanding_writes++;
-    warn << "nfs3_read, counter " << outstanding_writes << "\n";
     ptr<aiobuf> buf = file_cache::a->bufalloc (cnt);
     if (!buf) {
       file_cache::a->bufwait
@@ -184,7 +179,6 @@ struct write_obj {
   {
     if (callback) {
       outstanding_writes--;
-      warn << "nfs3_read calledback, counter " << outstanding_writes << "\n";
       fail ();
       return;
     }
@@ -202,7 +196,6 @@ struct write_obj {
   {
     if (err || (unsigned)sz != cnt) {
       outstanding_writes--;
-      warn << "condwrite fail, counter " << outstanding_writes << "\n";
       if (err)
         warn << "lbfs_write: read failed: " << err << "\n";
       else
@@ -214,7 +207,6 @@ struct write_obj {
 
     if (callback) {
       outstanding_writes--;
-      warn << "condwrite calledback, counter " << outstanding_writes << "\n";
       fail ();
       return;
     }
@@ -250,7 +242,6 @@ struct write_obj {
   {
     if (err || (unsigned)sz != cnt) {
       outstanding_writes--;
-      warn << "tmpwrite fail, counter " << outstanding_writes << "\n";
       if (err)
         warn << "lbfs_write: read failed: " << err << "\n";
       else
@@ -262,7 +253,6 @@ struct write_obj {
 
     if (callback) {
       outstanding_writes--;
-      warn << "tmpwrite calledback, counter " << outstanding_writes << "\n";
       fail ();
       return;
     }
@@ -286,7 +276,6 @@ struct write_obj {
   {
     if (err || (unsigned)sz != cnt) {
       outstanding_writes--;
-      warn << "nfswrite fail, counter " << outstanding_writes << "\n";
       if (err)
         warn << "lbfs_write: read failed: " << err << "\n";
       else
@@ -298,7 +287,6 @@ struct write_obj {
 
     if (callback) {
       outstanding_writes--;
-      warn << "nfswrite calledback, counter " << outstanding_writes << "\n";
       fail ();
       return;
     }
