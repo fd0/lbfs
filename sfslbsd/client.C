@@ -225,6 +225,21 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
 }
 
 void
+client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, 
+                      commit3res *res, str err)
+{
+  nfs3reply (sbp, res, rqs, RPC_SUCCESS);
+}
+
+void
+client::committmp (svccb *sbp, filesrv::reqstate rqs)
+{
+  lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
+  copy3 (fsrv->c, cta->commit_from, cta->commit_to, 
+         wrap(mkref(this), &client::committmp_cb, sbp, rqs));
+}
+
+void
 client::nfs3dispatch (svccb *sbp)
 {
   if (!sbp) {
@@ -252,6 +267,8 @@ client::nfs3dispatch (svccb *sbp)
 
   if (sbp->proc () == lbfs_NFSPROC3_MKTMPFILE)
     mktmpfile(sbp, rqs);
+  else if (sbp->proc () == lbfs_NFSPROC3_COMMITTMP)
+    committmp(sbp, rqs);
   else if (sbp->proc () == lbfs_NFSPROC3_CONDWRITE)
     condwrite(sbp, rqs);
   else {

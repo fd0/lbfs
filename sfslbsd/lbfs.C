@@ -141,3 +141,173 @@ mkdir3 (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
   vNew mkdir3obj (c, dir, name, attr, cb);
 }
 
+
+struct copy3obj {
+  typedef callback<void, commit3res *, str>::ref cb_t;
+  cb_t cb;
+  ref<aclnt> c;
+
+  const nfs_fh3 &src;
+  const nfs_fh3 &dst;
+
+  getattr3res ares;
+  commit3res cres;
+
+  int outstanding_reads;
+  int outstanding_writes;
+  int error;
+  u_int64_t size;
+  u_int64_t next_read;
+  
+  static const int READ_BLOCK_SZ = 8192;
+
+  void gotcommit(clnt_stat stat)
+  { 
+    if (stat || cres.status) 
+      (*cb) (NULL, stat2str (cres.status, stat));
+    else
+      (*cb) (&cres, NULL);
+    delete this;
+  }
+
+  void check_finish()
+  {
+    if (outstanding_reads == 0 && outstanding_writes == 0) {
+      if (!error && next_read == size) {
+	commit3args arg;
+	arg.file = dst;
+	arg.offset = 0;
+	arg.count = size;
+        c->call (NFSPROC3_COMMIT, &arg, &cres,
+	         wrap(this, &copy3obj::gotcommit), auth_root);
+      }
+      else 
+	delete this;
+    }
+  }
+
+  void gotwrite (u_int64_t pos, u_int32_t count, read3res *rres, 
+                 write3res *wres, clnt_stat stat) 
+  {
+    if (stat || wres->status) {
+      (*cb) (NULL, stat2str (wres->status, stat));
+      delete rres;
+      delete wres;
+      outstanding_writes--;
+      error++;
+      check_finish();
+      return;
+    }
+    else {
+      if (rres->resok->count < count) {
+        write3args arg;
+        arg.file = dst;
+        arg.offset = pos + rres->resok->count;
+        arg.count = count - rres->resok->count;
+        arg.stable = UNSTABLE;
+        arg.data.set
+	  (rres->resok->data.base()+rres->resok->count, arg.count, 
+	   freemode::NOFREE);
+        write3res *wres2 = new write3res;
+        c->call (NFSPROC3_WRITE, &arg, wres2,
+	         wrap(this, &copy3obj::gotwrite, 
+		      arg.offset, arg.count, rres, wres2), auth_root);
+      }
+      else 
+	delete rres;
+    }
+    delete wres;
+
+    if (next_read < size) {
+      count = size > (next_read+READ_BLOCK_SZ) 
+	      ? READ_BLOCK_SZ : (size-next_read);
+      do_read(next_read, count);
+      next_read += count;
+    }
+
+    outstanding_writes--;
+    check_finish();
+  }
+
+  void gotread (u_int64_t pos, u_int32_t count, read3res *res, clnt_stat stat) 
+  {
+    if (stat || res->status) {
+      (*cb) (NULL, stat2str (res->status, stat));
+      delete res;
+      outstanding_reads--;
+      error++;
+      check_finish();
+    }
+    else {
+      if (res->resok->count < count) {
+        do_read(pos+res->resok->count, count-res->resok->count);
+	count = res->resok->count;
+      }
+      write3args arg;
+      arg.file = dst;
+      arg.offset = pos;
+      arg.count = count;
+      arg.stable = UNSTABLE;
+      arg.data.set(res->resok->data.base(), count, freemode::NOFREE);
+      write3res *wres = new write3res;
+      c->call (NFSPROC3_WRITE, &arg, wres,
+	       wrap(this, &copy3obj::gotwrite, 
+		    arg.offset, arg.count, res, wres), auth_root);
+      outstanding_writes++;
+      outstanding_reads--;
+    } 
+  }
+ 
+  void do_read(u_int64_t pos, u_int32_t count)
+  {
+    read3res *rres = new read3res;
+    read3args arg;
+    arg.file = src;
+    arg.offset = pos;
+    arg.count = count;
+    c->call (NFSPROC3_READ, &arg, rres,
+	     wrap (this, &copy3obj::gotread, arg.offset, arg.count, rres), 
+	     auth_root);
+    outstanding_reads++;
+  }
+
+  void gotattr (clnt_stat stat) {
+    if (stat || ares.status) {
+      (*cb) (NULL, stat2str(ares.status, stat));
+      delete this;
+    }
+    else {
+      FATTR3 * attr = ares.attributes.addr();
+      size = attr->size;
+      next_read = 0;
+      for(int i=0; i<5 && next_read < size; i++) {
+        int count = size > (next_read+READ_BLOCK_SZ) 
+	              ? READ_BLOCK_SZ : (size-next_read);
+        do_read(next_read, count);
+        next_read += count;
+      }
+    }
+  }
+  
+  void do_getattr()
+  {
+    c->call (NFSPROC3_GETATTR, &src, &ares,
+	     wrap (this, &copy3obj::gotattr), auth_root);
+  }
+
+  copy3obj (ref<aclnt> c, const nfs_fh3 &s, const nfs_fh3 &d, cb_t cb)
+    : cb (cb), c (c), src(s), dst(d)
+  {
+    error = outstanding_reads = outstanding_writes = 0;
+    do_getattr();
+  }
+};
+
+// cb may be called more than once
+void
+copy3 (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst,
+       copy3obj::cb_t cb)
+{
+  vNew copy3obj (c, src, dst, cb);
+}
+

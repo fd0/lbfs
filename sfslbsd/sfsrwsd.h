@@ -206,6 +206,10 @@ class client : public virtual refcount, public sfsserv {
   void mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, 
                      void *_cres, clnt_stat err);
   void mktmpfile (svccb *sbp, filesrv::reqstate rqs);
+  
+  void committmp_cb (svccb *sbp, filesrv::reqstate rqs, 
+                     commit3res *res, str err);
+  void committmp (svccb *sbp, filesrv::reqstate rqs);
 
 protected:
   client (ref<axprt_crypt> x);

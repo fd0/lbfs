@@ -7,12 +7,13 @@
 
 
 // translates LBFS proc number to NFS3 proc number for dealing with res
-// structures: CONDWRITE uses WRITE res structures, MKTMPFILE uses CREATE res
-// structures.
+// structures: CONDWRITE uses WRITE res structures, COMMITTMP uses WRITE res
+// structures, and MKTMPFILE uses CREATE res structures.
 
 #define LBFS_PROC_RES_TRANS(p) \
   (p == lbfs_NFSPROC3_CONDWRITE ? NFSPROC3_WRITE : \
-     (p == lbfs_NFSPROC3_MKTMPFILE ? NFSPROC3_CREATE : p))
+     (p == lbfs_NFSPROC3_MKTMPFILE ? NFSPROC3_CREATE : \
+       (p == lbfs_NFSPROC3_COMMITTMP ? NFSPROC3_COMMIT : p)))
 
 extern void lbfs_nfs3exp_err (svccb *sbp, nfsstat3 status);
 
@@ -26,6 +27,9 @@ void readfh3 (ref<aclnt> c, const nfs_fh3 &fh,
 
 void mkdir3 (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
              callback<void, const nfs_fh3 *, str>::ref);
+
+void copy3 (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst, 
+            callback<void, commit3res *, str>::ref);
 
 #endif _LBFS_H_
 

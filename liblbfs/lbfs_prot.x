@@ -6,8 +6,6 @@
  * are omitted.
  */
 
-/* XXX TODO: change program numbers to be LBFS instead of ex_NFS3 */
-
 #ifndef RFC_SYNTAX
 # define RFC_SYNTAX 1
 #endif /* RFC_SYNTAX */
@@ -32,6 +30,11 @@ struct lbfs_condwrite3args {
 struct lbfs_mktmpfile3args {
   nfs_fh3 commit_to;
   sattr3 obj_attributes;
+};
+
+struct lbfs_committmp3args {
+  nfs_fh3 commit_from;
+  nfs_fh3 commit_to;
 };
 
 program LBFS_PROGRAM {
@@ -107,6 +110,9 @@ program LBFS_PROGRAM {
 		
 		ex_diropres3
 		lbfs_NFSPROC3_MKTMPFILE (lbfs_mktmpfile3args) = 23;
+		
+		ex_commit3res
+		lbfs_NFSPROC3_COMMITTMP (lbfs_committmp3args) = 24;
 	} = 3;
 } = 344444;
 
@@ -119,3 +125,4 @@ program LBFSCB_PROGRAM {
 		lbfs_NFSCBPROC3_INVALIDATE (ex_invalidate3args) = 1;
 	} = 3;
 }= 344445;
+
