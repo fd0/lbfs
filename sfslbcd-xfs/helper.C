@@ -1,6 +1,5 @@
 #include "sfslbcd.h"
 #include "sfsclient.h"
-#include "xfs.h"
 #include "xfs-sfs.h"
 #include "xfs-nfs.h"
 #include "cache.h"

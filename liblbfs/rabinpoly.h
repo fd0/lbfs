@@ -49,7 +49,7 @@ public:
 class window : public rabinpoly {
 public:
   enum {size = 48};
-
+  //enum {size = 24};
 private:
   u_int64_t fingerprint;
   int bufpos;

@@ -19,7 +19,7 @@
  *
  */
 
-#include "xfs.h"
+#include "sfslbcd.h"
 #include "kernel.h"
 #include "xfs-sfs.h"
 

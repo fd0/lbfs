@@ -836,7 +836,8 @@ if test "$with_db3" != no; then
     else
 	libdbrx='^libdb([[3.-]].*)?.la$'
 	if test "$with_db3" = yes; then
-	    for dir in "$prefix/BerkeleyDB.3.1" /usr/local/BerkeleyDB.3.1 \
+	    for dir in "$prefix/BerkeleyDB.3.2" /usr/local/BerkeleyDB.3.2 \
+		      "$prefix/BerkeleyDB.3.1" /usr/local/BerkeleyDB.3.1 \
 		    "$prefix/BerkeleyDB.3.0" /usr/local/BerkeleyDB.3.0 \
 		    /usr "$prefix" /usr/local; do
 		test -f $dir/include/db.h -o -f $dir/include/db3.h || continue

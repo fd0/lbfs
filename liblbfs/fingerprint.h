@@ -30,7 +30,7 @@ private:
   size_t _count;
   unsigned _fhsize;
   unsigned char _fh[NFS3_FHSIZE];
- 
+
 public:
   chunk_location() {
     _fhsize = 0;
@@ -66,6 +66,14 @@ public:
     else
       return -1;
   }
+
+#if WITH_PATH
+  void set_path(const char *p) {
+    strcpy (_path, p);
+  }
+  
+  char *get_path() { return _path; }
+#endif
 
   off_t pos() const 		{ return _pos; }
   void set_pos(off_t p) 	{ _pos = p; }
@@ -154,7 +162,7 @@ public:
   const vec<chunk*>& chunk_vector() { return _cv; }
   void copy_chunk_vector(vec<chunk*>&);
   
-  static const unsigned chunk_size = 8192;
+  static const unsigned chunk_size = 2048;
   static unsigned min_size_suppress;
   static unsigned max_size_suppress;
 };

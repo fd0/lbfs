@@ -1,6 +1,7 @@
+#include <sys/param.h>
+#include <sys/mount.h>
 #include "cache.h"
 #include "xfs-nfs.h"
-#include "sfslbcd.h"
 
 bool 
 xfs_fheq (xfs_handle x1, xfs_handle x2) 

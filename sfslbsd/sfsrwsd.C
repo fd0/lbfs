@@ -189,9 +189,10 @@ parseconfig (str cf)
 	errors = true;
 	warn << cf << ":" << line << ": usage: hostname name\n";
       }
-      else if (fsrv->servinfo.host.hostname) {
+      else if (fsrv->servinfo.host.hostname.len ()) {
 	errors = true;
-	warn << cf << ":" << line << ": hostname already specified\n";
+	warn << cf << ":" << line << ": hostname already specified = " 
+	     << fsrv->servinfo.host.hostname << "\n";
       }
       else
 	fsrv->servinfo.host.hostname = av[1];
@@ -255,10 +256,11 @@ parseconfig (str cf)
 
   fsrv->servinfo.release = sfs_release;
   fsrv->servinfo.host.type = SFS_HOSTINFO;
-  if (!fsrv->servinfo.host.hostname
+  if (!fsrv->servinfo.host.hostname.len ()
       && !(fsrv->servinfo.host.hostname = myname ()))
     fatal ("could not figure out my host name\n");
   fsrv->servinfo.host.pubkey = fsrv->sk->n;
+  warn << "sfs hostname " << fsrv->servinfo.host.hostname << "\n";
   if (!sfs_mkhostid (&fsrv->hostid, fsrv->servinfo.host))
     fatal ("could not marshal my own hostinfo\n");
   fsrv->servinfo.prog = LBFS_PROGRAM;
