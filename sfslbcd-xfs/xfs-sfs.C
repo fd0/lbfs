@@ -168,7 +168,7 @@ void sfsInit(const char* path) {
   strcpy(sfs_path, path);
   tcpconnect(hostname, port, wrap(sfsConnect, hostname, hid));
 #if LBFS_READ
-  lbfsdb.open();
+  lbfsdb.open_and_truncate();
 #endif
 }
 

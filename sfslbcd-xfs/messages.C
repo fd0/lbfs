@@ -291,7 +291,7 @@ void write_dirfile(int fd, struct xfs_message_getdata *h, ex_readdir3res *res,
 void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res, time_t rqtime,
 	     clnt_stat err) {
   
-  if (res->status == NFS3_OK) {
+  if (!err && res->status == NFS3_OK) {
 
     struct xfs_message_installdata msg; 
     struct write_dirent_args args;
@@ -374,7 +374,7 @@ void write_file(ref<getfp_args> ga, uint64 offset, uint32 count, ex_read3res *re
 void nfs3_read(ref<getfp_args> ga, uint64 offset, uint32 count, 
                ex_read3res *res, clnt_stat err) 
 {
-  if (res->status == NFS3_OK && res->resok->file_attributes.present) {
+  if (!err && res->status == NFS3_OK && res->resok->file_attributes.present) {
 
     write_file(ga, offset, count, res); 
 
@@ -547,7 +547,7 @@ void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
 void lbfs_getfp(ref<getfp_args> ga, lbfs_getfp3res *res, time_t rqtime, 
 		clnt_stat err) {
 
-  if (res->status == NFS3_OK) {
+  if (!err && res->status == NFS3_OK) {
     if (fht.setcur(ga->h->handle)) {
       warn << "lbfs_getfp: Can't find node handle\n";
       return;
@@ -710,7 +710,7 @@ void comp_time(int fd, struct xfs_message_getdata *h, bool dirfile,
 void nfs3_readlink(int fd, struct xfs_message_getdata *h, ex_readlink3res *res,
 		   time_t rqtime, clnt_stat err) {
 
-  if (res->status == NFS3_OK) {
+  if (!err && res->status == NFS3_OK) {
     
     struct xfs_message_installdata msg; 
     struct xfs_message_header *h0 = NULL;
@@ -808,7 +808,7 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
 void nfs3_getattr(int fd, struct xfs_message_getattr *h,
 		  ex_getattr3res *res, time_t rqtime, clnt_stat err) {
 
-  assert(res->status == NFS3_OK);
+  assert(!err && res->status == NFS3_OK);
 
   struct xfs_message_installattr msg;
   struct xfs_message_header *h0 = NULL;
@@ -849,7 +849,7 @@ int xfs_message_getattr (int fd, struct xfs_message_getattr *h, u_int size)
 }
 
 void committmp(ref<condwrite3args> cwa, ex_commit3res *res, time_t rqtime, clnt_stat err) {
-  if (res->status == NFS3_OK) {
+  if (!err && res->status == NFS3_OK) {
 
     if (fht.setcur(cwa->h->handle)) {
       warn << "committmp: Can't find node handle\n";
@@ -888,7 +888,7 @@ void sendcommittmp(ref<condwrite3args> cwa) {
 
 void nfs3_write (ref<condwrite3args> cwa, ex_write3res *res, clnt_stat err) {
   
-  if (res->status == NFS3_OK) {
+  if (!err && res->status == NFS3_OK) {
     cwa->blocks_written++;
     if (/*cwa->done && */cwa->blocks_written == cwa->total_blocks)
       sendcommittmp(cwa);
@@ -939,7 +939,7 @@ void sendwrite(ref<condwrite3args> cwa, lbfs_chunk *chunk) {
 
 void lbfs_sendcondwrite(ref<condwrite3args> cwa, lbfs_chunk *chunk, 
 			ex_write3res *res, clnt_stat err) {
-  if (res->status == NFS3_OK) {
+  if (!err && res->status == NFS3_OK) {
     if (res->resok->count != chunk->loc.count()) {
       warn << "lbfs_sendcondwrite: did not write the whole chunk...\n";
       delete res;
@@ -1099,7 +1099,7 @@ int xfs_message_inactivenode (int fd, struct xfs_message_inactivenode* h, u_int 
 
 void nfs3_setattr(int fd, struct xfs_message_putattr *h, ex_wccstat3 *res, time_t rqtime, clnt_stat err) {
   
-  if (res->status == NFS3_OK) {
+  if (!err && res->status == NFS3_OK) {
  
    assert(res->wcc->after.present);
 
@@ -1156,7 +1156,7 @@ int xfs_message_putattr (int fd, struct xfs_message_putattr *h, u_int size) {
 
 void nfs3_create(int fd, struct xfs_message_create *h, ex_diropres3 *res, time_t rqtime, clnt_stat err) {
 
-  if (res->status == NFS3_OK) {
+  if (!err && res->status == NFS3_OK) {
 
     struct xfs_message_installdata msg1; //change content of parent dir
     struct xfs_message_installnode msg2; //New file node
@@ -1278,7 +1278,7 @@ int xfs_message_create (int fd, struct xfs_message_create *h, u_int size) {
 void nfs3_mkdir(int fd, struct xfs_message_mkdir *h, ex_diropres3 *res, time_t rqtime,
 	       clnt_stat err) {
 
-  if (res->status == NFS3_OK) {
+  if (!err && res->status == NFS3_OK) {
 
     struct xfs_message_installdata msg1; //change content of parent dir
     struct xfs_message_installnode msg2; //new dir node
@@ -1486,7 +1486,7 @@ int xfs_message_link(int fd, struct xfs_message_link *h, u_int size) {
 void nfs3_symlink(int fd, struct xfs_message_symlink *h, ex_diropres3 *res,
 		  time_t rqtime, clnt_stat err) {
 
-  if (res->status == NFS3_OK) {
+  if (!err && res->status == NFS3_OK) {
     struct xfs_message_installdata msg1; //install change in parent dir
     struct xfs_message_installnode msg2; //install symlink node
     struct xfs_message_header *h0 = NULL;
@@ -1563,7 +1563,7 @@ int xfs_message_symlink(int fd, struct xfs_message_symlink *h, u_int size) {
 void remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
 	    ex_wccstat3 *wres, time_t rqtime, clnt_stat err) {
 
-  if (wres->status == NFS3_OK) {
+  if (!err && wres->status == NFS3_OK) {
 
     assert(wres->wcc->after.present);
 
@@ -1670,7 +1670,7 @@ void remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
 void nfs3_remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
 		 clnt_stat err) {
 
-  if (lres->status == NFS3_OK) {
+  if (!err && lres->status == NFS3_OK) {
 
     //lookup entry's filehandle and attr
     //if the entry being removed from parent is still being referenced (nlink > 1)
@@ -1719,7 +1719,7 @@ int xfs_message_remove(int fd, struct xfs_message_remove *h, u_int size) {
 void nfs3_rmdir(int fd, struct xfs_message_rmdir *h, ex_lookup3res *lres,
 		 clnt_stat err) {
 
-  if (lres->status == NFS3_OK) {
+  if (!err && lres->status == NFS3_OK) {
 
     //lookup entry's filehandle and attr
     //if the entry being removed from parent is still being referenced (nlink > 1)
