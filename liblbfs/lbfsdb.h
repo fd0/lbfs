@@ -4,7 +4,7 @@
 #include "vec.h"
 #include "async.h"
 #include "nfs3_prot.h"
-#include "db_cxx.h"
+#include "db.h"
 #include "rpctypes.h"
 
 // we keep P(t), x, and K the same for whole file system, so two equivalent
@@ -94,15 +94,15 @@ struct lbfs_chunk {
 
 class lbfs_db {
 private:
-  Db _fp_dbp;
+  DB *_fp_dbp;
 
 public:
 
   class chunk_iterator {
     friend lbfs_db;
   private:
-    Dbc* _cursor;
-    chunk_iterator(Dbc *c);
+    DBC* _cursor;
+    chunk_iterator(DBC *c);
 
   public:
     ~chunk_iterator();
@@ -132,7 +132,7 @@ public:
 };
 
 inline
-lbfs_db::chunk_iterator::chunk_iterator(Dbc *c)
+lbfs_db::chunk_iterator::chunk_iterator(DBC *c)
 {
   _cursor = c;
 }
@@ -141,25 +141,27 @@ inline
 lbfs_db::chunk_iterator::~chunk_iterator()
 { 
   if (_cursor) 
-    _cursor->close();
+    _cursor->c_close(_cursor);
   _cursor = 0L;
 }
 
 inline int
 lbfs_db::chunk_iterator::del()
 {
-  return _cursor->del(0);
+  return _cursor->c_del(_cursor, 0);
 }
 
 inline int
 lbfs_db::chunk_iterator::get(lbfs_chunk_loc *c)
 {
   assert(_cursor);
-  Dbt key;
-  Dbt data;
-  int ret = _cursor->get(&key, &data, DB_CURRENT);
-  if (ret == 0 && data.get_data()) {
-    lbfs_chunk_loc *loc = reinterpret_cast<lbfs_chunk_loc*>(data.get_data());
+  DBT key;
+  DBT data;
+  memset(&key, 0, sizeof(key));
+  memset(&data, 0, sizeof(data));
+  int ret = _cursor->c_get(_cursor, &key, &data, DB_CURRENT);
+  if (ret == 0 && data.data) {
+    lbfs_chunk_loc *loc = reinterpret_cast<lbfs_chunk_loc*>(data.data);
     *c = *loc;
   }
   return ret;
@@ -169,12 +171,14 @@ inline int
 lbfs_db::chunk_iterator::next(lbfs_chunk_loc *c)
 {
   assert(_cursor);
-  Dbt key;
-  Dbt data;
-  int ret = _cursor->get(&key, &data, DB_NEXT_DUP);
+  DBT key;
+  DBT data;
+  memset(&key, 0, sizeof(key));
+  memset(&data, 0, sizeof(data));
+  int ret = _cursor->c_get(_cursor, &key, &data, DB_NEXT_DUP);
   if (ret == 0) {
-    if (data.get_data()) 
-      *c = *(reinterpret_cast<lbfs_chunk_loc*>(data.get_data()));
+    if (data.data) 
+      *c = *(reinterpret_cast<lbfs_chunk_loc*>(data.data));
     else assert(0);
   }
   return ret;

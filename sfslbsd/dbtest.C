@@ -1,4 +1,19 @@
 
+// usage: dbtest host file
+//
+// test lbfs database by chunking "file", search through the local DB for
+// matching fingerprints, then connect to the nfs server on "host" to retrieve
+// existing chunks.
+//
+// for example:
+//
+// ./dbtest localhost /disk/pw0/benjie/play/db-3.1.17/LICENSE
+//
+// should return the list of reusable chunks, fingerprints of the chunks of
+// "file", and fingerprints of the chunks retrieved via the nfs server. the
+// last two sets of fingerprints should match.
+
+
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>

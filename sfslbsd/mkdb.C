@@ -1,4 +1,15 @@
 
+// usage: mkdb host nfs_mount_point
+//
+// creates a LBFS database for files under "nfs_mount_point". chunk files
+// using posix fd interface, but connect to nfs server on "host" to retrieve
+// file handles. if database already exists, add to the database instead.
+//
+// for example
+//
+// ./mkdb localhost /disk/pw0/benjie/play
+//
+
 #include <sys/types.h>
 #include <stdio.h>
 #include <db.h>
@@ -48,11 +59,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
 	  for(unsigned i=0; i<cv.size(); i++) { 
 	    cv[i]->loc.set_fh(*fhp);
 	    cv[i]->loc.set_mtime(attr->mtime);
-#if 0
-            printf("add %s fp 0x%016qx size %d\n", 
-	           fspath, cv[i]->fingerprint, cv[i]->loc.count());
-#endif
-	    _db.add_chunk(cv[i]->fingerprint, &(cv[i]->loc)); 
+	    int r = _db.add_chunk(cv[i]->fingerprint, &(cv[i]->loc)); 
 	    delete cv[i];
 	  }
         }
@@ -106,8 +113,6 @@ read_directory(const char *dpath, DIR *dirp = 0L)
       char *fname = new char[PATH_MAX];
       strncpy(fname, de->d_name, PATH_MAX);
 
-      if (strncmp(dpath2, "/examples_java/AccessE", 16) == 0)
-	printf("lookup: %s\n", newpath);
       lookupfh3(_c, _rootfh, newpath, wrap(gotattr, dpath2, fname, dirp));
       return 0;
     }
@@ -122,7 +127,7 @@ gotrootfh(const nfs_fh3 *fhp, str err)
 {
   if (!err) {
     _rootfh = *fhp;
-    _db.open(); 
+    int r = _db.open(); 
     read_directory("");
   }
   done();

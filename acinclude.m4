@@ -645,12 +645,12 @@ if test -z "$with_gmp"; then
 fi
 if test "$with_gmp"; then
     unset GMP_DIR
-    if test -f $dir/include/gmp.h; then
+    if test -f ${with_gmp}/include/gmp.h; then
 	CPPFLAGS="$CPPFLAGS -I${with_gmp}/include"
-    elif test -f $dir/include/gmp3/gmp.h; then
-	CPPFLAGS="$CPPFLAGS -I${with_gmp}/gmp3/include"
-    elif test -f $dir/include/gmp2/gmp.h; then
-	CPPFLAGS="$CPPFLAGS -I${with_gmp}/gmp2/include"
+    elif test -f ${with_gmp}/include/gmp3/gmp.h; then
+	CPPFLAGS="$CPPFLAGS -I${with_gmp}/include/gmp3"
+    elif test -f ${with_gmp}/include/gmp2/gmp.h; then
+	CPPFLAGS="$CPPFLAGS -I${with_gmp}/include/gmp2"
     else
 	AC_MSG_ERROR([Could not find gmp.h header])
     fi
@@ -779,19 +779,19 @@ if test ! "${with_db3+set}"; then
 fi
 
 if test "$with_db3" != no; then
-    AC_MSG_CHECKING([for DB3 CXX library])
+    AC_MSG_CHECKING([for DB3 library])
     if test "$DB3_DIR" -a "$with_db3" = yes; then
 	CPPFLAGS="$CPPFLAGS "'-I$(top_builddir)/'"$DB3_DIR"
 	DB3_LIB='-L$(top_builddir)/'"$DB3_DIR -ldb"
 	AC_MSG_RESULT([using distribution in $DB3_DIR subdirectory])
     else
-	libdbrx='^libdb([[3.-]].*)?_cxx.la$'
+	libdbrx='^libdb([[3.-]].*)?.la$'
 	if test "$with_db3" = yes; then
 	    for dir in "$prefix/BerkeleyDB.3.1" /usr/local/BerkeleyDB.3.1 \
 		    "$prefix/BerkeleyDB.3.0" /usr/local/BerkeleyDB.3.0 \
 		    /usr "$prefix" /usr/local; do
 		test -f $dir/include/db.h -o -f $dir/include/db3.h || continue
-		if test -f $dir/lib/libdb_cxx.a \
+		if test -f $dir/lib/libdb.a \
 			|| ls $dir/lib | egrep -q "$libdbrx"; then
 		    with_db3="$dir"
 		    break
@@ -811,9 +811,9 @@ if test "$with_db3" != no; then
 	    DB3_LIB="$with_db3/lib/$DB3_LIB"
 	elif test "$with_db3" = /usr; then
 	    with_db3=yes
-	    DB3_LIB="-ldb_cxx"
+	    DB3_LIB="-ldb"
 	else
-	    DB3_LIB="-L${with_db3}/lib -ldb_cxx"
+	    DB3_LIB="-L${with_db3}/lib -ldb"
 	fi
 	AC_MSG_RESULT([$with_db3])
     fi
