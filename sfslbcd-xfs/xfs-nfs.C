@@ -26,21 +26,12 @@ bool xfs_fheq(xfs_handle x1, xfs_handle x2) {
     return true;
   else return false;
 }
-#if 0
-bool nfs_fheq(nfs_fh3 n1, nfs_fh3 n2) {
-  if (memcmp(n1.data.base(), n2.data.base(), 
-	     n1.data.size()) == 0)
-    return true;
-  else return false;
-}
-#endif
 
 bool
 nfs_fheq (nfs_fh3 n1, nfs_fh3 n2)
 {
   return n1.data == n2.data;
 }
-
 
 u_char nfs_rights2xfs_rights(u_int32_t access, ftype3 ftype, u_int32_t mode) {
   u_char ret = 0;

@@ -19,12 +19,12 @@
  *
  */
 
-#include "messages.h"
-//#include <xfs/xfs_pioctl.h>
-//#include "xfs-nfs.h"
+#include "xfs.h"
+#include "xfs-sfs.h"
 #include "fh_map.h"
 #include "crypt.h"
 
+ex_fsinfo3resok nfs_fsinfo;
 u_int64_t cache_entry::nextxh;
 ihash<nfs_fh3, cache_entry, &cache_entry::nh,
   &cache_entry::nlink> nfsindex;
@@ -36,6 +36,8 @@ void nfs3_fsinfo (xfscall *);
 void nfs3_getattr (xfscall *);
 
 void nfs_dispatch (xfscall *xfsc, clnt_stat err) {
+
+  assert(!err);
 
   switch (xfsc->opcode) {
   case XFS_MSG_GETROOT: 
@@ -77,8 +79,9 @@ xfs_getroot (xfscall *xfsc) {
   warn << "Received getroot from XFS\n";
 #endif
 
+  ((xfs_getroot_args*) xfsc->getvoidres ())->fsi = New sfs_fsinfo;
   sfsc->call (SFSPROC_GETFSINFO, NULL, 
-	      ((xfs_getroot_args*) xfsc->getvoidarg ())->fsi,
+	      ((xfs_getroot_args*) xfsc->getvoidres ())->fsi,
 	      wrap (nfs_dispatch, xfsc));
   return 0;
 

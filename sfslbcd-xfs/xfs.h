@@ -27,6 +27,7 @@
 #include "arpc.h"
 #include "lbfs_prot.h"
 
+/* xfs.C */
 void xfs_message_init (void);
 int  xfs_message_send (int fd, struct xfs_message_header *h, u_int size);
 int  xfs_message_receive (int fd, struct xfs_message_header *h, u_int size);
@@ -52,7 +53,11 @@ struct xfscall {
   
 typedef int (*xfs_message_function) (xfscall *);
 extern xfs_message_function rcvfuncs[XFS_MSG_COUNT];
+/* xfs.C */
 
+/* server.C */
+extern ex_fsinfo3resok nfs_fsinfo;
+void nfs_dispatch (xfscall *xfsc, clnt_stat err);
 int xfs_wakeup (xfscall *xfsc);
 int xfs_getroot (xfscall *xfsc);
 int xfs_getnode (xfscall *xfsc);
@@ -72,6 +77,7 @@ int xfs_rename (xfscall *xfsc);
 int xfs_pioctl (xfscall *xfsc);
 
 void cbdispatch(svccb *sbp);
+/* server.C */
 
 class xfs_wakeup_args {
  public:
@@ -88,13 +94,20 @@ class xfs_wakeup_args {
 
 struct xfs_getroot_args {
   sfs_fsinfo *fsi;
+  ex_fsinfo3res *nfs_fsi;
   ex_getattr3res *attr_res;
 
-  xfs_getroot_args () : fsi(NULL), attr_res(NULL) { }
+  xfs_getroot_args () {
+    fsi = New sfs_fsinfo;
+    nfs_fsi = New ex_fsinfo3res;
+    attr_res = New ex_getattr3res;
+  }
 
   ~xfs_getroot_args () {
     if (fsi) 
       delete fsi;
+    if (nfs_fsi)
+      delete nfs_fsi;
     if (attr_res) 
       delete attr_res;
   }

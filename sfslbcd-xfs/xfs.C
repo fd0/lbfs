@@ -172,8 +172,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->pad1 = hh->pad1;    
     break;
   }
-  case XFS_MSG_GETDATA:
-    {
+  case XFS_MSG_GETDATA: {
     struct xfs_message_getdata *hh = 
       (struct xfs_message_getdata *)msgstr.cstr();
     ref<struct xfs_message_getdata> msg = 
@@ -185,8 +184,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->pad1 = hh->pad1;
     break;
   }
-  case XFS_MSG_OPEN:
-    {
+  case XFS_MSG_OPEN: {
     struct xfs_message_open *hh = 
       (struct xfs_message_open *)msgstr.cstr();
     ref<struct xfs_message_open> msg = 
@@ -219,7 +217,8 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->header = hh->header;
     msg->handle = hh->handle;
     msg->attr = hh->attr;
-    msg->cred = hh->cred;        
+    msg->cred = hh->cred;
+    break;
   }
   case XFS_MSG_CREATE: {
     struct xfs_message_create *hh = 
@@ -324,7 +323,6 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 #endif /* Other cases */
   default:
     return 0;
-    break;
   }
 
   return (*rcvfuncs[opcode])(xfsc);

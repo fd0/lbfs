@@ -304,9 +304,11 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
   nfs_fh3 tmpfh = cta->commit_from;
   nfs_fh3 fh = cta->commit_to;
+#if 0
   u_int32_t authno = sbp->getaui ();
   unsigned fsno = rqs.fsno;
- 
+#endif 
+
 #if DEBUG > 1
   gettimeofday(&t1, 0L);
   warn << "committmp: " << timediff() << " usecs\n";
