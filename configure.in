@@ -36,7 +36,7 @@ LIBLBFS='$(top_builddir)/liblbfs/liblbfs.la'
 
 CPPFLAGS="$CPPFLAGS"' -I$(top_srcdir)/liblbfs -I$(top_builddir)/liblbfs'
 LDEPS='$(LIBLBFS) '"$LDDEPS"
-LDADD='$(LIBLBFS) $(ZLIB_LIB) $(DB3_LIB) '"$LDADD"
+LDADD='$(LIBLBFS) $(LIBZ) $(DB3_LIB) '"$LDADD"
 
 SFS_CFLAGS
 

@@ -78,8 +78,11 @@ public:
 class server : public sfsserver_auth {
   attr_cache ac;
 
+  void dispatch_dummy (svccb *sbp);
   void cbdispatch (svccb *sbp);
   void getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
+
+  void setfd(int fd);
 
 public:
   typedef sfsserver_auth super;

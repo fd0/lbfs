@@ -104,6 +104,25 @@ server::authclear (sfs_aid aid)
 }
 
 void
+server::dispatch_dummy(svccb* sbp)
+{
+  sfsdispatch(sbp);
+}
+
+void
+server::setfd(int fd)
+{
+  warn << "setfd in sfslbcd called\n";
+  assert (fd >= 0);
+  xx = axprt_crypt::alloc (fd);  // XXX - shouldn't always be crypt
+  // x = axprt_compress::alloc (xx);
+  x = xx;
+  sfsc = aclnt::alloc (x, sfs_program_1);
+  sfscbs = asrv::alloc (x, sfscb_program_1,
+                        wrap (this, &server::dispatch_dummy));
+}
+
+void
 server::setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_cb)
 {
   if (fsi->prog != ex_NFS_PROGRAM || fsi->nfs->vers != ex_NFS_V3) {

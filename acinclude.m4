@@ -757,49 +757,43 @@ dnl
 dnl Find zlib
 dnl
 AC_DEFUN(SFS_ZLIB,
-[AC_SUBST(ZLIB_DIR)
-AC_CONFIG_SUBDIRS($ZLIB_DIR)
-AC_SUBST(ZLIB_LIB)
-unset ZLIB_LIB
+[AC_SUBST(LIBZ)
+AC_SUBST(ZLIB_DIR)
+unset LIBZ
 AC_ARG_WITH(zlib,
 --with-zlib[[=/usr/local]]   Use zlib)
-    
+
 if test "$with_zlib" != no; then
     AC_MSG_CHECKING([for zlib Library])
     if test "$ZLIB_DIR" -a "$with_zlib" = yes; then
-	CPPFLAGS="$CPPFLAGS "'-I$(top_builddir)/'"$ZLIB_DIR"
-	ZLIB_LIB='-L$(top_builddir)/'"$ZLIB_DIR -lz"
-	AC_MSG_RESULT([using libz.a in $ZLIB_DIR subdirectory])
+        CPPFLAGS="$CPPFLAGS "'-I$(top_builddir)/'"$ZLIB_DIR"
+        LIBZ='-L$(top_builddir)/'"$ZLIB_DIR -lz"
+        AC_MSG_RESULT([using libz.a in $ZLIB_DIR subdirectory])
     else
-	libzrx='^libz.la$'
-	if test "$with_zlib" = yes; then
-	    for dir in /usr/lib /usr/local/lib; do
-		if test -f $dir/libz.a \
-			|| ls $dir | egrep -q "$libzrx"; then
-		    with_zlib="$dir"
-		    break
-		fi
-	    done
-	fi
-	
-	if test -f $with_zlib/libz.a; then
-	  ZLIB_LIB=`ls $with_zlib | egrep "$libzrx" | tail -1`
-	  if test -f "$with_zlib/$ZLIB_LIB"; then
-	      ZLIB_LIB="$with_zlib/$ZLIB_LIB"
-	  elif test "$with_zlib" = /usr; then
-	      with_db3=yes
-	      ZLIB_LIB="-lz"
-	  else
-	      ZLIB_LIB="-L${with_zlib} -lz"
-	  fi
-	  AC_MSG_RESULT([$with_zlib])
+        if test "$with_zlib" = yes; then
+            for dir in /usr/lib /usr/local/lib; do
+                if test -f $dir/libz.a; then
+                    with_zlib="$dir"
+                    LIBZ="$with_zlib/libz.a"
+                    break
+                elif test -f $dir/libz.la; then
+                    with_zlib="$dir"
+                    LIBZ="$with_zlib/libz.a"
+                    break
+                fi
+            done
+        fi
+        if test "$with_zlib" = yes; then
+            with_zlib=no
+            AC_MSG_ERROR([Could not found libz])
+        else
+            AC_MSG_RESULT([$with_zlib])
         fi
     fi
 fi
 
 AM_CONDITIONAL(USE_ZLIB, test "${with_zlib}" != no)
 ])
-
 
 dnl
 dnl Find BekeleyDB 3
