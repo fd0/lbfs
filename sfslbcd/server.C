@@ -40,9 +40,8 @@ server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
     // update file cache if cache time < mtime and file is not dirty
     // or fetch
     if (!e || ((e->fa.mtime < fa.mtime) && e->is_idle())) {
-      if (e) {
+      if (e)
 	warn << "re-fetch file " << e->fh << "\n";
-      }
       else {
 	warn_debug << "fetch file " << e->fh << "\n";
       }
@@ -57,8 +56,6 @@ server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
       lbfs_read (f, obj, fa.size, mkref(this), authof(aid),
 	         wrap(mkref(this), &server::file_cached, e));
     }
-    // if file is in sync with server, sync attribute in file cache
-    // with that in attribute cache.
     else if (e && e->is_idle()) {
       e->fa = fa;
       e->osize = fa.size;
@@ -182,6 +179,7 @@ server::write_to_cache (nfscall *nc, file_cache *e)
 int
 server::truncate_cache (uint64 size, file_cache *e)
 {
+  assert(e->is_dirty() || e->is_idle());
   if (e->fd < 0) {
     str fn = fh2fn(e->fh);
     e->fd = open (fn, O_RDWR);
@@ -190,10 +188,7 @@ server::truncate_cache (uint64 size, file_cache *e)
   }
   if (ftruncate(e->fd, size) < 0)
     return -1;
- 
   e->fa.size = size;
-  assert(e->is_idle() || e->is_dirty());
-  e->dirty();
   return 0;
 }
 
@@ -278,9 +273,6 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
   
   // if file is dirty or being flushed, replace the size attributed
   // returned from server with up-to-date size from the file cache.
-  // in case of SETATTR, we want to update the cached file's attribute
-  // with attribute from server, ignoring the server's size and mtime
-  // values.
 
   if (nc->proc () == NFSPROC3_FSINFO) {
     ex_fsinfo3res *fres = static_cast<ex_fsinfo3res *> (res);
@@ -309,12 +301,10 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     }
   }
   else if (nc->proc () == NFSPROC3_SETATTR) {
-    // on each SETATTR, copy attributes from server to file cache, but
-    // don't override the size and mtime fields if file is dirty or
-    // being flushed. we also perform wcc checking when file is not
-    // being flushed. the goal of doing this wcc checking is to end up
-    // with the same attribute as the server, so that on the next open
-    // we can avoid a fetch if only one client modified the file.
+    // on each SETATTR when file is dirty or being flushed: copy
+    // attributes from server to file cache, but don't override the
+    // size and mtime fields. do a wcc checking to avoid re-fetching
+    // this file later if only one client is writing it.
     setattr3args *a = nc->template getarg<setattr3args> ();
     ex_wccstat3 *sres = static_cast<ex_wccstat3 *> (res);
     file_cache *e = file_cache_lookup(a->object);
@@ -333,15 +323,18 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 	  ex_fattr3 *f = sres->wcc->after.attributes;
 	  uint64 s = e->fa.size;
 	  e->fa = *reinterpret_cast<fattr3 *> (f);
-	  // update osize to reflect what the server knows
           e->osize = e->fa.size;
 	  e->fa.size = s;
         }
         else {
-          warn << "setattr wcc failed: "
-	       << e->osize << ":" << e->fa.mtime.seconds << " -- "
-	       << (sres->wcc->before.attributes)->size << ":"
-	       << (sres->wcc->before.attributes)->mtime.seconds << "\n";
+	  // wcc checking failed, don't update mtime (will have to
+	  // re-fetch the file on next open)
+	  ex_fattr3 *f = sres->wcc->after.attributes;
+	  nfstime3 m = e->fa.mtime;
+	  uint64 s = e->fa.size;
+	  e->fa = *reinterpret_cast<fattr3 *> (f);
+	  e->fa.size = s;
+	  e->fa.mtime = m;
         }
       }
       // replace size attribute w/ up-to-date size from file cache
@@ -606,10 +599,9 @@ server::dont_run_rpc (nfscall *nc)
         warn_debug << "RPC " << nc->proc () << " blocked: "
 	           << offset << ":" << size << "\n";
 	if (nc->proc() == NFSPROC3_READ)
-	  // *32 is an optimization: if client requests a read at
-	  // offset N, it's likely to want blocks from N to end of
-	  // file before from 0 to N
-	  e->want(offset, size*32, rtpref);
+	  // *16 forces reading 16 blocks before starting at the
+	  // beginning again
+	  e->want(offset, size*16, rtpref);
       }
       else {
 	warn_debug << "RPC " << nc->proc () << " blocked\n";
@@ -713,10 +705,11 @@ server::dispatch (nfscall *nc)
   }
 
   else if (nc->proc () == NFSPROC3_SETATTR) {
-    // if size is given, truncate cache file to the appropriate size
-    // and mark it dirty. update size, but not mtime. forward RPC to
-    // server always since we won't forward other attributes to server
-    // on CLOSE.
+    // for a set-size SETATTR: truncate cache file to the appropriate
+    // size. set size attribute on the cache file, but not mtime. do
+    // wcc checking. don't mark the file dirty. if it wasn't dirty
+    // before, and will not be modified, we should not flush it back
+    // to the server, because SETATTR may not always follow ACCESS.
     setattr3args *a = nc->template getarg<setattr3args> ();
     file_cache *e = file_cache_lookup(a->object);
     if (a->new_attributes.size.set && e) {
@@ -727,12 +720,8 @@ server::dispatch (nfscall *nc)
     }
   }
   
-  else if (nc->proc () == NFSPROC3_COMMIT) {
-    // because all writes to cache files are returned with FILE_SYNC,
-    // we should only see dangling commits that did not follow an
-    // ACCESS rpc.
+  else if (nc->proc () == NFSPROC3_COMMIT)
     warn << "sfslbcd sees COMMIT, forward to server\n";
-  }
 
   else if (nc->proc () == NFSPROC3_LOOKUP) {
     diropargs3 *a = nc->template getarg<diropargs3> ();
