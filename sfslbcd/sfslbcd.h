@@ -171,6 +171,7 @@ class server : public sfsserver_auth {
 protected:
   str cdir;
   bool try_compress;
+  bool async_close;
   attr_cache ac;
   lrucache<nfs_fh3, file_cache *> fc;
 
@@ -186,7 +187,7 @@ protected:
   int truncate_cache (uint64 size, file_cache *e);
   void check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid);
 
-  void close_done (nfscall *nc, fattr3 fa, bool ok);
+  void close_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok);
   void access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
   void file_cached (file_cache *e, bool done, bool ok);
 
@@ -222,7 +223,7 @@ public:
   unsigned rtpref;
   unsigned wtpref;
 
-  server (const sfsserverargs &a);
+  server (str arg, const sfsserverargs &a);
   ~server () { warn << path << " deleted\n"; }
   void flushstate ();
   void authclear (sfs_aid aid);

@@ -20,7 +20,7 @@
  *
  */
 
-#define RELAX 1
+#define DEBUG 0
 
 //
 // a cached file can be in one of the following four states
@@ -219,21 +219,22 @@ server::truncate_cache (uint64 size, file_cache *e)
 }
 
 void
-server::close_done (nfscall *nc, fattr3 fa, bool ok)
+server::close_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok)
 {
-  nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
-  file_cache *e = file_cache_lookup(*a);
+  file_cache *e = file_cache_lookup(fh);
   assert(e && e->is_flush());
   if (ok) {
     e->fa = fa;
     // update osize to reflect what the server knows
     e->osize = fa.size;
     e->idle();
-    nc->error (NFS3_OK);
+    if (!async_close) 
+      nc->error (NFS3_OK);
   }
   else {
     e->error();
-    nc->reject (SYSTEM_ERR);
+    if (!async_close)
+      nc->reject (SYSTEM_ERR);
   }
   vec<nfscall *> rpcs;
   for (unsigned i=0; i<e->rpcs.size(); i++)
@@ -246,6 +247,9 @@ server::close_done (nfscall *nc, fattr3 fa, bool ok)
 void
 server::flush_cache (nfscall *nc, file_cache *e)
 {
+  sfs_aid aid = nc->getaid();
+  if (async_close)
+    nc->error (NFS3_OK);
   // mark e as being flushed. after lbfs_write finishes we will update
   // the attribute cache.
   assert(e->is_dirty());
@@ -256,8 +260,8 @@ server::flush_cache (nfscall *nc, file_cache *e)
   fattr3 fa = e->fa;
   fa.size = e->osize;
   lbfs_write
-    (fn, e->fh, e->fa.size, fa, mkref(this), authof(nc->getaid()),
-     wrap(mkref(this), &server::close_done, nc));
+    (fn, e->fh, e->fa.size, fa, mkref(this), authof(aid),
+     wrap(mkref(this), &server::close_done, nc, e->fh));
 }
 
 void
@@ -458,14 +462,14 @@ server::dont_run_rpc (nfscall *nc)
 	uint64 size = a->count;
 	if (e->received(offset, size))
 	  return false;
-#if 1
+#if DEBUG
         warn << "RPC " << nc->proc () << " blocked: "
 	     << offset << ":" << size << "\n";
 #endif
 	if (nc->proc() == NFSPROC3_READ)
 	  e->want(offset, size, rtpref);
       }
-#if 1
+#if DEBUG
       else
 	warn << "RPC " << nc->proc () << " blocked\n";
 #endif

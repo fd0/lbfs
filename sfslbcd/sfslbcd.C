@@ -33,6 +33,34 @@
 
 #define LBFSCACHE "/var/tmp/lbfscache"
 
+// strips lbfs: or lbfsa: from the self certifying pathname
+static inline void
+strip_mountarg(sfs_connectarg &carg, str &proto, str &arg)
+{
+  str path = carg.ci5->sname;
+  const char *ps = path;
+  unsigned i, j;
+  for (i=0; i<path.len(); i++)
+    if (ps[i] == ':')
+      break;
+  if (i >= path.len())
+    return;
+  proto = substr(path, 0, i);
+  for (j=i+1; j<path.len(); j++) 
+    if (ps[j] == ':')
+      break;
+  if (j >= path.len())
+    return;
+  if (j <= i+2) {
+    arg = substr(path, i+1, j-(i+1));
+    carg.ci5->sname = substr(path,j+1);
+  }
+  else {
+    arg = "";
+    carg.ci5->sname = substr(path,i+1);
+  }
+}
+
 void
 sfslbcd_connect(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
                 sfscd_mountarg *ma, sfsserver::fhcb cb, ptr<sfscon> c, str s)
@@ -43,7 +71,9 @@ sfslbcd_connect(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
     sfs_connectok *p = cres;
     p->servinfo = c->servinfo;
     ma->cres = cres;
-    vNew refcounted<server>(sfsserverargs (ns, tcpfd, prog, ma, cb));
+    str proto, arg;
+    strip_mountarg(ma->carg, proto, arg);
+    vNew refcounted<server>(arg, sfsserverargs (ns, tcpfd, prog, ma, cb));
   }
   else {
     warn <<  s;
@@ -58,8 +88,11 @@ sfslbcd_getfd(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
   if (!isunixsocket (fd))
     tcp_nodelay (fd);
   ptr<axprt> x = New refcounted<axprt_zcrypt>(fd, axprt_zcrypt::ps());
+  sfs_connectarg carg = ma->carg;
+  str p, a;
+  strip_mountarg(carg, p, a);
   sfs_connect_withx
-    (ma->carg, wrap(&sfslbcd_connect, prog, ns, tcpfd, ma, cb), x);
+    (carg, wrap(&sfslbcd_connect, prog, ns, tcpfd, ma, cb), x);
 }
 
 void
@@ -68,20 +101,15 @@ sfslbcd_alloc(sfsprog *prog, ref<nfsserv> ns, int tcpfd,
 {
   if (!ma->cres ||
       (ma->carg.civers == 5 && !sfs_parsepath (ma->carg.ci5->sname))) {
-    str path = ma->carg.ci5->sname;
-    const char *p = path;
-    unsigned i;
-    for (i=0; i<path.len(); i++) {
-      if (p[i] == ':')
-	break;
-    }
-    if (i<path.len() && substr(path,0,i) == "lbfs") {
-      ma->carg.ci5->sname = substr(path,i+1);
+    sfs_connectarg carg = ma->carg;
+    str proto, arg;
+    strip_mountarg(carg, proto, arg);
+    if (proto == "lbfs") {
       u_int16_t port;
       str location;
-      if (!sfs_parsepath (ma->carg.ci5->sname, &location, NULL, &port) ||
+      if (!sfs_parsepath (carg.ci5->sname, &location, NULL, &port) ||
 	  !strchr(location, '.'))
-	warn << ma->carg.ci5->sname << ": cannot parse path\n";
+	warn << carg.ci5->sname << ": cannot parse path\n";
       else {
 	tcpconnect
 	  (location, port, wrap (&sfslbcd_getfd, prog, ns, tcpfd, ma, cb));
@@ -92,7 +120,7 @@ sfslbcd_alloc(sfsprog *prog, ref<nfsserv> ns, int tcpfd,
   (*cb)(NULL);
 }
 
-server::server (const sfsserverargs &a)
+server::server (str arg, const sfsserverargs &a)
   : sfsserver_auth (a), fc(50000, wrap(mkref(this), &server::file_cache_remove))
 {
   cdir = strbuf(LBFSCACHE) << "/" << a.ma->carg.ci5->sname;
@@ -105,6 +133,11 @@ server::server (const sfsserverargs &a)
   }
   rtpref = wtpref = 4096;
   try_compress = true;
+  async_close = false;
+  if (arg == "a") {
+    warn << "mounting with async close on\n";
+    async_close = true;
+  }
 }
 
 int
