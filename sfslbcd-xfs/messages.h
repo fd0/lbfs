@@ -28,13 +28,6 @@
 #include <sys/ioctl.h>
 #endif
 
-#ifdef __linux__
-#include <xfs/xfs_dirent.h>
-#else
-#define XFS_DIRENT_BLOCKSIZE 1024
-#define xfs_dirent dirent
-#endif
-
 #include <xfs/xfs_message.h>
 #include "sfslbcd.h"
 #include "xfs-sfs.h"
@@ -45,16 +38,6 @@
 #define NFS_MAXDATA 8192
 //static char iobuf[NFS_MAXDATA];
 
-struct write_dirent_args {
-    int fd;
-#ifdef HAVE_OFF64_T
-    off64_t off;
-#else
-    off_t off;
-#endif
-    char *buf;
-    char *ptr;
-    void *last;
-};
+extern fh_map fht;
 
 #endif /* _MESSAGES_H_ */

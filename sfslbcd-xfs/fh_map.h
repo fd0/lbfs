@@ -23,7 +23,11 @@
 #define _FHMAP_H_
 
 #include <xfs/xfs_message.h>
+#include "nfs3exp_prot.h"
 #include "xfs-nfs.h"
+
+extern bool xfs_fheq(xfs_handle, xfs_handle);
+extern bool nfs_fheq(nfs_fh3, nfs_fh3);
 
 typedef struct fh_pair{
   xfs_handle xh;

@@ -22,19 +22,38 @@
 #ifndef _XFS_NFS_H
 #define _XFS_NFS_H
 
+#include <sys/types.h>
+#include <sys/dir.h>
+#include "nfs3exp_prot.h"
 #include <xfs/xfs_message.h>
+#include "fh_map.h"
 
-bool xfs_fheq(xfs_handle x1, xfs_handle x2) {
-  if (xfs_handle_eq(&x1, &x2)) 
-    return true;
-  else return false;
-}
+#ifdef __linux__
+#include <xfs/xfs_dirent.h>
+#else
+#define XFS_DIRENT_BLOCKSIZE 1024
+#define xfs_dirent dirent
+#endif
 
-bool nfs_fheq(nfs_fh3 n1, nfs_fh3 n2) {
-  if (memcmp(n1.data.base(), n2.data.base(), 
-	     n1.data.size()) == 0)
-    return true;
-  else return false;
-}
+extern fh_map fht;
+
+struct write_dirent_args {
+    int fd;
+#ifdef HAVE_OFF64_T
+    off64_t off;
+#else
+    off_t off;
+#endif
+    char *buf;
+    char *ptr;
+    void *last;
+};
+
+bool xfs_fheq(xfs_handle, xfs_handle);
+bool nfs_fheq(nfs_fh3, nfs_fh3);
+u_char nfs_rights2xfs_rights(u_int32_t, ftype3, u_int32_t);
+void nfsobj2xfsnode(xfs_cred, nfs_fh3, ex_fattr3, xfs_msg_node *);
+void flushbuf(write_dirent_args *);
+int nfsdir2xfsfile(ex_readdir3res *, write_dirent_args *);
 
 #endif /* _XFS_NFS_H */

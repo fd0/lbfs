@@ -18,6 +18,8 @@
  * USA
  *
  */
+#ifndef _SFSLBCD_H_
+#define _SFSLBCD_H_
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -26,7 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-// #include <assert.h>
+#include <assert.h>
 #include <ctype.h>
 #include <time.h>
 #include <limits.h>
@@ -62,9 +64,7 @@
 #ifdef HAVE_SYS_STAT_H
 #include <sys/stat.h>
 #endif
-//#ifdef HAVE_SYS_MOUNT_H
 #include <sys/mount.h>
-//#endif
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -91,3 +91,4 @@
 
 #undef export
 
+#endif /* _SFSLBCD_H_ */
