@@ -36,7 +36,6 @@
 #include "xfs.h"
 
 #define NFS_MAXDATA 8192
-//static char iobuf[NFS_MAXDATA];
 
 extern fh_map fht;
 
@@ -58,8 +57,6 @@ int xfs_message_create (int fd, struct xfs_message_create *h, u_int size);
 
 int xfs_message_mkdir (int fd, struct xfs_message_mkdir *h, u_int size);
 
-#if 0
-
 int xfs_message_link (int fd, struct xfs_message_link *h, u_int size);
 
 int xfs_message_symlink (int fd, struct xfs_message_symlink *h, u_int size);
@@ -67,6 +64,8 @@ int xfs_message_symlink (int fd, struct xfs_message_symlink *h, u_int size);
 int xfs_message_remove (int fd, struct xfs_message_remove *h, u_int size);
 
 int xfs_message_rmdir (int fd, struct xfs_message_rmdir *h, u_int size);
+
+#if 0
 
 int xfs_message_rename (int fd, struct xfs_message_rename *h, u_int size);
 

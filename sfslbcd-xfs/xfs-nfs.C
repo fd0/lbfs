@@ -105,7 +105,10 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr,
   //HARD CODE ACCESS FOR NOW!! use nfs3_access later
   node->anonrights = nfs_rights2xfs_rights(ACCESS3_READ  | 
 					   ACCESS3_LOOKUP | 
-					   ACCESS3_EXECUTE, 
+					   ACCESS3_EXECUTE |
+					   ACCESS3_MODIFY | 
+					   ACCESS3_EXTEND | 
+					   ACCESS3_DELETE,
 					   attr.type, 
 					   attr.mode);
 
@@ -113,7 +116,10 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr,
     node->id[i] = cred.pag;
     node->rights[i] = nfs_rights2xfs_rights(ACCESS3_READ  | 
 					    ACCESS3_LOOKUP |
-					    ACCESS3_EXECUTE, 
+					    ACCESS3_EXECUTE | 
+					    ACCESS3_MODIFY | 
+					    ACCESS3_EXTEND | 
+					    ACCESS3_DELETE,
 					    attr.type, 
 					    attr.mode);  
   }
@@ -196,16 +202,38 @@ int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid) {
   return 0;
 }
 
+int xfsfile_rm_dirent(int fd, const char* fname) {
+
+  
+  return 0;
+}
+
 int xfsattr2nfsattr(xfs_attr xa, sattr3 *na) {
 
-  na->mode = xa.xa_mode;
-  na->uid = xa.xa_uid;
-  na->gid = xa.xa_gid;
-  na->size = xa.xa_size;
+  na->mode.set_set(true);
+  *na->mode.val = xa.xa_mode;
+
+  na->uid.set_set(true);
+  warn << "xfs_uid = " << xa.xa_uid << "\n";
+  *na->uid.val = xa.xa_uid;
+
+  na->gid.set_set(true);
+  warn << "xfs_gid = " << xa.xa_gid << "\n";
+  *na->gid.val = xa.xa_gid;
+
+  na->size.set_set(true);
+  warn << "xfs_size = " << xa.xa_size << "\n";
+  *na->size.val = xa.xa_size;
+
+  na->atime.set_set(SET_TO_SERVER_TIME);
+
   if (na->atime.set == SET_TO_CLIENT_TIME) {
     na->atime.time->seconds = xa.xa_atime;
     na->atime.time->nseconds = 0;
   }
+
+  na->mtime.set_set(SET_TO_SERVER_TIME);
+
   if (na->mtime.set == SET_TO_CLIENT_TIME) {
     na->mtime.time->seconds = xa.xa_mtime;
     na->mtime.time->nseconds = 0;

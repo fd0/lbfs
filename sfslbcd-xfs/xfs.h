@@ -32,6 +32,7 @@
 void xfs_message_init (void);
 int  xfs_message_send (int fd, struct xfs_message_header *h, u_int size);
 int  xfs_message_receive (int fd, struct xfs_message_header *h, u_int size);
+int  xfs_send_message_wakeup (int fd, u_int seqnum, int error);
 int  xfs_send_message_wakeup_multiple (int fd, u_int seqnum, int error, ...);
 int  xfs_send_message_wakeup_vmultiple (int fd,	u_int seqnum, int error, va_list args);
 
