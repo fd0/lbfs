@@ -51,9 +51,10 @@ public:
   struct xfs_message_putdata* h;
   nfs_fh3 tmpfh;
   int rfd;
-  uint chunk_index;
+  //uint chunk_index; //
   vec<lbfs_chunk *> *cvp;
-  ex_write3res *res;
+  //ex_write3res *res; // 
+  uint blocks_written;
 };
 
 class getfp_args {
@@ -68,7 +69,6 @@ class getfp_args {
  int cfd; 
  struct xfs_message_installdata msg;
  uint blocks_written;
-
 };
 
 class rename_args {

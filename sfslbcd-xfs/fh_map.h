@@ -26,7 +26,7 @@
 #include "nfs3exp_prot.h"
 #include "xfs-nfs.h"
 
-#define MAX_FH 4000
+#define MAX_FH 65535 //4000
 //#define MAX_FH MAXHANDLE //xfs constant for max file handles opened at any time
 //#define MAXPATHLEN (1024+4) //This is what arla used...
 

@@ -241,34 +241,40 @@ int xfsfile_rm_dirent(int fd, const char* fname) {
 
 int xfsattr2nfsattr(xfs_attr xa, sattr3 *na) {
 
-  na->mode.set_set(true);
-  *na->mode.val = xa.xa_mode;
+  if (XA_VALID_MODE(&xa)) {
+    na->mode.set_set(true);
+    *na->mode.val = xa.xa_mode;
+  }
 
-  na->uid.set_set(true);
-  warn << "xfs_uid = " << xa.xa_uid << "\n";
-  *na->uid.val = xa.xa_uid;
+  if (XA_VALID_UID(&xa)) {
+    na->uid.set_set(true);
+    warn << "xfs_uid = " << xa.xa_uid << "\n";
+    *na->uid.val = xa.xa_uid;
+  }
 
-  na->gid.set_set(true);
-  warn << "xfs_gid = " << xa.xa_gid << "\n";
-  *na->gid.val = xa.xa_gid;
+  if (XA_VALID_GID(&xa)) {
+    na->gid.set_set(true);
+    warn << "xfs_gid = " << xa.xa_gid << "\n";
+    *na->gid.val = xa.xa_gid;
+  }
 
-  na->size.set_set(true);
-  warn << "xfs_size = " << xa.xa_size << "\n";
-  *na->size.val = xa.xa_size;
+  if (XA_VALID_SIZE(&xa)) {
+    na->size.set_set(true);
+    warn << "xfs_size = " << xa.xa_size << "\n";
+    *na->size.val = xa.xa_size;
+  }
 
-  na->atime.set_set(SET_TO_SERVER_TIME);
-
-  if (na->atime.set == SET_TO_CLIENT_TIME) {
+  if (XA_VALID_ATIME(&xa)) {
+    na->atime.set_set(SET_TO_CLIENT_TIME);
     na->atime.time->seconds = xa.xa_atime;
     na->atime.time->nseconds = 0;
-  }
+  } else na->atime.set_set(SET_TO_SERVER_TIME);
 
-  na->mtime.set_set(SET_TO_SERVER_TIME);
-
-  if (na->mtime.set == SET_TO_CLIENT_TIME) {
+  if (XA_VALID_MTIME(&xa)) {  
+    na->mtime.set_set(SET_TO_CLIENT_TIME);
     na->mtime.time->seconds = xa.xa_mtime;
     na->mtime.time->nseconds = 0;
-  }
+  } else na->mtime.set_set(SET_TO_SERVER_TIME);
 
   return 0;
 }

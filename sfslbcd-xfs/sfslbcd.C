@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
     strcpy(hostpath, argv[2]);
   }
 
-  if (mount(MOUNT_XFS, "/sfs", /*MNT_UNION*/0, device_file)) {
+  if (mount(MOUNT_XFS, "/mnt", /*MNT_UNION*/0, device_file)) {
     if (errno == EOPNOTSUPP)
       warn << strerror(errno) << ":" << errno << "\n";
   }
