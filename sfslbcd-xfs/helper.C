@@ -1167,7 +1167,8 @@ struct link_obj {
       //in the future implement local content change too..
       int pfd = assign_cachefile (fd, h.header.sequence_num, e2, 
 				  msg1.cache_name, &msg1.cache_handle);
-      assert (res->res->linkdir_wcc.after.present);
+      assert (pfd >= 0 && res->res->linkdir_wcc.after.present);
+      close (pfd);
       e2->nfs_attr = *(res->res->linkdir_wcc.after.attributes);
       e2->set_exp (rqt, true);
       nfsobj2xfsnode (h.cred, e2, &msg1.node);
@@ -1233,4 +1234,89 @@ void
 lbfs_link (int fd, const xfs_message_link &h, sfs_aid sa, ref<aclnt> c)
 {
   vNew link_obj (fd, h, sa, c);
+}
+
+struct symlink_obj {
+  int fd;
+  ref<aclnt> c;
+  
+  const struct xfs_message_symlink h;
+  sfs_aid sa;
+  cache_entry *e;
+  ptr<ex_diropres3> res;
+  
+  void do_symlink (time_t rqt, clnt_stat err) 
+  {
+    if (!err && res->status == NFS3_OK) {
+      struct xfs_message_installdata msg1;	//install change in parent dir
+      struct xfs_message_installnode msg2;	//install symlink node
+
+      struct xfs_message_header *h0 = NULL;
+      size_t h0_len = 0;
+      struct xfs_message_header *h1 = NULL;
+      size_t h1_len = 0;
+
+      int cfd = assign_cachefile (fd, h.header.sequence_num, e, 
+				  msg1.cache_name, &msg1.cache_handle);
+      assert (cfd >= 0);
+      close (cfd);
+      assert (res->resok->dir_wcc.after.present);
+      e->nfs_attr = *(res->resok->dir_wcc.after.attributes);
+      nfsobj2xfsnode (h.cred, e, &msg1.node);
+
+      msg1.flag = 0;
+      e->incache = false; // sad mtime update problem with openbsd nfsd
+      msg1.header.opcode = XFS_MSG_INSTALLDATA;
+      h0 = (struct xfs_message_header *) &msg1;
+      h0_len = sizeof (msg1);
+      
+      assert (res->resok->obj.present && res->resok->obj_attributes.present);
+      cache_entry *e2 = update_cache (*(res->resok->obj.handle), 
+				      *res->resok->obj_attributes.attributes);
+      e2->set_exp (rqt);
+      nfsobj2xfsnode (h.cred, e2, &msg2.node);
+      msg2.node.tokens = XFS_ATTR_R;
+      msg2.parent_handle = h.parent_handle;
+      strlcpy (msg2.name, h.name, sizeof (msg2.name));
+
+      msg2.header.opcode = XFS_MSG_INSTALLNODE;
+      h1 = (struct xfs_message_header *) &msg2;
+      h1_len = sizeof (msg2);
+
+      xfs_send_message_wakeup_multiple (fd, h.header.sequence_num,
+					0, h0, h0_len, h1, h1_len, NULL, 0);      
+    } else {
+      xfs_reply_err (fd, h.header.sequence_num, err ? err : res->status);
+    }
+    delete this;
+  }
+
+  symlink_obj (int fd1, const xfs_message_symlink &h1, sfs_aid sa1, 
+	       ref<aclnt> c1) : fd(fd1), c(c1), h(h1), sa(sa1) 
+  {
+    e = xfsindex[h.parent_handle];
+    if (!e) {
+#if DEBUG > 0
+      warn << "symlink_obj: Can't find parent handle\n";
+#endif
+      xfs_reply_err(fd, h.header.sequence_num, ENOENT);
+      delete this;
+    }
+
+    symlink3args sla;
+    sla.where.dir = e->nh;
+    sla.where.name = h.name;
+    xfsattr2nfsattr (h.header.opcode, h.attr, 
+		     &(sla.symlink.symlink_attributes));
+    sla.symlink.symlink_data.setbuf (h.contents, strlen (h.contents));
+    res = New refcounted <ex_diropres3>;
+    c->call (lbfs_NFSPROC3_SYMLINK, &sla, res,
+	     wrap (this, &symlink_obj::do_symlink, timenow), lbfs_authof (sa));
+  }
+};
+
+void 
+lbfs_symlink (int fd, const xfs_message_symlink &h, sfs_aid sa, ref<aclnt> c)
+{
+  vNew symlink_obj (fd, h, sa, c);
 }

@@ -115,6 +115,9 @@ void lbfs_create (int fd, const xfs_message_create &h, sfs_aid sa,
 		  ref<aclnt> c);
 void lbfs_link (int fd, const xfs_message_link &h, sfs_aid sa, 
 		ref<aclnt> c);
+void lbfs_symlink (int fd, const xfs_message_symlink &h, sfs_aid sa, 
+		   ref<aclnt> c);
+
 /* helper.C */
 
 #endif /* __XFS_H_V */

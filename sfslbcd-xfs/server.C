@@ -177,8 +177,18 @@ xfs_link (ref<xfscall> xfsc)
 void 
 xfs_symlink (ref<xfscall> xfsc) 
 {
-  
-  
+  xfs_message_symlink *h = (xfs_message_symlink *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_symlink \n";
+  warn << h->header.sequence_num << ":" <<" parent_handle ("
+       << (int) h->parent_handle.a << ","
+       << (int) h->parent_handle.b << ","
+       << (int) h->parent_handle.c << ","
+       << (int) h->parent_handle.d << ")\n";
+  warn << "file name: " << h->name << "\n";
+#endif  
+ 
+  lbfs_symlink (xfsc->fd, *h, xfsc->getaid (), nfsc);
 }
 
 void 
