@@ -84,6 +84,9 @@ axprt_compress::sendv (const iovec *iov, int iovcnt, const sockaddr *sa)
 void
 axprt_compress::rcb(const char *pkt, ssize_t len, const sockaddr *sa)
 {
+  if (!cb)
+    return;
+
   if (!docompress || len <= 0) {
     (*cb) (pkt, len, sa);
     return;
@@ -97,6 +100,7 @@ axprt_compress::rcb(const char *pkt, ssize_t len, const sockaddr *sa)
   if (int zerr = inflate (&zin, Z_SYNC_FLUSH)) {
     warn ("inflate: %d\n", zerr);
     fail ();
+    return;
   }
 
   (*cb) (buf, (char *) zin.next_out - buf, sa);
