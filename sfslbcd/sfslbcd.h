@@ -113,10 +113,11 @@ public:
   vec<nfscall *> rpcs;
 
 private:
-  static const int fcache_ok = 0;
-  static const int fcache_blocked = 1;
-  static const int fcache_dirty = 2;
-  static const int fcache_error = 3;
+  static const int fcache_idle = 0;
+  static const int fcache_fetch = 1;
+  static const int fcache_flush = 2;
+  static const int fcache_dirty = 3;
+  static const int fcache_error = 4;
 
   vec<uint64> pri;
   ranges *rcv;
@@ -137,20 +138,23 @@ private:
 
 public:
   file_cache(nfs_fh3 fh)
-    : fh(fh), status(fcache_blocked), fd(-1), rcv(0), req(0) {}
+    : fh(fh), status(fcache_fetch), fd(-1), rcv(0), req(0) {}
   ~file_cache() { if (rcv) delete rcv; assert(rpcs.size() == 0); }
 
-  bool is_ok()      const { return status == fcache_ok; }
+  bool is_idle()    const { return status == fcache_idle; }
+  bool is_fetch()   const { return status == fcache_fetch; }
+  bool is_flush()   const { return status == fcache_flush; }
   bool is_dirty()   const { return status == fcache_dirty; }
-  bool is_blocked() const { return status == fcache_blocked; }
   bool is_error()   const { return status == fcache_error; }
-  void ok()      { cr(); status = fcache_ok; }
+
+  void idle()    { cr(); status = fcache_idle; }
+  void fetch(uint64 size) { ar(size); status = fcache_fetch; }
+  void flush()	 { cr(); status = fcache_flush; }
   void dirty()   { cr(); status = fcache_dirty; }
   void error()   { cr(); status = fcache_error; }
-  void block(uint64 size) { ar(size); status = fcache_blocked; }
 
   bool received(uint64 off, uint64 size) const {
-    if (is_blocked() && (!rcv || !rcv->filled(off, size)))
+    if (is_fetch() && (!rcv || !rcv->filled(off, size)))
       return false;
     return true;
   }
@@ -182,7 +186,7 @@ protected:
   int truncate_cache (uint64 size, file_cache *e);
   void check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid);
 
-  void close_reply (nfscall *nc, fattr3 fa, bool ok);
+  void close_done (nfscall *nc, fattr3 fa, bool ok);
   void access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
   void file_cached (file_cache *e, bool done, bool ok);
 

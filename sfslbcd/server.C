@@ -22,6 +22,27 @@
 
 #define RELAX 1
 
+//
+// a cached file can be in one of the following four states
+//
+//  IDLE
+// DIRTY: dirty, not flushed backed to server yet
+// FLUSH: in the middle of being flushed to server
+// FETCH: in the middle of being fetched from server
+//
+// below is the state transition rule when different RPC occurs. X
+// means exception. i.e. the cached file should not be in this state
+// when this RPC occurs. in most cases a RPC is blocked when the
+// cached file is in the state, and executed after the cached file
+// changes state.
+//
+//          ACCESS  FETCH_DONE   READ   WRITE   CLOSE   FLUSH_DONE
+//  IDLE      IDLE    IDLE       IDLE   DIRTY    IDLE        X
+// DIRTY     DIRTY      X        DIRTY  DIRTY   FLUSH        X
+// FLUSH     FLUSH      X         X       X       X        IDLE
+// FETCH     FETCH      X        FETCH    X     FETCH        X
+//
+
 #include <typeinfo>
 #include "sfslbcd.h"
 #include "axprt_crypt.h"
@@ -35,8 +56,8 @@ server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
   file_cache *e = file_cache_lookup(obj);
   if (fa.type == NF3REG) {
     // update file cache if cache time < mtime and file is not dirty
-    // or blocked (i.e. being loaded by another RPC)
-    if (!e || ((e->fa.mtime < fa.mtime) && e->is_ok())) {
+    // or fetch
+    if (!e || ((e->fa.mtime < fa.mtime) && e->is_idle())) {
       if (!e) {
         file_cache_insert (obj);
         e = file_cache_lookup(obj);
@@ -48,8 +69,9 @@ server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
       lbfs_read (f, obj, fa.size, mkref(this), authof(aid),
 	         wrap(mkref(this), &server::file_cached, e));
     }
-    // if file is not dirty and up to date, sync attribute
-    else if (e && e->is_ok()) {
+    // if file is in sync with server, sync attribute in file cache
+    // with that in attribute cache.
+    else if (e && e->is_idle()) {
       e->fa = fa;
       e->osize = fa.size;
     }
@@ -75,7 +97,7 @@ server::file_cached (file_cache *e, bool done, bool ok)
 {
   if (done) {
     if (ok)
-      e->ok();
+      e->idle();
     else
       e->error();
   }
@@ -83,12 +105,8 @@ server::file_cached (file_cache *e, bool done, bool ok)
   for (unsigned i=0; i<e->rpcs.size(); i++)
     rpcs.push_back(e->rpcs[i]);
   e->rpcs.clear();
-  for (unsigned i=0; i<rpcs.size(); i++) {
-#if 0
-    warn << "RPC " << rpcs[i]->proc () << " runs\n";
-#endif
+  for (unsigned i=0; i<rpcs.size(); i++)
     dispatch(rpcs[i]);
-  }
 }
 
 void
@@ -153,12 +171,12 @@ server::write_to_cache (nfscall *nc, file_cache *e)
     nc->reject(SYSTEM_ERR);
     return;
   }
-  assert(e->is_ok() || e->is_dirty());
+  assert(e->is_idle() || e->is_dirty());
   e->dirty();
 
   write3res res(NFS3_OK);
   res.resok->count = n;
-  // COMMIT everything on close, so we can return FILE_SYNC here
+  // we COMMIT everything on close, so we can return FILE_SYNC here
   res.resok->committed = FILE_SYNC;
   
   // change size, but not mtime, in both attribute and file cache. wcc
@@ -195,36 +213,43 @@ server::truncate_cache (uint64 size, file_cache *e)
   ex_fattr3 *f = const_cast<ex_fattr3*>(ac.attr_lookup (e->fh));
   if (f)
     f->size = e->fa.size;
-  assert(e->is_ok() || e->is_dirty());
+  assert(e->is_idle() || e->is_dirty());
   e->dirty();
   return 0;
 }
 
 void
-server::close_reply (nfscall *nc, fattr3 fa, bool ok)
+server::close_done (nfscall *nc, fattr3 fa, bool ok)
 {
+  nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
+  file_cache *e = file_cache_lookup(*a);
+  assert(e && e->is_flush());
   if (ok) {
-    nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
-    file_cache *e = file_cache_lookup(*a);
-    if (e) {
-      if (!e->is_dirty())
-	e->fa = fa;
-      // update osize to reflect what the server knows
-      e->osize = fa.size;
-    }
+    e->fa = fa;
+    // update osize to reflect what the server knows
+    e->osize = fa.size;
+    e->idle();
     nc->error (NFS3_OK);
   }
-  else
+  else {
+    e->error();
     nc->reject (SYSTEM_ERR);
+  }
+  vec<nfscall *> rpcs;
+  for (unsigned i=0; i<e->rpcs.size(); i++)
+    rpcs.push_back(e->rpcs[i]);
+  e->rpcs.clear();
+  for (unsigned i=0; i<rpcs.size(); i++)
+    dispatch(rpcs[i]);
 }
 
 void
 server::flush_cache (nfscall *nc, file_cache *e)
 {
-  // need to set e->dirty to false before calling lbfs_write, so
-  // lbfs_write will update the attribute cache when making nfs calls.
+  // mark e as being flushed. after lbfs_write finishes we will update
+  // the attribute cache.
   assert(e->is_dirty());
-  e->ok();
+  e->flush();
   str fn = fh2fn(e->fh);
   // set size to the size of the file when it was first cached, so wcc
   // checking will work
@@ -232,7 +257,7 @@ server::flush_cache (nfscall *nc, file_cache *e)
   fa.size = e->osize;
   lbfs_write
     (fn, e->fh, e->fa.size, fa, mkref(this), authof(nc->getaid()),
-     wrap(mkref(this), &server::close_reply, nc));
+     wrap(mkref(this), &server::close_done, nc));
 }
 
 void
@@ -414,35 +439,36 @@ server::dont_run_rpc (nfscall *nc)
   file_cache *e = file_cache_lookup(*fh);
 
   // can execute CLOSE if cache is not dirty
-  if (nc->proc () == cl_NFSPROC3_CLOSE && (e->is_ok() || e->is_blocked()))
+  if (nc->proc () == cl_NFSPROC3_CLOSE && (e->is_idle() || e->is_fetch()))
     return false;
 
   if (e) {
-    if (e->is_blocked()) {
-      // can execute READ or WRITE if range requested in those RPC has
-      // already been fetched
-      if (nc->proc () == NFSPROC3_READ || nc->proc () == NFSPROC3_WRITE) {
-	uint64 offset;
-	uint64 size;
-	if (nc->proc () == NFSPROC3_READ) {
-          read3args *a = nc->template getarg<read3args> ();
-	  offset = a->offset;
-	  size = a->count;
-	}
-	else {
-          write3args *a = nc->template getarg<write3args> ();
-	  offset = a->offset;
-	  size = a->count;
-	}
+    if (e->is_flush()) {
+      // if a file is being flushed, don't touch it until flush is
+      // done. we hope this is a rare case.
+      e->rpcs.push_back(nc);
+      return true;
+    }
+    else if (e->is_fetch()) {
+      // can execute READ if range requested in the RPC has already
+      // been fetched
+      if (nc->proc () == NFSPROC3_READ) {
+        read3args *a = nc->template getarg<read3args> ();
+	uint64 offset = a->offset;
+	uint64 size = a->count;
 	if (e->received(offset, size))
 	  return false;
-#if 0
+#if 1
         warn << "RPC " << nc->proc () << " blocked: "
 	     << offset << ":" << size << "\n";
 #endif
 	if (nc->proc() == NFSPROC3_READ)
 	  e->want(offset, size, rtpref);
       }
+#if 1
+      else
+	warn << "RPC " << nc->proc () << " blocked\n";
+#endif
       e->rpcs.push_back(nc);
       return true;
     }
