@@ -43,11 +43,9 @@ void done()
     printf("# %d files\n", _totalfns);
     printf("# %u min size chunks\n", min_size_chunks);
     printf("# %u max size chunks\n", max_size_chunks);
-#if 0
     for (int i=0; i<NBUCKETS; i++) {
       printf("%d %d\n", i<<7, buckets[i]);
     }
-#endif
     exit(0);
   }
 }
@@ -71,15 +69,11 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
       lbfs_chunk *c = chunker.chunk_vector()[i];
       c->loc.set_fh(*fhp);
       _fp_db.add_entry(c->fingerprint, &(c->loc));
-#if 0
-      warn << fname << " " <<  c->fingerprint 
-	   << " @" << c->loc.pos() << " +" << c->loc.count() << "\n";
-#endif
       buckets[c->loc.count()>>7]++;
     }
     close(fd);
     _fp_db.sync();
-    // warn << fspath << " " << chunker.chunk_vector().size() << " chunks\n";
+    warn << fspath << " " << chunker.chunk_vector().size() << " chunks\n";
   }
   if (_requests > 0) 
     _requests--;
