@@ -3,7 +3,7 @@
 
 $(PROGRAMS): $(LDEPS)
 
-sfslib_PROGRAMS = sfslbsd mkdb dbtest
+sfslib_PROGRAMS = sfslbsd mkdb dbtest cfh
 
 noinst_HEADERS = sfsrwsd.h
 
@@ -13,6 +13,9 @@ sfslbsd_LDADD = $(LDADD) $(DB3_LIB) $(ZLIB_LIB)
 
 mkdb_SOURCES = mkdb.C getfh3.C
 mkdb_LDADD = $(LDADD) $(DB3_LIB)
+
+cfh_SOURCES = cfh.C getfh3.C
+cfh_LDADD = $(LDADD)
 
 dbtest_SOURCES = dbtest.C getfh3.C
 dbtest_LDADD = $(LDADD) $(DB3_LIB)

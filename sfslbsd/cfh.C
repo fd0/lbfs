@@ -1,22 +1,9 @@
 
-// usage: mkdb host nfs_mount_point
-//
-// creates a LBFS database for files under "nfs_mount_point". chunk files
-// using posix fd interface, but connect to nfs server on "host" to retrieve
-// file handles. if database already exists, add to the database instead.
-//
-// for example
-//
-// ./mkdb localhost /disk/pw0/benjie/play
-//
-
 #include <sys/types.h>
 #include <stdio.h>
 #include <dirent.h>
 #include <unistd.h>
 
-#include "fingerprint.h"
-#include "lbfsdb.h"
 #include "sfsrwsd.h"
 
 ptr<aclnt> _mountc;
@@ -25,7 +12,6 @@ ptr<aclnt> _c;
 static const char *_host;
 static const char *_mntp;
 
-static fp_db _fp_db;
 static nfs_fh3 _rootfh;
 
 static int _totalfns = 0;
@@ -45,38 +31,13 @@ void
 gotattr(const char *dpath, const char *fname, DIR *dirp,
         const nfs_fh3 *fhp, const FATTR3 *attr, str err)
 {
-  if (!err) {
-    char fspath[PATH_MAX];
-    sprintf(fspath, "%s/%s/%s", _mntp, dpath, fname);
-
-    const u_char *fp;
-    size_t fl; 
-    if (mapfile (&fp, &fl, fspath) == 0) {
-#if 0
-      for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
-#else
-      for (unsigned j = 0; j < 1; j++) {
-#endif
-        vec<lbfs_chunk *> cv;
-        chunk_data(CHUNK_SIZES(j), cv, fp, fl);
-	for(unsigned i=0; i<cv.size(); i++) { 
-	  cv[i]->loc.set_fh(*fhp);
-	  _fp_db.add_entry(cv[i]->fingerprint, &(cv[i]->loc));
-#if 1
-	  warn << fname << " " <<  cv[i]->fingerprint 
-	       << " @" << cv[i]->loc.pos()
-	       << " +" << cv[i]->loc.count() << "\n";
-#endif
-	  delete cv[i];
-	}
-        if (cv.size()==1) break;
-      }
-      munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
-      _fp_db.sync();
-    }
-  }
+  if (!err)
+    warn << dpath << "/" << fname << ": " 
+         << armor32(fhp->data.base(), fhp->data.size()) 
+	 << " " << fhp->data.size()
+	 << "\n";
   else 
-    warn << "nfs: " << dpath << "/" << fname << ": " << err << "\n";
+    warn << dpath << "/" << fname << ": " << err << "\n";
   if (_requests > 0) 
     _requests--;
 
@@ -137,7 +98,6 @@ gotrootfh(const nfs_fh3 *fhp, str err)
 {
   if (!err) {
     _rootfh = *fhp;
-    _fp_db.open(FP_DB); 
     read_directory("");
   }
   done();
