@@ -78,6 +78,8 @@ NULL						/* gc nodes */
 
 void lbfs_condwrite(ref<condwrite3args> cwa, clnt_stat err);
 void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count);
+void nfs3_rmdir(int fd, struct xfs_message_rmdir *h, ex_lookup3res *lres,
+		clnt_stat err);
 
 void getrootattr(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, ex_getattr3res *res, time_t rqtime, clnt_stat err) {
 
@@ -119,7 +121,7 @@ void nfs3_fsinfo(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi,
 void sfs_getfsinfo(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, clnt_stat err) {
 
   assert(fsi->prog == ex_NFS_PROGRAM && fsi->nfs->vers == ex_NFS_V3);
-  x->compress ();
+  //x->compress ();
   ex_fsinfo3res *res = new ex_fsinfo3res;
 
   nfsc->call(lbfs_NFSPROC3_FSINFO, &fsi->nfs->v3->root, res,
@@ -133,8 +135,7 @@ int xfs_message_getroot (int fd, struct xfs_message_getroot *h, u_int size)
 
   sfs_fsinfo *fsi = new sfs_fsinfo;
   sfsc->call(SFSPROC_GETFSINFO, NULL, fsi,
-	  wrap (&sfs_getfsinfo, fd, h, fsi),
-	  NULL, NULL /*, fsinfo_marshall ()*/);
+	  wrap (&sfs_getfsinfo, fd, h, fsi), NULL, NULL);
 
   return 0;
 }
@@ -708,7 +709,11 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
     } else 
       if (fht.get_nfsattr().type == NF3REG) 
 	getfp(fd, h);
-      else warn << "unknown file type\n";
+      else 
+	if (fht.get_nfsattr().type == NF3LNK) {
+	  warn << "unknown file type\n";
+	  
+	}
   } else {
     if (fht.get_nfsattr().expire < (uint32)timenow) {
       fh = new nfs_fh3; 
@@ -1058,10 +1063,12 @@ void nfs3_create(int fd, struct xfs_message_create *h, ex_diropres3 *res, time_t
     }
 
     strcpy(msg1.cache_name, fht.getcache_name());
+#if 0
     int dir_fd = open(msg1.cache_name, O_CREAT | O_RDWR | O_APPEND, 0666);
     if (nfsdirent2xfsfile(dir_fd, h->name, (*res->resok->obj_attributes.attributes).fileid) < 0)
       return;
     close(dir_fd);
+#endif
     //msg1.node.tokens = same as parent dir's
 
     assert(res->resok->dir_wcc.after.present);
@@ -1069,13 +1076,12 @@ void nfs3_create(int fd, struct xfs_message_create *h, ex_diropres3 *res, time_t
     nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
 		   *(res->resok->dir_wcc.after.attributes), rqtime, &msg1.node);
 
-    //get new file data ??
     msg1.flag = 0;  
     msg1.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *)&msg1;
     h0_len = sizeof(msg1);
 
-    msg2.node.tokens |= XFS_ATTR_R 
+    msg2.node.tokens = XFS_ATTR_R 
       | XFS_OPEN_NW | XFS_OPEN_NR
       | XFS_DATA_R  | XFS_DATA_W;  //override nfsobj2xfsnode?
     msg2.parent_handle = h->parent_handle;
@@ -1172,10 +1178,12 @@ void nfs3_mkdir(int fd, struct xfs_message_mkdir *h, ex_diropres3 *res, time_t r
     }
 
     strcpy(msg1.cache_name, fht.getcache_name());
+#if 0    
     int dir_fd = open(msg1.cache_name, O_WRONLY | O_APPEND, 0666);
     if (nfsdirent2xfsfile(dir_fd, h->name, (*res->resok->obj_attributes.attributes).fileid) < 0) 
       return;
     close(dir_fd);
+#endif
     //msg1.node.tokens = same as parent dir's
 
     assert(res->resok->dir_wcc.after.present);
@@ -1238,6 +1246,57 @@ int xfs_message_link(int fd, struct xfs_message_link *h, u_int size) {
   return 0;
 }
 
+void nfs3_symlink(int fd, struct xfs_message_symlink *h, ex_diropres3 *res,
+		  time_t rqtime, clnt_stat err) {
+
+  if (res->status == NFS3_OK) {
+    struct xfs_message_installdata msg1; //install change in parent dir
+    struct xfs_message_installnode msg2; //install symlink node
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+    struct xfs_message_header *h1 = NULL;
+    size_t h1_len = 0;
+    
+    assert(res->resok->obj.present && res->resok->obj_attributes.present);
+    //create symlink
+    nfsobj2xfsnode(h->cred, *(res->resok->obj.handle), 
+		   *(res->resok->obj_attributes.attributes), rqtime, &msg2.node);
+
+    //write new direntry to parent dirfile (do a readdir or just append that entry?)
+    if (fht.setcur(h->parent_handle)) {
+      warn << "nfs3_symlink: Can't find parent handle\n";
+      return;
+    }
+    strcpy(msg1.cache_name, fht.getcache_name());
+
+    //add entry to parent dir (changing the mtime)
+    assert(res->resok->dir_wcc.after.present);
+    
+    nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
+		   *(res->resok->dir_wcc.after.attributes), rqtime, &msg1.node);
+
+    msg1.flag = 0;  
+    msg1.header.opcode = XFS_MSG_INSTALLDATA;
+    h0 = (struct xfs_message_header *)&msg1;
+    h0_len = sizeof(msg1);
+
+    msg2.node.tokens = XFS_ATTR_R;
+    msg2.parent_handle = h->parent_handle;
+    strlcpy (msg2.name, h->name, sizeof(msg2.name));
+    
+    msg2.header.opcode = XFS_MSG_INSTALLNODE;
+    h1 = (struct xfs_message_header *)&msg2;
+    h1_len = sizeof(msg2);
+
+    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num,
+				      0, h0, h0_len, h1, h1_len, NULL, 0);
+
+  } else {
+    warn << "nfs3_symlink: " << strerror(res->status) << "\n";
+    
+  }
+}
+
 int xfs_message_symlink(int fd, struct xfs_message_symlink *h, u_int size) {
 
   warn << "symlimk !!\n";
@@ -1251,9 +1310,13 @@ int xfs_message_symlink(int fd, struct xfs_message_symlink *h, u_int size) {
   sla->where.dir = fht.getnh(fht.getcur());
   sla->where.name = h->name;
   xfsattr2nfsattr(h->attr, &(sla->symlink.symlink_attributes));
-  //strncpy(sla->symlink.symlink_data, h->contents, strlen(h->contents));
+  sla->symlink.symlink_data.setbuf(h->contents, strlen(h->contents));
+  //sla->symlink.symlink_data.setsize(strlen(h->contents));
+  //strncpy(sla->symlink.symlink_data.base(), h->contents, strlen(h->contents));
 
-  
+  ex_diropres3 *res = new ex_diropres3;
+  nfsc->call(lbfs_NFSPROC3_SYMLINK, sla, res,
+	     wrap(&nfs3_symlink, fd, h, res, timenow));
   
   return 0;
 }
@@ -1261,7 +1324,7 @@ int xfs_message_symlink(int fd, struct xfs_message_symlink *h, u_int size) {
 void remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
 	    ex_wccstat3 *wres, time_t rqtime, clnt_stat err) {
 
-  if (lres->status == NFS3_OK) {
+  if (lres->status == NFS3_OK && wres->status == NFS3_OK) {
 
     assert(wres->wcc->after.present);
 
@@ -1292,8 +1355,9 @@ void remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
       return;
     close(dir_fd);
 #endif
+    ex_fattr3 attr = *(wres->wcc->after.attributes);
     nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
-		   *(wres->wcc->after.attributes), rqtime, &msg1.node);
+		   attr, rqtime, &msg1.node);
 
     msg1.flag = XFS_ID_INVALID_DNLC;
     msg1.node.tokens |=  XFS_DATA_R;
@@ -1347,16 +1411,32 @@ void remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
 					NULL, 0);
     }
       
-  } else 
-    warn << strerror(errno) << "(" << errno << "): nfs3_lookup in remove\n";
+  } else {
+    int error;
+    if (lres->status != NFS3_OK)
+      error = lres->status;
+    else error = wres->status;
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+    
+    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, error,
+				      h0, h0_len, NULL, 0);
+  }
+  //warn << strerror(errno) << "(" << errno << "): nfs3_lookup in remove\n";
 
 }
 
 void nfs3_remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
 		 clnt_stat err) {
 
-  if (lres->status != -1) {
+  if (lres->status == NFS3_OK) {
 
+    if (lres->resok->obj_attributes.attributes->type == NF3DIR) {
+      warn << "nfs3_remove: " << strerror(lres->status) << " calling rmdir\n";
+      nfs3_rmdir(fd, (struct xfs_message_rmdir *)h, lres, clnt_stat(0));
+      return;
+    }   
+    
     //lookup entry's filehandle and attr
     //if the entry being removed from parent is still being referenced (nlink > 1)
     //update its attr
@@ -1374,9 +1454,14 @@ void nfs3_remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
     nfsc->call(lbfs_NFSPROC3_REMOVE, doa, wres,
 	       wrap(&remove, fd, h, lres, wres, timenow));
 
-  } else
-    warn << "nfs3_remove: lres->status = " << lres->status << "\n";
-
+  } else {
+      warn << "nfs3_remove: lres->status = " << lres->status << "\n";
+      struct xfs_message_header *h0 = NULL;
+      size_t h0_len = 0;
+    
+      xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, lres->status,
+					h0, h0_len, NULL, 0);
+    }
 }
 
 int xfs_message_remove(int fd, struct xfs_message_remove *h, u_int size) {
@@ -1403,7 +1488,7 @@ int xfs_message_remove(int fd, struct xfs_message_remove *h, u_int size) {
 void nfs3_rmdir(int fd, struct xfs_message_rmdir *h, ex_lookup3res *lres,
 		 clnt_stat err) {
 
-  if (lres->status != -1) {
+  if (lres->status == NFS3_OK) {
 
     //lookup entry's filehandle and attr
     //if the entry being removed from parent is still being referenced (nlink > 1)
@@ -1422,9 +1507,14 @@ void nfs3_rmdir(int fd, struct xfs_message_rmdir *h, ex_lookup3res *lres,
     nfsc->call(lbfs_NFSPROC3_RMDIR, doa, wres,
 	       wrap(&remove, fd, (struct xfs_message_remove *)h, lres, wres, timenow));
 
-  } else
+  } else {
     warn << "nfs3_rmdir: lres->status = " << lres->status << "\n";
-
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+    
+    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, lres->status,
+				      h0, h0_len, NULL, 0);
+  }
 }
 
 int xfs_message_rmdir(int fd, struct xfs_message_rmdir *h, u_int size) {
@@ -1444,7 +1534,6 @@ int xfs_message_rmdir(int fd, struct xfs_message_rmdir *h, u_int size) {
     
   nfsc->call(lbfs_NFSPROC3_LOOKUP, doa, res, 
 	     wrap (&nfs3_rmdir, fd, h, res));
-
 
   return 0;
 }

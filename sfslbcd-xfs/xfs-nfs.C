@@ -66,6 +66,7 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr, time_t rqtime,
   //change expire to rpc_time + expire
   attr.expire += rqtime;
   node->handle = fht.gethandle(obj, attr);
+  //deal with links (sym, hard)
   warn << "nfsfh becomes node.handle (" 
        << (int)node->handle.a << ","
        << (int)node->handle.b << ","
