@@ -123,7 +123,6 @@ server::server (const sfsserverargs &a)
   }
   rtpref = wtpref = 4096;
   try_compress = true;
-  warn << "lbfs server created for " << a.ma->carg.ci5->sname << "\n";
 }
 
 int
