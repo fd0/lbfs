@@ -283,10 +283,11 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     }
   }
 
-  // intercept RPC replies and replace the size field w/ up-to-date
-  // size from the file cache. in case of SETATTR, we want to update
-  // the cached file's attribute with attribute from server, ignoring
-  // the server's size and mtime values.
+  // if file is dirty or being flushed, replace the size attributed
+  // returned from server with up-to-date size from the file cache.
+  // in case of SETATTR, we want to update the cached file's attribute
+  // with attribute from server, ignoring the server's size and mtime
+  // values.
   //
   // also intercept RPCs that may affect the lookup cache and the
   // negative lookup cache.
@@ -295,11 +296,10 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     access3args *a = nc->template getarg<access3args> ();
     ex_access3res *r = static_cast<ex_access3res *> (res);
     file_cache *e = file_cache_lookup(a->object);
-    if (e && !r->status && r->resok->obj_attributes.present) {
-      if (e->fa.size != (r->resok->obj_attributes.attributes)->size) {
-	assert(e->is_dirty() || e->is_flush());
+    if (!r->status) {
+      if (e && (e->is_dirty() || e->is_flush()) &&
+	  e->fa.size != (r->resok->obj_attributes.attributes)->size)
 	(r->resok->obj_attributes.attributes)->size = e->fa.size;
-      }
     }
   }
 
@@ -307,14 +307,12 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     diropargs3 *a = nc->template getarg<diropargs3> ();
     ex_lookup3res *r = static_cast<ex_lookup3res *> (res);
     file_cache *e = 0;
-    if (!r->status && (e = file_cache_lookup(r->resok->object)) &&
-        r->resok->obj_attributes.present) {
-      if (e->fa.size != (r->resok->obj_attributes.attributes)->size) {
-	assert(e->is_dirty() || e->is_flush());
+    if (!r->status && (e = file_cache_lookup(r->resok->object))) {
+      if ((e->is_dirty() || e->is_flush()) &&
+	  e->fa.size != (r->resok->obj_attributes.attributes)->size)
 	(r->resok->obj_attributes.attributes)->size = e->fa.size;
-      }
     }
-    if (r->status == NFS3ERR_NOENT && r->resfail->present) {
+    if (r->status == NFS3ERR_NOENT) {
       nlc_insert(a->dir, a->name);
       lc_remove(a->dir, a->name);
     }
@@ -467,11 +465,8 @@ server::cbdispatch (svccb *sbp)
       ac.attr_enter (xa->handle, a, NULL);
 
       // if directory has been invalidated, clear both lookup caches
-      if (nlc_lookup(xa->handle))
-        nlc_remove(xa->handle);
-      if (lc_lookup(xa->handle))
-	lc_remove(xa->handle);
-
+      nlc_remove(xa->handle);
+      lc_remove(xa->handle);
       sbp->reply (NULL);
       break;
     }
@@ -764,15 +759,8 @@ server::file_cache_gc_remove (file_cache *e)
 }
 
 void
-server::lc_gc_remove (vec<lookupres> *v)
+server::dir_cache_gc_remove (dir_cache *d)
 {
-  delete v;
+  delete d;
 }
-
-void
-server::nlc_gc_remove (vec<filename3> *v)
-{
-  delete v;
-}
-
 

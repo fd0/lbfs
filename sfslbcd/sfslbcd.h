@@ -178,9 +178,10 @@ public:
 
 };
 
-struct lookupres {
-  filename3 name;
-  nfs_fh3 fh;
+struct dir_cache {
+  nfstime3 mtime;
+  qhash<filename3, nfs_fh3> lc;
+  qhash<filename3, bool> nlc;
 };
 
 class server : public sfsserver_auth {
@@ -191,8 +192,7 @@ protected:
   bool try_compress;
   attr_cache ac;
   lrucache<nfs_fh3, file_cache *> fc;
-  lrucache<nfs_fh3, vec<filename3>* > nlc;
-  lrucache<nfs_fh3, vec<lookupres>* > lc;
+  lrucache<nfs_fh3, dir_cache *> dc; 
 
   void dispatch_dummy (svccb *sbp);
   void cbdispatch (svccb *sbp);
@@ -221,118 +221,77 @@ protected:
     return n;
   }
 
-  void nlc_insert (nfs_fh3 fh, filename3 name) {
-    vec<filename3> *v;
-    vec<filename3> **vp = nlc[fh];
-    if (!vp) {
-      v = New vec<filename3>;
-      nlc.insert(fh, v);
+  void nlc_insert (nfs_fh3 dir, filename3 name) {
+    dir_cache *d;
+    dir_cache **dp = dc[dir];
+    if (!dp) {
+      d = New dir_cache;
+      dc.insert(dir, d);
     }
     else
-      v = *vp;
-    for (unsigned i=0; i<v->size(); i++) {
-      if ((*v)[i] == "") {
-	(*v)[i] = name;
-	return;
-      }
-    }
-    v->push_back(name);
+      d = *dp;
+    if (d->nlc[name])
+      d->nlc.remove(name);
+    d->nlc.insert(name, true);
   }
 
-  bool nlc_lookup (nfs_fh3 fh) {
-    vec<filename3> **vp = nlc[fh];
-    return (vp != 0);
-  }
-
-  bool nlc_lookup (nfs_fh3 fh, filename3 name) {
-    vec<filename3> **vp = nlc[fh];
-    if (vp) {
-      vec<filename3> *v = *vp;
-      for (unsigned i=0; i<v->size(); i++) {
-        if ((*v)[i] == name)
-	  return true;
-      }
+  bool nlc_lookup (nfs_fh3 dir, filename3 name) {
+    dir_cache **dp = dc[dir];
+    if (dp) {
+      if ((*dp)->nlc[name])
+        return true;
     }
     return false;
   }
 
-  void nlc_remove (nfs_fh3 fh, filename3 name) {
-    vec<filename3> **vp = nlc[fh];
-    if (vp) {
-      vec<filename3> *v = *vp;
-      for (unsigned i=0; i<v->size(); i++) {
-        if ((*v)[i] == name)
-	  (*v)[i] = "";
-      }
-    }
+  void nlc_remove (nfs_fh3 dir, filename3 name) {
+    dir_cache **dp = dc[dir];
+    if (dp)
+      (*dp)->nlc.remove(name);
   }
 
-  void nlc_remove (nfs_fh3 fh) {
-    vec<filename3> **vp = nlc[fh];
-    if (vp) {
-      nlc.remove(fh);
-      delete *vp;
-    }
+  void nlc_remove (nfs_fh3 dir) {
+    dir_cache **dp = dc[dir];
+    if (dp)
+      (*dp)->nlc.clear();
   }
 
   void lc_insert (nfs_fh3 dir, filename3 name, nfs_fh3 fh) {
-    vec<lookupres> *v;
-    vec<lookupres> **vp = lc[dir];
-    if (!vp) {
-      v = New vec<lookupres>;
-      lc.insert(dir, v);
+    dir_cache *d;
+    dir_cache **dp = dc[dir];
+    if (!dp) {
+      d = New dir_cache;
+      dc.insert(dir, d);
     }
     else
-      v = *vp;
-    for (unsigned i=0; i<v->size(); i++) {
-      if ((*v)[i].name == "") {
-	(*v)[i].name = name;
-	(*v)[i].fh = fh;
-	return;
-      }
-    }
-    lookupres r;
-    r.name = name;
-    r.fh = fh;
-    v->push_back(r);
-  }
-
-  bool lc_lookup (nfs_fh3 dir) {
-    vec<lookupres> **vp = lc[dir];
-    return (vp != 0);
+      d = *dp;
+    if (d->lc[name])
+      d->lc.remove(name);
+    d->lc.insert(name, fh);
   }
 
   bool lc_lookup (nfs_fh3 dir, filename3 name, nfs_fh3 &fh) {
-    vec<lookupres> **vp = lc[dir];
-    if (vp) {
-      vec<lookupres> *v = *vp;
-      for (unsigned i=0; i<v->size(); i++) {
-        if ((*v)[i].name == name) {
-	  fh = (*v)[i].fh;
-	  return true;
-	}
+    dir_cache **dp = dc[dir];
+    if (dp) {
+      nfs_fh3 *p = (*dp)->lc[name];
+      if (p) {
+	fh = *p;
+        return true;
       }
     }
     return false;
   }
 
   void lc_remove (nfs_fh3 dir, filename3 name) {
-    vec<lookupres> **vp = lc[dir];
-    if (vp) {
-      vec<lookupres> *v = *vp;
-      for (unsigned i=0; i<v->size(); i++) {
-        if ((*v)[i].name == name)
-	  (*v)[i].name = "";
-      }
-    }
+    dir_cache **dp = dc[dir];
+    if (dp)
+      (*dp)->lc.remove(name);
   }
 
   void lc_remove (nfs_fh3 dir) {
-    vec<lookupres> **vp = lc[dir];
-    if (vp) {
-      lc.remove(dir);
-      delete *vp;
-    }
+    dir_cache **dp = dc[dir];
+    if (dp)
+      (*dp)->lc.clear();
   }
 
   void file_cache_insert (nfs_fh3 fh) {
@@ -350,8 +309,7 @@ protected:
   }
 
   void file_cache_gc_remove (file_cache *e);
-  void nlc_gc_remove (vec<filename3> *v);
-  void lc_gc_remove (vec<lookupres> *v);
+  void dir_cache_gc_remove (dir_cache *d);
 
 public:
   typedef sfsserver_auth super;
