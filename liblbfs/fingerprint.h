@@ -171,6 +171,7 @@ public:
   Chunker();
   ~Chunker();
 
+  size_t cur_pos () const { return _cur_pos; }
   void stop();
   void chunk_data (const unsigned char *data, size_t size);
   void chunk_data (const unsigned char *data, uint64 off, size_t size);
