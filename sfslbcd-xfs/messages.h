@@ -47,6 +47,7 @@ public:
     : fd(filedesc), h(msg), tmpfh(tfh), 
       blocks_written(0), total_blocks(0), chunker(0), eof(false) {
     fname = New char[MAXPATHLEN];
+    retries = 0;
   }
   ~condwrite3args() { 
     delete[] fname;
@@ -61,6 +62,7 @@ public:
   uint total_blocks;
   Chunker *chunker;
   bool eof;
+  int retries;
 };
 
 class getfp_args {
@@ -68,6 +70,7 @@ class getfp_args {
   getfp_args(int f, ref<struct xfs_message_open> header) : 
     fd(f), h(header), offset(0), blocks_written(0), total_blocks(0), eof(0) {
     out_fname = New char[MAXPATHLEN];
+    retries = 0;
   }
   ~getfp_args() {
     delete[] out_fname;
@@ -82,6 +85,7 @@ class getfp_args {
  uint blocks_written;
  uint total_blocks;
  uint eof;
+ int retries;
 };
 
 class rename_args {
