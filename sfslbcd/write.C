@@ -480,7 +480,7 @@ struct write_obj {
 
   ~write_obj()
   {
-    warn << "write_obj: wrote " << bytes_wrote << "/" << size << " bytes\n";
+    // warn << "write_obj: wrote " << bytes_wrote << "/" << size << " bytes\n";
   }
 };
 

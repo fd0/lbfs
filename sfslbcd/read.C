@@ -422,7 +422,7 @@ struct read_obj {
 
   ~read_obj()
   {
-    warn << "read_obj: read " << bytes_read << "/" << size << " bytes\n"; 
+    // warn << "read_obj: read " << bytes_read << "/" << size << " bytes\n"; 
   }
 };
 
