@@ -68,7 +68,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
 {
   if (!err) {
     char fspath[PATH_MAX];
-    sprintf(fspath, "%s%s/%s", _mntp, dpath, fname);
+    sprintf(fspath, "%s/%s/%s", _mntp, dpath, fname);
 
     int fd = open(fspath, O_RDONLY);
     unsigned char buf[4096];
@@ -91,7 +91,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
     _requests--;
 
   delete fname;
-  read_directory(dpath, dirp);
+  //read_directory(dpath, dirp);
   delete dpath;
 }
 

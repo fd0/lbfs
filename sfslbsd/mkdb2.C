@@ -6,6 +6,11 @@
 #include "sfsmisc.h"
 #include "qhash.h"
 
+#define MAXFP (200000)
+uint64 fp[MAXFP];
+unsigned fpsize[MAXFP];
+unsigned totalfps = 0;
+
 static void chunkify (str path, const nfs_fh3 &fh, int fd);
 
 static AUTH *auth;
@@ -153,6 +158,40 @@ diriter::nextfile ()
   dofile ();
 }
 
+static void
+done1 ()
+{
+  bool swap = true;
+  uint64 tmpfp;
+  unsigned tmp_fpsize;
+  while (swap) {
+    swap = false;
+    for (uint i=0; i<totalfps-1; i++) {
+      if (fp[i] > fp[i+1]) {
+	swap = true;
+	tmpfp = fp[i];
+	fp[i] = fp[i+1];
+	fp[i+1] = tmpfp;
+
+	tmp_fpsize = fpsize[i];
+	fpsize[i] = fpsize[i+1];
+	fpsize[i+1] = tmp_fpsize;
+      } 
+    }
+  }
+  unsigned loc = 1;
+  for (uint i=0; i<totalfps-1; i++) {
+    if (fp[i] == fp[i+1])
+      loc++;
+    else {
+      warnx << fp[i] << " " << loc << "\n";
+      loc = 1;
+    }
+  }
+  if (fp[totalfps-2] == fp[totalfps-1])
+    warnx << fp[totalfps-1] << " " << loc << "\n";
+}
+
 static int opt_count_dups;
 static u_int num_files;
 static u_int64_t num_chunks;
@@ -167,6 +206,7 @@ chunkify (str path, const nfs_fh3 &fh, int fd)
   u_char buf[4096];
   int n;
   Chunker chunker;
+  bool found;
 
   num_files++;
   while ((n = read (fd, buf, sizeof (buf))) > 0) {
@@ -179,17 +219,29 @@ chunkify (str path, const nfs_fh3 &fh, int fd)
     chunk *c = chunker.chunk_vector ()[i];
     c->location ().set_fh (fh);
 
+    if (opt_count_dups) {
+      found = false;
+      for (u_int j = 0; !found && (j < i); j++) {
+	if (c->hash () == chunker.chunk_vector ()[j]->fingerprint ())
+	  found = true;
+      }
+      if (!found) {
+	fp[totalfps] = c->hash();
+	fpsize[totalfps++] = c->location().count();
+      }
+
     /* warnx ("%s %5d bytes @%" U64F "d\n", path.cstr (),
               c->location ().count (), c->location ().pos ()); */
-    if (opt_count_dups) {
+
       fp_db::iterator *iterp;
       if (!db.get_iterator (c->hashidx(), &iterp)) {
 	// XXX - need to check for collisions!
 	num_dup_chunks++;
 	num_dup_bytes += c->location ().count ();
-	if (opt_count_dups > 1)
+	if (opt_count_dups > 1) {
 	  warnx ("DUP: %s %5d bytes @%" U64F "d\n", path.cstr (),
-		 c->location ().count (), c->location ().pos ());
+	  	 c->location ().count (), c->location ().pos ());
+	}
 	delete iterp;
       }
     }
@@ -201,6 +253,7 @@ chunkify (str path, const nfs_fh3 &fh, int fd)
 static void
 done ()
 {
+  done1 ();
   warnx << "     Total files: " << num_files << "\n"
 	<< "    Total chunks: " << num_chunks << "\n"
 	<< "     Total bytes: " << num_bytes << "\n";
