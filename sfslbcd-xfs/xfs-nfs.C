@@ -21,6 +21,7 @@
 
 #include "xfs-nfs.h"
 #include "sfslbcd.h"
+#include "dmalloc.h"
 
 u_char 
 nfs_rights2xfs_rights (u_int32_t access, ftype3 ftype, u_int32_t mode) 
@@ -135,17 +136,17 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
 {
 #if 1
   args->off = 0;
-  args->buf = (char *)malloc (blocksize);
-  if (args->buf == NULL) {
-    warn << "nfsdir2xfsfile: malloc error\n";
-    return -1;
-  }
+  //args->buf = (char *)malloc (blocksize);
+  //if (args->buf == NULL) {
+  //  warn << "nfsdir2xfsfile: malloc error\n";
+  //  return -1;
+  //}
   args->ptr = args->buf;
   args->last = NULL;
 #endif  
   assert(res->status == NFS3_OK);
   entry3 *nfs_dirent = res->resok->reply.entries;
-  xfs_dirent *xde; // = (xfs_dirent *) malloc (sizeof (*xde)); 
+  xfs_dirent *xde; 
   int reclen = sizeof(*xde);
 
   while (nfs_dirent != NULL) {
@@ -185,7 +186,6 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
 #endif
     nfs_dirent = nfs_dirent->nextentry;
   }
-  //delete xde;
   return 0;
 }
 
@@ -214,13 +214,14 @@ int conv_dir (int fd, ex_readdir3res *res)
     if (write (fd, xde, reclen) != reclen) {
       if (lbcd_trace > 1)
 	warn << "(" << errno << "):write\n";
+      free (xde);
       return -1;
     }
     if (lbcd_trace > 1)
       warn << "wrote " << xde->d_name << "\n";
     nfs_dirent = nfs_dirent->nextentry;
   }
-  delete xde;
+  free (xde);
   return 0;
 }
 
@@ -240,8 +241,10 @@ int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid)
   if (write(fd, xde, xde->d_reclen) != xde->d_reclen) {
     if (lbcd_trace > 1)
       warn << strerror(errno) << "(" << errno << "):write\n";
+    free (xde);
     return -1;
   }
+  free (xde);
   return 0;
 }
 
@@ -254,11 +257,13 @@ int xfsfile_rm_dirent(int fd1, int fd2, const char* fname)
     if ((err = read(fd1, xde, sizeof(*xde))) < 0) {
       if (lbcd_trace > 1)
 	warn << "xfsfile_rm_dirent: " << strerror(errno) << "\n";
+      free (xde);
       return -1;
     }
     if (err != sizeof(*xde)) {
       if (lbcd_trace > 1)
 	warn << "err = " << err << " ..short read..wierd\n";
+      free (xde);
       return -1;
     }
     offset += reclen;
@@ -279,11 +284,13 @@ int xfsfile_rm_dirent(int fd1, int fd2, const char* fname)
     if (err != sizeof(*xde)) {
       if (lbcd_trace > 1)
       warn << "err = " << err << " ..short write..wierd\n";
+      free (xde);
       return -1;
     }
   }
 
   ftruncate (fd2, offset);
+  free (xde);
   return 0;
 }
 

@@ -2,6 +2,7 @@
 #include <sys/mount.h>
 #include "cache.h"
 #include "xfs-nfs.h"
+#include "dmalloc.h"
 
 bool 
 xfs_fheq (xfs_handle x1, xfs_handle x2) 
@@ -115,8 +116,9 @@ int
 assign_cachefile (int fd, int seqnum, cache_entry *e, 
 		  char *name, xfs_cache_handle *ch, int flags) 
 {
-  strcpy (name, e->cache_name);
-  
+  assert (e->cache_name.len() < 256);
+  memmove (name, e->cache_name, e->cache_name.len()+1);
+
   int cfd = open (name, flags, 0666);
   if (cfd < 0) {
 #if DEBUG > 0

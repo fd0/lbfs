@@ -22,6 +22,7 @@
 #include "sfslbcd.h"
 #include "kernel.h"
 #include "xfs-sfs.h"
+#include "dmalloc.h"
 
 u_int *seqnums;
 
@@ -126,6 +127,9 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
   ptr<xfscall> xfsc;
 
   switch (opcode) {
+  case XFS_MSG_GETATTR:
+    //lookup in attr cache
+    break;
   case XFS_MSG_INACTIVENODE:
   case XFS_MSG_PIOCTL:
     xfsc = New refcounted<xfscall> (opcode, fd, hh);
@@ -342,5 +346,8 @@ xfs_send_message_wakeup_multiple (int fd,  u_int seqnum, int error, ...)
   va_end (args);
   return ret;
 }
+
+
+
 
 

@@ -24,6 +24,7 @@
 #include "xfs-nfs.h"
 #include "cache.h"
 #include "crypt.h"
+#include "dmalloc.h"
 
 ex_fsinfo3resok nfs_fsinfo;
 u_int64_t cache_entry::nextxh;

@@ -26,6 +26,12 @@
 #include "lbfs_prot.h"
 #include "xfs-sfs.h"
 #include "sfslbcd.h"
+#include "dmalloc.h"
+
+AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
+AUTH *auth_default = 
+  authunix_create ("localhost", (uid_t) 14228, (gid_t) 100, 0, NULL);
+
 
 char *sfs_path = new char[1000];
 int server_fd = -1;
@@ -53,7 +59,8 @@ AUTH *
 lbfs_authof (sfs_aid sa) 
 {
   /* This is very crude. Need better authentication. */
-  return authunix_create ("localhost", (uid_t) sa, (gid_t) 100, 0, NULL);
+  //return authunix_create ("localhost", (uid_t) sa, (gid_t) 100, 0, NULL);
+  return auth_default;
 }
 
 bool

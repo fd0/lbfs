@@ -5,10 +5,7 @@
 #include "cache.h"
 #include "../sfslbsd/sfsrwsd.h"
 #include <sys/stat.h>
-
-AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
-AUTH *auth_default = 
-  authunix_create ("localhost", (uid_t) 14228, (gid_t) 100, 0, NULL);
+#include "dmalloc.h"
 
 int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 2);
 int lbcd_trace (getenv("LBCD_TRACE") ? atoi (getenv ("LBCD_TRACE")) : 0);
@@ -473,6 +470,7 @@ struct readdir_obj {
   sfs_aid sa;
   cache_entry *e;
   ptr<ex_readdir3res> rdres;
+  struct xfs_message_installdata msg;
   
   void write_dirfile (write_dirent_args args, xfs_message_installdata msg,
 		      clnt_stat err)
@@ -483,7 +481,7 @@ struct readdir_obj {
     }
     if (args.last)
       flushbuf (&args);
-    free (args.buf);
+    //free (args.buf);
     if (!rdres->resok->reply.eof) {
       readdir3args rda;
       rda.dir = e->nh; 
@@ -518,7 +516,6 @@ struct readdir_obj {
   {
     if (!err && rdres->status == NFS3_OK) {
 
-      struct xfs_message_installdata msg;
       struct write_dirent_args args;
 
       e->nfs_attr = *rdres->resok->dir_attributes.attributes;
@@ -650,6 +647,7 @@ struct getfp_obj {
 
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				      h0, h0_len, NULL, 0);
+
     if (lbcd_trace) {
       warn << "***********************************\n";
       warn << "File name            = " << e->name << "\n";
@@ -1539,7 +1537,7 @@ struct symlink_obj {
       h1_len = sizeof (msg2);
 
       xfs_send_message_wakeup_multiple (fd, h->header.sequence_num,
-					0, h0, h0_len, h1, h1_len, NULL, 0);      
+					0, h0, h0_len, h1, h1_len, NULL, 0);     
     } else {
       xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
     }
@@ -1647,8 +1645,7 @@ struct remove_obj {
 					  NULL, 0);
       } else 
 	xfs_send_message_wakeup_multiple (fd, h->header.sequence_num,
-					  0, h0, h0_len, NULL, 0);
-      
+					  0, h0, h0_len, NULL, 0);      
     } 
     else
       xfs_reply_err (fd, h->header.sequence_num, err ? err : wres->status);

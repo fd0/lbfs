@@ -23,6 +23,7 @@
 #include "kernel.h"
 #include "xfs-sfs.h"
 #include "async.h"
+#include "dmalloc.h"
 
 char *device_file = "/dev/xfs0";
 //char *hostpath = "new-york.lcs.mit.edu:85xq6pznt4mgfvj4mb23x6b8adak55ue";

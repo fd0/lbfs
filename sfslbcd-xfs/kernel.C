@@ -23,6 +23,7 @@
 #include "kernel.h"
 #include "async.h"
 #include "sfslbcd.h"
+#include "dmalloc.h"
 
 /*
  * The fd we use to talk with the kernel on.

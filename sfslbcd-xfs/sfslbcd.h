@@ -40,6 +40,7 @@
 #include "lbfs_prot.h"
 #include "xfs-sfs.h"
 #include "cache.h"
+#include "dmalloc.h"
 
 #ifndef MOUNT_XFS
 #define MOUNT_XFS       "xfs"           /* xfs */

@@ -48,7 +48,7 @@ struct write_dirent_args {
 #else
     off_t off;
 #endif
-    char *buf;
+    char buf[XFS_DIRENT_BLOCKSIZE];
     char *ptr;
     void *last;
 };
