@@ -134,7 +134,6 @@ struct read_obj {
     else {
       fe = srv->file_cache_lookup(fh);
       assert(fe);
-      fe->fetch(size);
       bool eof = false;
       for (int i=0; i<PARALLEL_READS && !eof; i++)
         eof = do_read();

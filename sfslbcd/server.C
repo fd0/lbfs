@@ -23,7 +23,6 @@
 // implementation description is in "notes"
 
 #define warn_debug  if (0) warn
-#define warn_lookup if (1) warn
 
 #include <typeinfo>
 #include "sfslbcd.h"
@@ -36,29 +35,26 @@ void
 server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
 {
   file_cache *e = file_cache_lookup(obj);
+  assert(e && e->is_open());
+  warn_debug << "checking cache for " << obj <<  "\n";
   if (fa.type == NF3REG) {
-    // update file cache if cache time < mtime and file is not dirty
-    // or fetch
-    if (!e || ((e->fa.mtime < fa.mtime) && e->is_idle())) {
-      if (e)
-	warn << "re-fetch file " << e->fh << "\n";
-      else {
-	warn_debug << "fetch file " << e->fh << "\n";
-      }
-      if (!e) {
-        file_cache_insert (obj);
-        e = file_cache_lookup(obj);
-        assert(e);
-      }
+    // update file cache if cache time < mtime
+    if (e->fa.mtime < fa.mtime) {
       e->fa = fa;
       e->osize = fa.size;
       str f = fh2fn (obj);
+      e->fetch(fa.size);
+      warn_debug << "fetch cache file " << obj << "\n";
       lbfs_read (f, obj, fa.size, mkref(this), authof(aid),
-	         wrap(mkref(this), &server::file_cached, e));
+	         wrap(mkref(this), &server::fetch_done, e));
     }
-    else if (e && e->is_idle()) {
+    else {
       e->fa = fa;
       e->osize = fa.size;
+      warn_debug << "don't need to fetch " << obj << "\n";
+      warn_debug << "mtime " << e->fa.mtime.seconds 
+	         << ", " << fa.mtime.seconds << "\n";
+      e->idle();
     }
   }
 }
@@ -72,14 +68,27 @@ server::access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     ex_fattr3 *f = reinterpret_cast<ex_fattr3 *>
       (ares->resok->obj_attributes.attributes.addr ());
     fattr3 fa = *reinterpret_cast<const fattr3 *> (f);
-    check_cache (a->object, fa, nc->getaid());
+    if (fa.type == NF3REG) {
+      file_cache *e = file_cache_lookup(a->object);
+      if (!e) {
+        file_cache_insert (a->object);
+        e = file_cache_lookup(a->object);
+        assert(e);
+	e->fa.mtime.seconds = 0;
+	e->fa.mtime.nseconds = 0;
+        e->open();
+      }
+      else if (e->is_idle())
+        e->open();
+    }
   }
   getreply(rqtime, nc, res, err);
 }
 
 void
-server::file_cached (file_cache *e, bool done, bool ok)
+server::fetch_done (file_cache *e, bool done, bool ok)
 {
+  assert(e->is_fetch());
   if (done) {
     if (ok)
       e->idle();
@@ -137,7 +146,7 @@ server::write_to_cache (nfscall *nc, file_cache *e)
   write3args *a = nc->template getarg<write3args> ();
   if (e->fd < 0) {
     str fn = fh2fn(e->fh);
-    e->fd = open (fn, O_RDWR);
+    e->fd = open (fn, O_RDWR | O_CREAT);
     if (e->fd < 0) {
       perror("open cache file");
       nc->reject (SYSTEM_ERR);
@@ -179,21 +188,25 @@ server::write_to_cache (nfscall *nc, file_cache *e)
 int
 server::truncate_cache (uint64 size, file_cache *e)
 {
-  assert(e->is_dirty() || e->is_idle());
+  assert(e->is_dirty() || e->is_idle() || e->is_open());
   if (e->fd < 0) {
     str fn = fh2fn(e->fh);
-    e->fd = open (fn, O_RDWR);
-    if (e->fd < 0)
+    e->fd = open (fn, O_RDWR | O_CREAT);
+    if (e->fd < 0) {
+      perror ("open cache file");
       return -1;
+    }
   }
-  if (ftruncate(e->fd, size) < 0)
+  if (ftruncate(e->fd, size) < 0) {
+    perror ("ftruncate cache file");
     return -1;
+  }
   e->fa.size = size;
   return 0;
 }
 
 void
-server::close_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok)
+server::flush_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok)
 {
   file_cache *e = file_cache_lookup(fh);
   assert(e && e->is_flush());
@@ -231,7 +244,7 @@ server::flush_cache (nfscall *nc, file_cache *e)
   fa.size = e->osize;
   lbfs_write
     (fn, e->fh, e->fa.size, fa, mkref(this), authof(aid),
-     wrap(mkref(this), &server::close_done, nc, e->fh));
+     wrap(mkref(this), &server::flush_done, nc, e->fh));
 }
 
 void
@@ -301,23 +314,17 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     }
   }
   else if (nc->proc () == NFSPROC3_SETATTR) {
-    // on each SETATTR when file is dirty or being flushed: copy
-    // attributes from server to file cache, but don't override the
-    // size and mtime fields. do a wcc checking to avoid re-fetching
-    // this file later if only one client is writing it.
+    // on SETATTR when file is dirty: copy attributes from server to
+    // file cache, but don't override the size and mtime fields. do a
+    // wcc checking to avoid re-fetching this file later if only one
+    // client is writing it.
     setattr3args *a = nc->template getarg<setattr3args> ();
     ex_wccstat3 *sres = static_cast<ex_wccstat3 *> (res);
     file_cache *e = file_cache_lookup(a->object);
+    if (e)
+      assert(!e->is_flush());
     if (!sres->status && e && sres->wcc->after.present) {
-      if (e->is_flush()) {
-	ex_fattr3 *f = sres->wcc->after.attributes;
-	uint64 s = e->fa.size;
-	nfstime3 m = e->fa.mtime;
-	e->fa = *reinterpret_cast<fattr3 *> (f);
-	e->fa.size = s;
-	e->fa.mtime = m;
-      }
-      else if (sres->wcc->before.present) {
+      if (sres->wcc->before.present) {
         if ((sres->wcc->before.attributes)->size == e->osize &&
 	    (sres->wcc->before.attributes)->mtime == e->fa.mtime) {
 	  ex_fattr3 *f = sres->wcc->after.attributes;
@@ -337,10 +344,11 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 	  e->fa.mtime = m;
         }
       }
-      // replace size attribute w/ up-to-date size from file cache
+      // if file is dirty or being flushed: replace size attribute w/
+      // up-to-date size from file cache
       if (e->fa.size != (sres->wcc->after.attributes)->size) {
-	assert(e->is_dirty() || e->is_flush());
-	(sres->wcc->after.attributes)->size = e->fa.size;
+	if (e->is_dirty())
+	  (sres->wcc->after.attributes)->size = e->fa.size;
       }
     }
   }
@@ -571,25 +579,41 @@ server::dont_run_rpc (nfscall *nc)
   nfs_fh3 *fh = static_cast<nfs_fh3 *> (nc->getvoidarg ());
   file_cache *e = file_cache_lookup(*fh);
 
-  if (nc->proc () == cl_NFSPROC3_CLOSE && (e->is_idle() || e->is_fetch()))
+  if (nc->proc () == cl_NFSPROC3_CLOSE && !e->is_dirty())
     return false;
 
   if (e) {
-    if (e->is_flush() && nc->proc () != NFSPROC3_READ &&
-	nc->proc () != cl_NFSPROC3_CLOSE) {
-      // block WRITE and SETATTR RPCs that set size of file
-      if (nc->proc () == NFSPROC3_SETATTR) {
-        setattr3args *a = nc->template getarg<setattr3args> ();
-        if (!a->new_attributes.size.set)
-	  return false;
-      }
+    // flush mode: block WRITEs and SETATTRs
+    if (e->is_flush() && nc->proc () != NFSPROC3_READ) {
       warn_debug << "RPC " << nc->proc () << " blocked due to flush\n";
       e->rpcs.push_back(nc);
       return true;
     }
-    // if file is being fetched, can execute READ if range requested
-    // in the RPC has already been fetched, other READ RPCs and all
-    // WRITE and SETATTR RPCs must be queued
+
+    // open mode: on READ and WRITE, fetch file
+    else if (e->is_open()) {
+      if (nc->proc () == NFSPROC3_READ || nc->proc () == NFSPROC3_WRITE) {
+	nfs_fh3 file;
+	if (nc->proc() == NFSPROC3_WRITE) {
+	  write3args *a = nc->template getarg<write3args> ();
+	  file = a->file;
+	}
+	else {
+	  read3args *a = nc->template getarg<read3args> ();
+	  file = a->file;
+	}
+        fattr3 fa = *reinterpret_cast<const fattr3 *> (ac.attr_lookup (file));
+        check_cache (file, fa, nc->getaid());
+	if (!e->is_idle()) {
+          warn_debug << "RPC " << nc->proc () << " blocked due to open\n";
+          e->rpcs.push_back(nc);
+	  return true;
+	}
+      }
+    }
+
+    // fetch mode: block WRITEs and SETATTRs. block READ RPCs that
+    // cannot be answered.
     else if (e->is_fetch()) {
       if (nc->proc () == NFSPROC3_READ) {
         read3args *a = nc->template getarg<read3args> ();
@@ -610,7 +634,8 @@ server::dont_run_rpc (nfscall *nc)
       e->rpcs.push_back(nc);
       return true;
     }
-    else if (e->is_error()) {
+
+    if (e->is_error()) {
       nc->reject (SYSTEM_ERR);
       return true;
     }
@@ -649,7 +674,19 @@ server::dispatch (nfscall *nc)
     if (perm > 0) {
       fattr3 fa =
 	*reinterpret_cast<const fattr3 *> (ac.attr_lookup (a->object));
-      check_cache (a->object, fa, nc->getaid());
+      if (fa.type == NF3REG) {
+        file_cache *e = file_cache_lookup(a->object);
+        if (!e) {
+          file_cache_insert (a->object);
+          e = file_cache_lookup(a->object);
+          assert(e);
+	  e->fa.mtime.seconds = 0;
+	  e->fa.mtime.nseconds = 0;
+          e->open();
+        }
+        else if (e->is_idle())
+          e->open();
+      }
       access3res res(NFS3_OK);
       res.resok->obj_attributes.set_present (true);
       *res.resok->obj_attributes.attributes = fa;
@@ -678,13 +715,12 @@ server::dispatch (nfscall *nc)
   else if (nc->proc() == cl_NFSPROC3_CLOSE) {
     nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
     file_cache *e = file_cache_lookup(*a);
+    assert(!e->is_flush());
     if (e && e->fd >= 0) {
       close(e->fd);
       e->fd = -1;
     }
-    if (e && e->is_flush()) // someone else is closing this file
-      nc->error (NFS3_OK);
-    else if (e && e->is_dirty())
+    if (e && e->is_dirty())
       flush_cache (nc, e);
     else {
       if (!e)

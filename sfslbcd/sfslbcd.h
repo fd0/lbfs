@@ -126,11 +126,12 @@ public:
   vec<nfscall *> rpcs;
 
 private:
-  static const int fcache_idle = 0;
+  static const int fcache_open  = 0;
   static const int fcache_fetch = 1;
-  static const int fcache_flush = 2;
+  static const int fcache_idle  = 2;
   static const int fcache_dirty = 3;
-  static const int fcache_error = 4;
+  static const int fcache_flush = 4;
+  static const int fcache_error = 5;
 
   vec<uint64> pri;
   ranges *rcv;
@@ -151,16 +152,18 @@ private:
 
 public:
   file_cache(nfs_fh3 fh)
-    : fh(fh), status(fcache_fetch), fd(-1), rcv(0), req(0) {}
+    : fh(fh), status(fcache_open), fd(-1), rcv(0), req(0) {}
   ~file_cache() { if (rcv) delete rcv; assert(rpcs.size() == 0); }
 
   bool is_idle()    const { return status == fcache_idle; }
+  bool is_open()    const { return status == fcache_open; }
   bool is_fetch()   const { return status == fcache_fetch; }
   bool is_flush()   const { return status == fcache_flush; }
   bool is_dirty()   const { return status == fcache_dirty; }
   bool is_error()   const { return status == fcache_error; }
 
   void idle()    { cr(); status = fcache_idle; }
+  void open()    { cr(); status = fcache_open; }
   void fetch(uint64 size) { ar(size); status = fcache_fetch; }
   void flush()	 { cr(); status = fcache_flush; }
   void dirty()   { cr(); status = fcache_dirty; }
@@ -207,9 +210,9 @@ protected:
   int truncate_cache (uint64 size, file_cache *e);
   void check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid);
 
-  void close_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok);
   void access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
-  void file_cached (file_cache *e, bool done, bool ok);
+  void fetch_done (file_cache *e, bool done, bool ok);
+  void flush_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok);
 
   str fh2fn(nfs_fh3 fh) {
     strbuf n;

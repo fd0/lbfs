@@ -23,22 +23,24 @@ operations on cached file:
 
 a cached file can be in one of the following four states
 
- IDLE
+ OPEN: file has not been fetched from server since last ACCESS RPC
+ IDLE: file has been fetched from server at some point
 DIRTY: dirty, not flushed backed to server yet
 FLUSH: in the middle of being flushed to server
 FETCH: in the middle of being fetched from server
 
 below is the state transition rule when different RPC occurs. X means
 exception. i.e. the cached file should not be in this state when this
-RPC occurs. XX means the RPC is blocked when the cached file is in
-this state, and executed after the cached file changes state.
+RPC occurs. (B) means the RPC will be blocked and executed after the
+cached file changes state again.
 
-       ACCESS  FETCH_DONE   READ   WRITE   SETSIZE   CLOSE   FLUSH_DONE
------------------------------------------------------------------------
- IDLE    IDLE    IDLE       IDLE   DIRTY   DIRTY     IDLE        X
-DIRTY   DIRTY      X        DIRTY  DIRTY   DIRTY     FLUSH       X
-FLUSH   FLUSH      X        FLUSH   XX      XX       FLUSH     IDLE
-FETCH   FETCH      X      FETCH/XX  XX      XX       FETCH       X
+       ACCESS  FETCH_DONE    READ     WRITE   SETATTR  CLOSE  FLUSH_DONE
+------------------------------------------------------------------------
+ OPEN    OPEN      X       FETCH(B)  FETCH(B)  OPEN     OPEN      X
+FETCH   FETCH    IDLE        (B)       (B)      (B)     FETCH     X
+ IDLE    OPEN      X        IDLE      DIRTY    IDLE     IDLE      X
+DIRTY   DIRTY      X        DIRTY     DIRTY    DIRTY    FLUSH     X
+FLUSH   FLUSH      X        FLUSH      (B)      (B)      (B)    IDLE
 
 
 detailed semantics:
