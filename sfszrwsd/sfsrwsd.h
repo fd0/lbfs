@@ -183,6 +183,12 @@ class client : public virtual refcount, public sfsserv {
 		   clnt_stat err);
   void renamecb_2 (svccb *sbp, rename3res *rres, filesrv::reqstate rqs,
 		   lookup3res *ares, clnt_stat err);
+  void removecb_1 (svccb *sbp, lookup3res *ares, filesrv::reqstate rqs,
+		   clnt_stat err);
+  void removecb_2 (svccb *sbp, void *res, filesrv::reqstate rqs,
+		   lookup3res *ares, clnt_stat err);
+  void removecb_3 (svccb *sbp, getattr3res *gres, filesrv::reqstate rqs,
+		   nfs_fh3 fh, void *res, clnt_stat err);
 
   bool try_compress;
 
