@@ -26,7 +26,6 @@ Chunker::Chunker()
 {
   _last_pos = 0;
   _cur_pos = 0;
-  _fp = 0;
   _w.reset();
   _hbuf_cursor = 0;
   _hbuf = New unsigned char[32768];
@@ -86,7 +85,6 @@ Chunker::chunk_data(const unsigned char *data, size_t size)
     if (((f_break % chunk_size) == BREAKMARK_VALUE && cs >= MIN_CHUNK_SIZE) 
 	|| cs >= MAX_CHUNK_SIZE) {
       _w.reset();
-      _fp = 0;
       if (i-start_i > 0) 
 	handle_hash(data+start_i, i-start_i);
       chunk *c = New chunk(_last_pos, cs, _hbuf);
@@ -96,7 +94,6 @@ Chunker::chunk_data(const unsigned char *data, size_t size)
       _last_pos = _cur_pos;
       start_i = i;
     }
-    _fp = _w.append8 (_fp, data[i]);
   }
   handle_hash(data+start_i, size-start_i);
 }

@@ -136,7 +136,6 @@ private:
   window _w;
   size_t _last_pos;
   size_t _cur_pos;
-  u_int64_t _fp;
   
   unsigned char *_hbuf; 
   unsigned int _hbuf_size;
