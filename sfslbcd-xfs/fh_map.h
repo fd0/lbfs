@@ -61,6 +61,7 @@ class fh_map {
       entry[i].xh.b = 0;
       entry[i].xh.c = 0;
       entry[i].xh.d = 0;
+      entry[i].cache_name = NULL;
       entry[i].opened = false;
     }
     //move this part to cache soon
@@ -69,11 +70,9 @@ class fh_map {
 	warn << "Creating dir: cache\n";
 	if (mkdir("cache", 0777) < 0) {
 	  warn << strerror(errno) << "(" << errno << ") mkdir cache\n";
-	  //return -1;
 	}
       } else {
 	warn << strerror(errno) << "(" << errno << ") mkdir cache\n";
-	//return -1;
       }
     } else close(fd);
   }
@@ -100,14 +99,14 @@ class fh_map {
 
   int find(xfs_handle x) {
     for (int i=0; i<=max_fh; i++)
-      if (xfs_fheq(entry[i].xh, x))
+      if (/*entry[i].opened && */xfs_fheq(entry[i].xh, x))
 	return i;
     return -1;
   }
 
   int find(nfs_fh3 n) {
     for (int i=0; i<=max_fh; i++) 
-      if (nfs_fheq(entry[i].nh, n)) 
+      if (/*entry[i].opened && */nfs_fheq(entry[i].nh, n)) 
 	return i;
     return -1;
   }
@@ -119,7 +118,21 @@ class fh_map {
       entry[i].xh.b = 0;
       entry[i].xh.c = 0;
       entry[i].xh.d = 0;
-      //entry[i].nh = ...
+      //delete entry[i].nh;
+      //delete cache file
+      entry[i].opened = false;
+    }
+  }
+  
+  void remove(xfs_handle x) {
+    int i = find(x);
+    if (i > -1) {
+      entry[i].xh.a = 0;
+      entry[i].xh.b = 0;
+      entry[i].xh.c = 0;
+      entry[i].xh.d = 0;
+      //delete entry[i].nh;
+      //delete cache file
       entry[i].opened = false;
     }
   }
