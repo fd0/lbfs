@@ -93,7 +93,9 @@ class server : public sfsserver_auth {
   struct fcache {
     nfs_fh3 fh;
     fattr3 fa;
-    fcache(nfs_fh3 fh, fattr3 fa) : fh(fh), fa(fa) {}
+    bool dirty;
+    int fd;
+    fcache(nfs_fh3 fh, fattr3 fa) : fh(fh), fa(fa), dirty(false), fd(-1) {}
   };
 
   attr_cache ac;
@@ -101,14 +103,20 @@ class server : public sfsserver_auth {
 
   void dispatch_dummy (svccb *sbp);
   void cbdispatch (svccb *sbp);
-  void getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
   void setfd (int fd);
-
-  void read_from_cache (nfscall *nc, fcache *e);
+  
+  void getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
   void access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
+
+  void flush_cache (nfscall *nc, fcache *e);
+  void read_from_cache (nfscall *nc, fcache *e);
+  void write_to_cache (nfscall *nc, fcache *e);
+  int truncate_cache (uint64 size, fcache *e);
+
+  void close_reply (nfscall *nc, bool ok);
   void cache_file_reply (time_t rqtime, nfscall *nc, void *res, bool ok);
-  void access_reply_cached(nfscall *nc, int32_t perm, fattr3 fa,
-                           bool update_fa, bool ok);
+  void access_reply_cached (nfscall *nc, int32_t perm, fattr3 fa,
+                            bool update_fa, bool ok);
 
   void remove_cache (fcache e);
   str fh2fn(nfs_fh3 fh) {
@@ -138,10 +146,14 @@ public:
   void authclear (sfs_aid aid);
   void setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_c);
   void dispatch (nfscall *nc);
+  void getattr (time_t rqtime, unsigned int proc,
+                sfs_aid aid, void *arg, void *res);
 };
 
-void lbfs_read(str fn, nfs_fh3 fh, size_t size, ref<aclnt> c,
-               AUTH *a, callback<void, bool>::ref cb);
+void lbfs_read (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
+                AUTH *a, callback<void, bool>::ref cb);
+void lbfs_write (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
+                 AUTH *a, callback<void, bool>::ref cb);
 
 #endif
 

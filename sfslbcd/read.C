@@ -22,15 +22,13 @@
 #include "sfslbcd.h"
 #include "lbfs_prot.h"
 
-AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
-
 struct read_obj {
   static const int PARALLEL_READS = 8;
-  static const int READ_SIZE = 8192;
+  static const int READ_SIZE = 4096;
   typedef callback<void,bool>::ref cb_t;
 
   cb_t cb;
-  ref<aclnt> c;
+  ref<server> srv;
   nfs_fh3 fh;
   AUTH *auth;
   int fd;
@@ -38,19 +36,15 @@ struct read_obj {
   size_t requested;
   unsigned int outstanding_reads;
   bool callback;
-  bool mtime_valid;
-  nfstime3 mtime;
 
   void
-  read_reply(uint64 off, size_t size, ref<ex_read3res> res, clnt_stat err) 
+  read_reply(time_t rqtime, uint64 off, size_t size,
+             ref<read3args> arg, ref<ex_read3res> res, clnt_stat err) 
   {
     outstanding_reads--;
+    if (!err)
+      srv->getattr (rqtime, NFSPROC3_READ, 0, arg, res);
     if (!callback && !err && res->status == NFS3_OK) {
-      assert (res->resok->file_attributes.present);
-      if (!mtime_valid) {
-	mtime = (res->resok->file_attributes.attributes)->mtime;
-	mtime_valid = true;
-      }
       if (lseek(fd, off, SEEK_SET) < 0) {
 	fail();
 	return;
@@ -69,15 +63,17 @@ struct read_obj {
 
   void nfs3_read (uint64 off, uint32 size) 
   {
-    read3args ra;
-    ra.file = fh;
-    ra.offset = off;
-    ra.count = size;
+    ref<read3args> a = New refcounted<read3args>;
+    a->file = fh;
+    a->offset = off;
+    a->count = size;
     outstanding_reads++;
     warn << "NFS READ " << off << ":" << size << "\n";
     ref<ex_read3res> res = New refcounted <ex_read3res>;
-    c->call (lbfs_NFSPROC3_READ, &ra, res,
-	     wrap (this, &read_obj::read_reply, off, size, res), auth);
+    srv->nfsc->call (lbfs_NFSPROC3_READ, a, res,
+	             wrap (this, &read_obj::read_reply,
+		           timenow, off, size, a, res),
+		     auth);
   }
 
   bool do_read() {
@@ -114,14 +110,14 @@ struct read_obj {
     }
   }
 
-  read_obj (str fn, nfs_fh3 fh, size_t size,
-            ref<aclnt> c, AUTH *a, read_obj::cb_t cb)
-    : cb(cb), c(c), fh(fh), auth(a), size(size), requested(0),
-      outstanding_reads(0), callback(false), mtime_valid(false)
+  read_obj (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
+            AUTH *a, read_obj::cb_t cb)
+    : cb(cb), srv(srv), fh(fh), auth(a), size(size), requested(0),
+      outstanding_reads(0), callback(false)
   {
     fd = open (fn, O_CREAT | O_TRUNC | O_WRONLY, 0666);
     if (fd < 0) {
-      warn << "cannot open file for caching\n";
+      perror ("update cache file\n");
       fail();
     }
     else {
@@ -137,9 +133,9 @@ struct read_obj {
 };
 
 void
-lbfs_read(str fn, nfs_fh3 fh, size_t size, ref<aclnt> c,
-          AUTH *a, read_obj::cb_t cb)
+lbfs_read (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
+           AUTH *a, read_obj::cb_t cb)
 {
-  vNew read_obj (fn, fh, size, c, a, cb);
+  vNew read_obj (fn, fh, size, srv, a, cb);
 }
 

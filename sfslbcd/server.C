@@ -75,10 +75,13 @@ server::access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     access3args *a = nc->template getarg<access3args> ();
     ex_fattr3 fa = *ares->resok->obj_attributes.attributes;
     fcache *e = fc[a->object];
-    // update cache if cache time < mtime and file is not open
-    if (fa.type == NF3REG && (!e || e->fa.mtime < fa.mtime)) {
+    if (fa.type == NF3REG && e)
+      warn << "new attr, " << e->fa.mtime.seconds << ":"
+	   << fa.mtime.seconds << ":" << e->dirty << "\n";
+    // update cache if cache time < mtime and file is not dirty
+    if (fa.type == NF3REG && (!e || (e->fa.mtime < fa.mtime && !e->dirty))) {
       str f = fh2fn(a->object);
-      lbfs_read(f, a->object, fa.size, nfsc, authof(nc->getaid()),
+      lbfs_read(f, a->object, fa.size, mkref(this), authof(nc->getaid()),
 	        wrap(mkref(this), &server::cache_file_reply, rqtime, nc, res));
       return;
     }
@@ -108,29 +111,30 @@ server::cache_file_reply (time_t rqtime, nfscall *nc, void *res, bool ok)
 }
 
 void
-server::read_from_cache(nfscall *nc, fcache *e)
+server::read_from_cache (nfscall *nc, fcache *e)
 {
   read3args *a = nc->template getarg<read3args> ();
-  str fn = fh2fn(e->fh);
-  int fd = open (fn, O_RDONLY);
-  if (fd < 0) {
-    perror("open cache file");
-    nc->reject (SYSTEM_ERR);
-    return;
+  if (e->fd < 0) {
+    str fn = fh2fn(e->fh);
+    e->fd = open (fn, O_RDWR);
+    if (e->fd < 0) {
+      perror("open cache file");
+      nc->reject (SYSTEM_ERR);
+      return;
+    }
   }
-  if (lseek(fd, a->offset, SEEK_SET) < 0) {
+  if (lseek(e->fd, a->offset, SEEK_SET) < 0) {
     perror("lseek in cache file");
     nc->reject (SYSTEM_ERR);
     return;
   }
   char buf[a->count+1];
-  int n = read(fd, &buf[0], a->count+1);
+  int n = read(e->fd, &buf[0], a->count+1);
   if (n < 0) {
     perror("reading cache file");
     nc->reject (SYSTEM_ERR);
     return;
   }
-  close(fd);
 
   int x = ((unsigned)n) > a->count ? a->count : n;
   read3res res(NFS3_OK);
@@ -145,6 +149,106 @@ server::read_from_cache(nfscall *nc, fcache *e)
 }
 
 void
+server::write_to_cache (nfscall *nc, fcache *e)
+{
+  write3args *a = nc->template getarg<write3args> ();
+  if (e->fd < 0) {
+    str fn = fh2fn(e->fh);
+    e->fd = open (fn, O_RDWR);
+    if (e->fd < 0) {
+      perror("open cache file");
+      nc->reject (SYSTEM_ERR);
+      return;
+    }
+  }
+  if (lseek(e->fd, a->offset, SEEK_SET) < 0) {
+    perror("lseek in cache file");
+    nc->reject (SYSTEM_ERR);
+    return;
+  }
+  int n = write(e->fd, a->data.base(), a->count);
+  if (n < 0) {
+    perror("write cache file");
+    nc->reject(SYSTEM_ERR);
+    return;
+  }
+  e->dirty = true;
+
+  write3res res(NFS3_OK);
+  res.resok->count = n;
+  res.resok->committed = FILE_SYNC; // on close, COMMIT everything
+  // change e->fa.size but not e->fa.mtime. for wcc, reflect before
+  // and after file sizes.
+  res.resok->file_wcc.before.set_present (true);
+  (res.resok->file_wcc.before.attributes)->size = e->fa.size;
+  (res.resok->file_wcc.before.attributes)->mtime = e->fa.mtime;
+  (res.resok->file_wcc.before.attributes)->ctime = e->fa.ctime;
+  if (a->offset+n > e->fa.size)
+    e->fa.size = a->offset+n;
+  res.resok->file_wcc.after.set_present (true);
+  *(res.resok->file_wcc.after.attributes) = e->fa;
+  // XXX res.resok->verf = ;
+  nc->reply(&res);
+}
+
+int
+server::truncate_cache (uint64 size, fcache *e)
+{
+  if (e->fd < 0) {
+    str fn = fh2fn(e->fh);
+    e->fd = open (fn, O_RDWR);
+    if (e->fd < 0)
+      return -1;
+  }
+  if (ftruncate(e->fd, size) < 0)
+    return -1;
+  e->dirty = true;
+  e->fa.size = size;
+  return 0;
+}
+
+void
+server::close_reply (nfscall *nc, bool ok)
+{
+  if (ok)
+    nc->error (NFS3_OK);
+  else
+    nc->reject (SYSTEM_ERR);
+}
+
+void
+server::flush_cache (nfscall *nc, fcache *e)
+{
+  e->dirty = false;
+  str fn = fh2fn(e->fh);
+  lbfs_write
+    (fn, e->fh, e->fa.size, mkref(this), authof(nc->getaid()),
+     wrap(mkref(this), &server::close_reply, nc));
+}
+
+void
+server::getattr (time_t rqtime, unsigned int proc,
+                 sfs_aid aid, void *arg, void *res)
+{
+  xattrvec xv;
+  nfs3_getxattr (&xv, proc, arg, res);
+  for (xattr *x = xv.base (); x < xv.lim (); x++) {
+    if (x->fattr)
+      x->fattr->expire += rqtime;
+    ac.attr_enter (*x->fh, x->fattr, x->wattr);
+ 
+    if (proc == NFSPROC3_ACCESS) {
+      ex_access3res *ares = static_cast<ex_access3res *> (res);
+      access3args *a = static_cast<access3args *>(arg);
+      if (ares->status)
+	ac.flush_access (a->object, aid);
+      else
+	ac.access_enter (a->object, aid, a->access, ares->resok->access);
+    }
+  }
+}
+
+void
 server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 {
   auto_xdr_delete axd (ex_nfs_program_3.tbl[nc->proc ()].xdr_res, res);
@@ -155,23 +259,7 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
       nc->reject (SYSTEM_ERR);
     return;
   }
-  xattrvec xv;
-  nfs3_getxattr (&xv, nc->proc (), nc->getvoidarg (), res);
-  for (xattr *x = xv.base (); x < xv.lim (); x++) {
-    if (x->fattr)
-      x->fattr->expire += rqtime;
-    ac.attr_enter (*x->fh, x->fattr, x->wattr);
-
-    if (nc->proc () == NFSPROC3_ACCESS) {
-      ex_access3res *ares = static_cast<ex_access3res *> (res);
-      access3args *a = nc->template getarg<access3args> ();
-      if (ares->status)
-	ac.flush_access (a->object, nc->getaid ());
-      else
-	ac.access_enter (a->object, nc->getaid (),
-			 a->access, ares->resok->access);
-    }
-  }
+  getattr (rqtime, nc->proc (), nc->getaid (), nc->getvoidarg (), res);
   nfs3_exp_disable (nc->proc (), res);
   nc->reply (res);
 }
@@ -260,14 +348,7 @@ server::setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_cb)
 void
 server::dispatch (nfscall *nc)
 {
-  if (nc->proc() == cl_NFSPROC3_CLOSE) {
-    nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
-    warn << "close on " << *a << "\n";
-    nc->error (NFS3_OK);
-    return;
-  }
-
-  else if (nc->proc () == NFSPROC3_GETATTR) {
+  if (nc->proc () == NFSPROC3_GETATTR) {
     const ex_fattr3 *f = ac.attr_lookup (*nc->template getarg<nfs_fh3> ());
     if (f) {
       getattr3res res (NFS3_OK);
@@ -285,11 +366,14 @@ server::dispatch (nfscall *nc)
       fattr3 fa =
 	*reinterpret_cast<const fattr3 *> (ac.attr_lookup (a->object));
       fcache *e = fc[a->object];
-      // update cache if cache time < mtime and file is not open
-      if (fa.type == NF3REG && (!e || e->fa.mtime < fa.mtime)) {
+      if (fa.type == NF3REG && e)
+	warn << "cached attr, " << e->fa.mtime.seconds << ":"
+	     << fa.mtime.seconds << ":" << e->dirty << "\n";
+      // update cache if cache time < mtime and file is not dirty
+      if (fa.type == NF3REG && (!e || (e->fa.mtime < fa.mtime && !e->dirty))) {
         str f = fh2fn(a->object);
         lbfs_read
-	  (f, a->object, fa.size, nfsc, authof(nc->getaid()),
+	  (f, a->object, fa.size, mkref(this), authof(nc->getaid()),
 	   wrap(mkref(this), &server::access_reply_cached, nc, perm, fa, true));
         return;
       }
@@ -307,11 +391,64 @@ server::dispatch (nfscall *nc)
     read3args *a = nc->template getarg<read3args> ();
     fcache *e = fc[a->file];
     if (e) {
-      read_from_cache(nc, e);
+      read_from_cache (nc, e);
       return;
     }
     else
       warn << "dangling read: " << a->file << "\n";
+  }
+
+  else if (nc->proc() == cl_NFSPROC3_CLOSE) {
+    // write everything to server as UNSTABLE. send COMMIT. don't
+    // update mtime: we don't know if we have the up-to-date copy of
+    // the file.
+    nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
+    fcache *e = fc[*a];
+    if (e && e->fd >= 0) {
+      close(e->fd);
+      e->fd = -1;
+    }
+    if (e && e->dirty)
+      flush_cache (nc, e);
+    else {
+      if (!e)
+	warn << "dangling close: " << *a << "\n";
+      nc->error (NFS3_OK);
+    }
+    return;
+  }
+
+  else if (nc->proc () == NFSPROC3_WRITE) {
+    // write to cache file, update size, but not mtime.
+    write3args *a = nc->template getarg<write3args> ();
+    fcache *e = fc[a->file];
+    if (e) {
+      write_to_cache (nc, e);
+      return;
+    }
+    else
+      warn << "dangling write: " << a->file << "\n";
+  }
+
+  else if (nc->proc () == NFSPROC3_SETATTR) {
+    // if size is given, truncate cache file to the appropriate size
+    // and mark it dirty. update size, but not mtime. forward RPC to
+    // server always since we won't forward other attributes to server
+    // on CLOSE.
+    setattr3args *a = nc->template getarg<setattr3args> ();
+    fcache *e = fc[a->object];
+    if (a->new_attributes.size.set && e) {
+      if (truncate_cache (*(a->new_attributes.size.val), e) < 0) {
+        nc->reject (SYSTEM_ERR);
+	return;
+      }
+    }
+  }
+  
+  else if (nc->proc () == NFSPROC3_COMMIT) {
+    // should only see commit because of dangling writes, since all
+    // writes to cache file returned FILE_SYNC
+    warn << "sfslbcd sees COMMIT, forward to server\n";
   }
 
   void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();

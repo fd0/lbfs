@@ -2,21 +2,42 @@
 close-to-open consistency is: on any close, nfs client flushes all
 changes to server; on any open, nfs client fetches latest attributes
 from server, and loads new data when the cache time is less than
-mtime. no need to keep user/writer counts.
+mtime.
 
-XXX call getreply on all NFS replies, even those in helper functions
-XXX write to cached file, remember STABLE flag, update attribute (size+mtime)
-XXX on CLOSE, send stuff to server, reflect STABLE flag, but don't
-    reset attribute because someone else might have written to the
-    server as well
-XXX remember COMMIT
+XXX GETATTR/ACCESS on a dirty file returns what attribute/permission?
 
 consistency
+ 0) don't update cache if cached file is dirty
  1) if lease has not expired, and cache time matches mtime, use cache
  2) if lease has expired, fetch attribute; if cache time matches
     mtime, use cache
  3) if lease has expired, fetch attribute; if cache time does not
     match mtime, update cache
+
+write
+ - don't update mtime on each write or close. can't update on write
+   bcecause clocks can be out of sync; can't update on close because
+   we don't know if our writes and commit conflict with another
+   client's writes or not
+ - mark cached file dirty on first write; we won't update the cache
+   file on subsequent ACCESS until the cache file is flushed to server
+ - always return FILE_SYNC
+ - XXX what verf should we return
+
+close
+ - send WRITE with UNSTABLE
+ - send COMMIT
+ - does not update cache file's attribute (i.e. mtime), so the
+   subsequent read should trigger a fetch from server
+
+commit
+ - since we return FILE_SYNC on each WRITE RPC, we should not see any
+   COMMIT RPCs unless they are for dangling WRITEs. so we just pass
+   them onto the server.
+
+setattr
+ - if size is changed, change the size of the cache file as well
+ - always forward setattr rpc onto the server
 
 can we depend on nfs client to always send an ACCESS rpc before any
 read? we don't do access control upon seeing a READ rpc: we just
