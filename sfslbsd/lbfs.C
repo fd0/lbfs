@@ -83,9 +83,6 @@ struct mkdir3obj {
   int done_mkdir;
 
   void gotfh3 (const nfs_fh3 *fh, const FATTR3 *, str err) {
-    if (err)
-      warn << "lookup failed\n";
-
     if (!err) {
       nfs_fh3 cb_fh;
       cb_fh = *fh;
@@ -106,7 +103,6 @@ struct mkdir3obj {
       delete this;
     }
     else {
-      warn << "mkdir ok\n";
       done_mkdir = 1;
       do_lookup();
     }

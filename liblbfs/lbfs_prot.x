@@ -36,9 +36,7 @@ default:
   wcc_data resfail;
 };
 
-
 struct lbfs_mktmpfile3args {
-  nfs_fh3 dir;
   nfs_fh3 commit_to;
   sattr3 obj_attributes;
 };
