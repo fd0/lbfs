@@ -70,19 +70,24 @@ struct hashfh3 {
 //
 // per user fd to fh, name, and chunk translation
 //
+
 struct ufd_rec {
   unsigned fd;
-#define TMPFN_MAX 1024
   nfs_fh3 fh;
   nfs_fh3 dir;
+  bool inuse;
+  bool error;
+#define TMPFN_MAX 1024
   char name[TMPFN_MAX];
   int len;
   vec<chunk*> chunks;
+  vec<svccb*> sbps;
+
   ihash_entry<ufd_rec> hlink;
 
-  ufd_rec (unsigned d, const nfs_fh3 &f, const nfs_fh3 &dir, 
-           const char *s, unsigned l);
+  ufd_rec (unsigned d);
   ~ufd_rec ();
+  void use (const nfs_fh3 &fh, const nfs_fh3 &dir, const char *s, unsigned l);
 };
 
 struct ufd_table {
@@ -293,6 +298,9 @@ class client : public virtual refcount, public sfsserv {
   void condwrite_read_cb (unsigned char *, off_t, Chunker*,
                           const unsigned char *, size_t, off_t);
   void condwrite (svccb *sbp, filesrv::reqstate rqs);
+
+  void tmpwrite_cb (svccb *sbp, filesrv::reqstate rqs,
+                    write3res *wres, clnt_stat err);
   void tmpwrite (svccb *sbp, filesrv::reqstate rqs);
 
   void mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 dir, 
@@ -306,6 +314,8 @@ class client : public virtual refcount, public sfsserv {
   void committmp_cb (svccb *sbp, filesrv::reqstate rqs,
                      commit3res *res, str err);
   void committmp (svccb *sbp, filesrv::reqstate rqs);
+  
+  void aborttmp (svccb *sbp, filesrv::reqstate rqs);
  
   void getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *, 
                  size_t count, read3res *, str err);

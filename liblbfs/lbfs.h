@@ -14,7 +14,8 @@
   (p == lbfs_CONDWRITE ? NFSPROC3_WRITE : \
     (p == lbfs_TMPWRITE ? NFSPROC3_WRITE : \
       (p == lbfs_MKTMPFILE ? NFSPROC3_CREATE : \
-        (p == lbfs_COMMITTMP ? NFSPROC3_COMMIT : p))))
+        (p == lbfs_ABORTTMP ? NFSPROC3_COMMIT : \
+          (p == lbfs_COMMITTMP ? NFSPROC3_COMMIT : p)))))
 
 extern void lbfs_getxattr(xattrvec *, u_int32_t, void *, void *);
 

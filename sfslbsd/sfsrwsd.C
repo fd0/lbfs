@@ -35,22 +35,30 @@ static str configfile;
 
 filesrv *defsrv;
 
-ufd_rec::ufd_rec
-(unsigned ufd, const nfs_fh3 &f, const nfs_fh3 &d, const char *s, unsigned l)
+ufd_rec::ufd_rec (unsigned ufd)
 {
   fd = ufd;
+  inuse = false;
+  error = false;
+}
+
+void
+ufd_rec::use(const nfs_fh3 &f, const nfs_fh3 &d, const char *s, unsigned l)
+{
   fh = f;
   dir = d;
   assert (l <= TMPFN_MAX-1);
   memmove(&name[0], s, l);
   name[l] = '\0';
   len = l;
+  inuse = true;
 }
 
 ufd_rec::~ufd_rec()
 {
   for(unsigned i=0; i<chunks.size(); i++) 
     delete chunks[i];
+  assert(sbps.size()==0);
 }
 
 

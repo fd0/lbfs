@@ -21,6 +21,7 @@ lbfs_constop (u_int32_t proc)
   case lbfs_TMPWRITE:
   case lbfs_MKTMPFILE:
   case lbfs_COMMITTMP:
+  case lbfs_ABORTTMP:
   case lbfs_GETFP:
     return false;
   default:

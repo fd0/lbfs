@@ -154,8 +154,11 @@ program LBFS_PROGRAM {
 		ex_commit3res
 		lbfs_COMMITTMP (lbfs_committmp3args) = 25;
 
+		ex_commit3res
+		lbfs_ABORTTMP (lbfs_committmp3args) = 26;
+
 		lbfs_getfp3res
-		lbfs_GETFP (lbfs_getfp3args) = 26;
+		lbfs_GETFP (lbfs_getfp3args) = 27;
 
 	} = 3;
 } = 344444;
