@@ -254,6 +254,7 @@ struct read_obj {
   read_cb_t read_cb;
   cb_t cb;
   ref<aclnt> c;
+  bool cb_called;
 
   const nfs_fh3 fh;
   off_t pos; 
@@ -264,9 +265,12 @@ struct read_obj {
     
     if (stat || res->status) {
       (*cb) (count, res, stat2str (res->status, stat));
+      cb_called = true;
+      delete res;
       delete this;
     }
     else {
+      off_t oldpos = pos;
       count += res->resok->count;
       if (want > res->resok->count) {
 	want -= res->resok->count;
@@ -276,15 +280,16 @@ struct read_obj {
 	want = 0;
       if (want == 0 || res->resok->eof) {
         read_cb(reinterpret_cast<unsigned char*>(res->resok->data.base()), 
-	        res->resok->count, pos);
+	        res->resok->count, oldpos);
         (*cb) (count, res, NULL);
+        cb_called = true;
 	delete res;
         delete this;
       }
       else {
 	do_read();
 	read_cb(reinterpret_cast<unsigned char*>(res->resok->data.base()),
-		res->resok->count, pos);
+		res->resok->count, oldpos);
 	delete res;
       }
     }
@@ -294,7 +299,7 @@ struct read_obj {
     read3args arg;
     arg.file = fh;
     arg.offset = pos;
-    arg.count = want <= NFS3_BLOCK_SIZE ? want : NFS3_BLOCK_SIZE;
+    arg.count = (want <= NFS3_BLOCK_SIZE ? want : NFS3_BLOCK_SIZE);
     read3res *res = New read3res;
     c->call (NFSPROC3_READ, &arg, res,
 	     wrap (this, &read_obj::gotdata, res), auth_root);
@@ -307,6 +312,7 @@ struct read_obj {
     count = 0;
     pos = p;
     want = cnt;
+    cb_called = false;
     do_read();
   }
 };

@@ -125,9 +125,10 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
       memcmp(cv[0]->hash.base(), cwa->hash.base(), sha1::hashsize) != 0) {
 #if DEBUG > 0
     if (err) 
-      warn << "CONDWRITE: error reading file\n";
+      warn << "CONDWRITE: error reading file: " << err << "\n";
     else if (count != cwa->count)
-      warn << "CONDWRITE: db corrupted, size does not match\n";
+      warn << "CONDWRITE: db corrupted, size does not match " 
+	   << "want " << cwa->count << " got " << count << "\n";
     else if (cv.size() != 1 || cv[0]->fingerprint != cwa->fingerprint)
       warn << "CONDWRITE: fingerprint mismatch\n";
     else 
@@ -273,6 +274,8 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   c3arg.where.name = tmpfile;
   c3arg.how.set_mode(GUARDED);
   *(c3arg.how.obj_attributes) = mta->obj_attributes;
+  (c3arg.how.obj_attributes)->uid.set_set(false);
+  (c3arg.how.obj_attributes)->gid.set_set(false);
 
   void *cres = nfs_program_3.tbl[NFSPROC3_CREATE].alloc_res ();
   fsrv->c->call (NFSPROC3_CREATE, &c3arg, cres,
