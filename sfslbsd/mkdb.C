@@ -79,9 +79,8 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
     }
     close(fd);
     _fp_db.sync();
-    warn << fspath << " " << chunker.chunk_vector().size() << " chunks\n";
+    // warn << fspath << " " << chunker.chunk_vector().size() << " chunks\n";
   }
-  // else warn << "nfs: " << dpath << "/" << fname << ": " << err << "\n";
   if (_requests > 0) 
     _requests--;
 
@@ -103,23 +102,19 @@ read_directory(const char *dpath, DIR *dirp = 0L)
   struct dirent *de = NULL;
   _requests++;
   while ((de = readdir (dirp))) {
-    struct stat sb;
     if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
       continue;
-      
     snprintf(fspath, PATH_MAX, "%s/%s/%s", _mntp, dpath, de->d_name);
-    stat(fspath, &sb);
-      
     char newpath[PATH_MAX];
     snprintf(newpath, PATH_MAX, "%s/%s", dpath, de->d_name);
-    
+
+    struct stat sb;
+    stat(fspath, &sb);
     if (S_ISDIR(sb.st_mode))
       read_directory(newpath);
-    
-    else if (S_ISREG(sb.st_mode)) {
+    else {
       _requests++;
       _totalfns++;
-      
       char *dpath2 = New char[PATH_MAX];
       strncpy(dpath2, dpath, PATH_MAX);
       char *fname = New char[PATH_MAX];

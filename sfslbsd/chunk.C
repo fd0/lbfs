@@ -7,6 +7,7 @@
 //
 // ./chunk /usr/lib
 
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <stdio.h>
 #include <dirent.h>
@@ -53,18 +54,18 @@ read_directory(const char *dpath)
   if ((dirp = opendir (dpath)) == 0) return;
   struct dirent *de = NULL;
   while ((de = readdir (dirp))) {
-    struct stat sb;
     if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
       continue;
     char path[PATH_MAX];
     sprintf(path, "%s/%s", dpath, de->d_name);
+    struct stat sb;
+    stat(path, &sb);
     if (S_ISDIR(sb.st_mode))
       read_directory(path);
     else
       chunk_file(path);
   }
   closedir(dirp);
-  done();
 }
 
 int 
