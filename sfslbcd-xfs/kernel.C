@@ -361,7 +361,9 @@ void akernel() {
     fdcb(kernel_fd, selread, NULL);
     return;
   } else {
+#if DEBUG > 0
     warn << "akernel: received data\n";
+#endif
     process_message(len, data.cstr());
   }
   //delete [] data;
