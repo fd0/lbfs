@@ -334,8 +334,8 @@ struct copy_obj {
   cb_t cb;
   ref<aclnt> c;
 
-  const nfs_fh3 &src;
-  const nfs_fh3 &dst;
+  const nfs_fh3 src;
+  const nfs_fh3 dst;
 
   getattr3res ares;
   commit3res cres;
