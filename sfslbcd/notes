@@ -9,9 +9,17 @@ changes name everytime LBFS need to fetch content of the file from
 server. e->prevfn is only used while LBFS is fetching content from the
 server: it points to the last file fetched from server. After a fetch
 is completed, e->prevfn is set to e->fn. We need e->prevfn so we can
-still use chunks from the previous version of a file.
+still use chunks from the previous version of a file. 
 
-*************
+It's not as important that we keep the previous version of a file when
+we modify the file, because the application will write out a new
+version, which, in scenarios where LBFS win, is similar to the older
+version. When we write out the file to the server, we update the chunk
+database with new chunk information.
+
+
+
+**********************************************
 
 Caching Client Implementation
 
