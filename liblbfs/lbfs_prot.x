@@ -37,6 +37,25 @@ struct lbfs_committmp3args {
   nfs_fh3 commit_to;
 };
 
+struct lbfs_fp3 {
+  uint32 count;
+  uint64 fingerprint;
+  sfs_hash hash;
+};
+
+struct lbfs_getfp3resok {
+  post_op_attr file_attributes;
+  lbfs_fp3 fprints<>;
+  bool eof;
+};
+
+union lbfs_getfp3res switch (nfsstat3 status) {
+case NFS3_OK:
+	lbfs_getfp3resok resok;
+default:
+	ex_post_op_attr resfail;
+};
+
 program LBFS_PROGRAM {
 	version LBFS_V3 {
 		void
@@ -113,6 +132,10 @@ program LBFS_PROGRAM {
 		
 		ex_commit3res
 		lbfs_NFSPROC3_COMMITTMP (lbfs_committmp3args) = 24;
+
+		lbfs_getfp3res
+		lbfs_NFSPROC3_GETFP (nfs_fh3) = 25;
+
 	} = 3;
 } = 344444;
 
