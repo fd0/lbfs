@@ -104,13 +104,22 @@ public:
 class server : public sfsserver_auth {
   str cdir;
   struct fcache {
+    static const int fcache_ok = 0;
+    static const int fcache_block = 1;
+    static const int fcache_dirty = 2;
+    static const int fcache_error = 3;
     nfs_fh3 fh;
+    int status;
     fattr3 fa;
     uint64 osize;
-    bool dirty;
     int fd;
-    fcache(nfs_fh3 fh, fattr3 fa)
-      : fh(fh), fa(fa), osize(fa.size), dirty(false), fd(-1) {}
+    vec<nfscall *> rpcs;
+    fcache(nfs_fh3 fh)
+      : fh(fh), status(fcache_block), fd(-1) {}
+    bool ok() const { return status == fcache_ok; }
+    bool dirty() const { return status == fcache_dirty; }
+    bool block() const { return status == fcache_block; }
+    bool error() const { return status == fcache_error; }
   };
 
   attr_cache ac;
@@ -119,19 +128,18 @@ class server : public sfsserver_auth {
   void dispatch_dummy (svccb *sbp);
   void cbdispatch (svccb *sbp);
   void setfd (int fd);
-  
   void getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
-  void access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
+  bool dont_run_rpc (nfscall *nc);
 
   void flush_cache (nfscall *nc, fcache *e);
   void read_from_cache (nfscall *nc, fcache *e);
   void write_to_cache (nfscall *nc, fcache *e);
   int truncate_cache (uint64 size, fcache *e);
+  void check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid);
 
   void close_reply (nfscall *nc, fattr3 fa, bool ok);
-  void file_cached (time_t rqtime, nfscall *nc, void *res, bool ok);
-  void access_cached_reply (nfscall *nc, int32_t perm, fattr3 fa,
-                            bool update_fa, bool ok);
+  void access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
+  void file_cached (fcache *e, bool ok);
 
   void remove_cache (fcache e);
   str fh2fn(nfs_fh3 fh) {
@@ -145,8 +153,8 @@ class server : public sfsserver_auth {
     return n;
   }
 
-  void fcache_insert (nfs_fh3 fh, fattr3 fa) {
-    struct fcache f(fh, fa);
+  void fcache_insert (nfs_fh3 fh) {
+    struct fcache f(fh);
     fc.insert(fh,f);
   }
 

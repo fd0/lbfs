@@ -1,8 +1,5 @@
 
-run with dmalloc; check for memory leaks
-
-return from ACCESS w/o finish fetching the entire file, block any
-subsequent RPC on file until file is fetched
+make large read (e.g. calling emacs) faster
 
 partial file caching - don't need to fetch entire file before
 returning
