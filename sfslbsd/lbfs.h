@@ -14,6 +14,8 @@
   (p == lbfs_NFSPROC3_CONDWRITE ? NFSPROC3_WRITE : \
      (p == lbfs_NFSPROC3_MKTMPFILE ? NFSPROC3_CREATE : p))
 
+extern void lbfs_nfs3exp_err (svccb *sbp, nfsstat3 status);
+
 // read from nfs_fh3 object. pass into callback a data ptr, a count, and a
 // reference to post_op_attr. callback should free data ptr when done, even if
 // an error state is passed to the callback.

@@ -118,6 +118,7 @@ client::condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
   if (err || count != cwa->count ||
       fingerprint(data, count) != cwa->fingerprint ||
       compare_sha1_hash(data, count, cwa->hash)) {
+    warn << "CONDWRITE: YYY hash or fingerprint mismatch\n";
     delete data;
     // only remove record if it is not an error, so transient 
     // failures won't cause db to be incorrected deleted.
@@ -151,7 +152,8 @@ client::condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
   }
 
   delete iter;
-  nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
+  warn << "CONDWRITE: ZZZ ran out of files to try\n";
+  lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
 
 void
@@ -173,7 +175,8 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
       delete iter; 
     }
   }
-  nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
+  warn << "CONDWRITE: XXX " << cwa->fingerprint << " not in DB\n";
+  lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
 
 void
@@ -204,7 +207,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   int r = rand();
   str rstr = armor32((void*)&r, sizeof(int));
   char tmpfile[5+fhstr.len()+1+rstr.len()+1];
-  sprintf(tmpfile, ".sfs.%s.%s", fhstr.cstr(), rstr.cstr());
+  sprintf(tmpfile, "sfs.%s.%s", fhstr.cstr(), rstr.cstr());
   warn << "tmp file is " << tmpfile << "\n";
   
   u_int32_t authno = sbp->getaui ();
@@ -239,7 +242,7 @@ client::nfs3dispatch (svccb *sbp)
     return;
   }
   if (!fsrv) {
-    nfs3exp_err (sbp, NFS3ERR_BADHANDLE);
+    lbfs_nfs3exp_err (sbp, NFS3ERR_BADHANDLE);
     return;
   }
 

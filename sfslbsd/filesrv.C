@@ -74,6 +74,59 @@ filesrv::path2fsidx (str path, size_t nfs)
   return best;
 }
 
+#define lbfs_mkerr(proc, arg, res)                \
+  case proc:                                      \
+    sbp->replyref (res (status), nocache);        \
+      break;
+
+#define lbfs_trans(proc, type)                                  \
+  case proc:                                                    \
+    if (rpc_traverse (fht, *static_cast<type *> (objp)))        \
+      return true;                                              \
+    if (!fht.err)                                               \
+      fht.err = NFS3ERR_INVAL;                                  \
+    return false;
+#define lbfs_transarg(proc, arg, res) lbfs_trans (proc, arg)
+#define lbfs_transres(proc, arg, res) lbfs_trans (proc, res)
+
+#define LBFS_PROGRAM_3_APPLY_NONULL(macro) \
+    LBFS_PROGRAM_3_APPLY_NOVOID (macro, nfs3void)
+
+static bool
+lbfs_nfs3_transarg (fh3trans &fht, void *objp, u_int32_t proc)
+{
+  switch (proc) {
+    LBFS_PROGRAM_3_APPLY_NONULL (lbfs_transarg);
+  default:
+    panic ("lbfs_nfs3_transarg: bad proc %d\n", proc);
+  }
+}
+
+static bool
+lbfs_nfs3exp_transres (fh3trans &fht, void *objp, u_int32_t proc)
+{
+  switch (proc) {
+    LBFS_PROGRAM_3_APPLY_NONULL (lbfs_transres);
+  default:
+    panic ("lbfs_nfs3exp_transres: bad proc %d\n", proc);
+  }
+}
+
+void
+lbfs_nfs3exp_err (svccb *sbp, nfsstat3 status)
+{
+  assert (status);
+  /* After JUKEBOX errors, FreeBSD resends requests with the same xid. */
+  bool nocache = status == NFS3ERR_JUKEBOX;
+
+  switch (sbp->proc ()) {
+    LBFS_PROGRAM_3_APPLY_NOVOID (lbfs_mkerr, nfs3void);
+  default:
+    panic ("nfs3exp_err: invalid proc %d\n", sbp->proc ());
+  }
+}
+
+
 filesrv::filesrv ()
   : leasetime (60), st (synctab_alloc ())
 {
@@ -146,7 +199,7 @@ filesrv::gotroots (bool ok)
     
     sattr3 trash_attr;
     trash_attr.mode.set_set(true);
-    *(trash_attr.mode.val) = 0700;
+    *(trash_attr.mode.val) = 0777;
     trash_attr.uid.set_set(true);
     *(trash_attr.uid.val) = 0;
     trash_attr.gid.set_set(true);
@@ -403,42 +456,8 @@ anon_checkperm (svccb *sbp, u_int options, bool isroot)
     break;
   }
 
-  nfs3exp_err (sbp, NFS3ERR_PERM);
+  lbfs_nfs3exp_err (sbp, NFS3ERR_PERM);
   return false;
-}
-
-
-#define lbfs_trans(proc, type)                                  \
-  case proc:                                                    \
-    if (rpc_traverse (fht, *static_cast<type *> (objp)))        \
-      return true;                                              \
-    if (!fht.err)                                               \
-      fht.err = NFS3ERR_INVAL;                                  \
-    return false;
-#define lbfs_transarg(proc, arg, res) lbfs_trans (proc, arg)
-#define lbfs_transres(proc, arg, res) lbfs_trans (proc, res)
-
-#define LBFS_PROGRAM_3_APPLY_NONULL(macro) \
-    LBFS_PROGRAM_3_APPLY_NOVOID (macro, nfs3void)
-
-static bool
-lbfs_nfs3_transarg (fh3trans &fht, void *objp, u_int32_t proc)
-{
-  switch (proc) {
-    LBFS_PROGRAM_3_APPLY_NONULL (lbfs_transarg);
-  default:
-    panic ("lbfs_nfs3_transarg: bad proc %d\n", proc);
-  }
-}
-
-static bool
-lbfs_nfs3exp_transres (fh3trans &fht, void *objp, u_int32_t proc)
-{
-  switch (proc) {
-    LBFS_PROGRAM_3_APPLY_NONULL (lbfs_transres);
-  default:
-    panic ("lbfs_nfs3exp_transres: bad proc %d\n", proc);
-  }
 }
 
 bool
@@ -446,11 +465,11 @@ filesrv::fixarg (svccb *sbp, reqstate *rqsp)
 {
   fh3trans fht (fh3trans::DECODE, fhkey);
   if (!lbfs_nfs3_transarg (fht, sbp->template getarg<void> (), sbp->proc ())) {
-    nfs3exp_err (sbp, nfsstat3 (fht.err));
+    lbfs_nfs3exp_err (sbp, nfsstat3 (fht.err));
     return false;
   }
   if (fht.srvno >= fstab.size ()) {
-    nfs3exp_err (sbp, NFS3ERR_BADHANDLE);
+    lbfs_nfs3exp_err (sbp, NFS3ERR_BADHANDLE);
     return false;
   }
   rqsp->fsno = fht.srvno;
@@ -472,7 +491,7 @@ filesrv::fixarg (svccb *sbp, reqstate *rqsp)
       diropargs3 *doa = sbp->template getarg<diropargs3> ();
       if (doa->name == ".." && doa->dir == fsp->fh_root) {
 	if (!getfsno (fsp)) {
-	  nfs3exp_err (sbp, NFS3ERR_ACCES);
+	  lbfs_nfs3exp_err (sbp, NFS3ERR_ACCES);
 	  return false;
 	}
 	doa->dir = fsp->fh_mntpt;
@@ -562,7 +581,7 @@ filesrv::fixres (svccb *sbp, void *res, reqstate *rqsp)
   fht.fattr_hook = fhook;
   if (!lbfs_nfs3exp_transres (fht, res, sbp->proc ())) {
     warn ("nfs3reply: nfs3_transres encode failed (err %d)\n", fht.err);
-    nfs3exp_err (sbp, nfsstat3 (fht.err));
+    lbfs_nfs3exp_err (sbp, nfsstat3 (fht.err));
     return false;
   }
 

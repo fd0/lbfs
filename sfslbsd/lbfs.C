@@ -141,4 +141,3 @@ mkdir3 (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
   vNew mkdir3obj (c, dir, name, attr, cb);
 }
 
-
