@@ -182,6 +182,7 @@ struct read_obj {
     if (!errorcb)
       cb (outstanding_reads == 0,true);
     if (outstanding_reads == 0) {
+      fe->afh->fsync (wrap (&read_obj::file_closed));
       fe->prevfn = fe->fn;
       delete this;
     }
@@ -219,7 +220,7 @@ struct read_obj {
       if (cv.size () == 1 && cv[0]->hash_eq (rds->hash) &&
 	  (unsigned)sz == rds->cnt) {
         // got a matching chunk
-	warn << "matching chunk found\n";
+	// warn << "matching chunk found\n";
         fe->afh->write (rds->offset, buf,
 	                wrap (this, &read_obj::read_reply_write,
 			      rds->offset, rds->cnt));
@@ -228,12 +229,15 @@ struct read_obj {
 	delete rds;
 	return;
       }
+      else 
+	warn << "got data, but no match\n";
     }
 
     outstanding_reads--;
     delete c;
     rds->ci->del ();
     if (!next_chunk (false, rds)) {
+      warn << "no next chunk, queueing " << rds->cnt << "\n";
       rq_off.push_back (rds->offset);
       rq_cnt.push_back (rds->cnt);
       delete rds->ci;
@@ -256,6 +260,7 @@ struct read_obj {
     delete c;
     rds->ci->del ();
     if (!next_chunk (false, rds)) {
+      warn << "can't open file, queueing " << rds->cnt << "\n";
       rq_off.push_back (rds->offset);
       rq_cnt.push_back (rds->cnt);
       delete rds->ci;
@@ -277,14 +282,15 @@ struct read_obj {
       nfs_fh3 f;
       c->get_fh(f);
       file_cache *e = srv->file_cache_lookup (f);
-      if (e) {
+      if (e && e->prevfn != "" && e->prevfn != fe->fn) {
 	outstanding_reads++;
 	file_cache::a->open
 	  (e->prevfn, O_RDONLY, 0,
 	   wrap (this, &read_obj::check_chunk_open, rds, c));
 	return true;
       }
-      rds->ci->del ();
+      if (!e)
+	rds->ci->del ();
       r = rds->ci->next (c);
     }
     delete c;
@@ -315,6 +321,8 @@ struct read_obj {
 	}
       }
       if (!checking) { // chunk not found locally
+        warn << index << ": nothing in db, queueing "
+	     << res->resok->fprints[i].count << "\n";
         rq_off.push_back (offset);
 	rq_cnt.push_back (res->resok->fprints[i].count);
       }

@@ -83,7 +83,7 @@ server::access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
         e = file_cache_lookup(a->object);
         assert(e);
 	e->fn = gen_fn_from_fh (a->object);
-	e->prevfn = e->fn;
+	e->prevfn = "";
 	e->fa.mtime.seconds = 0;
 	e->fa.mtime.nseconds = 0;
         e->open();
