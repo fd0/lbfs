@@ -1,7 +1,6 @@
 
 #include <sys/types.h>
 #include <stdio.h>
-#include <db.h>
 
 #include "sha1.h"
 #include "lbfsdb.h"

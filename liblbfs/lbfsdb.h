@@ -4,7 +4,11 @@
 #include "vec.h"
 #include "async.h"
 #include "nfs3_prot.h"
-#include "db.h"
+#ifdef HAVE_DB3_H
+#include <db3.h>
+#else /* !HAVE_DB3_H */
+#include <db.h>
+#endif /* !HAVE_DB3_H */
 #include "rpctypes.h"
 
 // we keep P(t), x, and K the same for whole file system, so two equivalent
