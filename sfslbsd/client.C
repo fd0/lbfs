@@ -33,6 +33,8 @@
 #include "fingerprint.h"
 #include "lbfs.h"
 
+#define DEBUG 1
+
 
 ihash<const u_int64_t, client, &client::generation, &client::glink> clienttab;
 
@@ -47,11 +49,7 @@ client::fail ()
 void
 client::nfs3reply (svccb *sbp, void *res, filesrv::reqstate rqs, clnt_stat err)
 {
-#if 0
-  xdrproc_t xdr = nfs_program_3.tbl[LBFS_PROC_RES_TRANS(sbp->proc ())].xdr_res;
-#else
   xdrproc_t xdr = lbfs_program_3.tbl[sbp->proc()].xdr_res;
-#endif
 
   if (err) {
     xdr_delete (xdr, res);
@@ -124,6 +122,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   if (err || count != cwa->count ||
       fingerprint(data, count) != cwa->fingerprint ||
       compare_sha1_hash(data, count, cwa->hash)) {
+#if DEBUG > 0
     if (err) 
       warn << "CONDWRITE: error reading file\n";
     else if (count != cwa->count)
@@ -132,6 +131,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
       warn << "CONDWRITE: fingerprint mismatch\n";
     else 
       warn << "CONDWRITE: sha1 hash mismatch\n";
+#endif
     delete[] data;
     iter->del(); 
     if (!iter->next(&c)) { 
@@ -148,8 +148,10 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   }
  
   else {
+#if DEBUG > 1
     // fingerprint matches, do write
     warn << "CONDWRITE: bingo, found a condwrite candidate\n";
+#endif
     nfs3_write(fsrv->c, cwa->file, 
 	       wrap(mkref(this), &client::condwrite_write_cb, 
 		    sbp, rqs, cwa->count),
@@ -159,7 +161,9 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   }
 
   delete iter;
+#if DEBUG > 0
   warn << "CONDWRITE: ran out of files to try\n";
+#endif
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
   
@@ -167,14 +171,15 @@ void
 client::condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, size_t count,
                             write3res *res, str err)
 {
-  if (err) {
-    write3res wres = *res;
-    nfs3reply(sbp, &wres, rqs, RPC_SUCCESS);
-  } else {
-    write3res wres = *res;
-    wres.resok->count = count;
-    nfs3reply(sbp, &wres, rqs, RPC_SUCCESS);
+  write3res *wres = New write3res;
+  *wres = *res;
+  if (!err || res->status) {
+    if (!res->status)
+      wres->resok->count = count;
+    nfs3reply(sbp, wres, rqs, RPC_SUCCESS);
   }
+  else
+    nfs3reply(sbp, wres, rqs, RPC_FAILED);
 }
 
 void
@@ -206,7 +211,9 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
       delete iter; 
     }
   }
+#if DEBUG > 1
   warn << "CONDWRITE: " << cwa->fingerprint << " not in DB\n";
+#endif
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
 
@@ -217,7 +224,7 @@ client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, char *path,
   diropres3 *cres = static_cast<diropres3 *>(_cres);
   if (err) {
     delete[] path;
-    nfs3reply (sbp, _cres, rqs, RPC_SUCCESS);
+    nfs3reply (sbp, _cres, rqs, err);
   }
   else {
     switch(cres->status) {
@@ -245,7 +252,9 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   str rstr = armor32((void*)&r, sizeof(int));
   char *tmpfile = New char[5+fhstr.len()+1+rstr.len()+1];
   sprintf(tmpfile, "sfs.%s.%s", fhstr.cstr(), rstr.cstr());
+#if DEBUG > 1
   warn << "MKTMPFILE: " << tmpfile << "\n";
+#endif
   
   u_int32_t authno = sbp->getaui ();
   create3args c3arg;
@@ -270,8 +279,13 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   nfs_fh3 fh = cta->commit_to;
   u_int32_t authno = sbp->getaui ();
   unsigned fsno = rqs.fsno;
-  
-  nfs3reply (sbp, res, rqs, RPC_SUCCESS);
+
+  commit3res *cres = New commit3res;
+  *cres = *res;
+  if (!err || cres->status)
+    nfs3reply (sbp, cres, rqs, RPC_SUCCESS);
+  else
+    nfs3reply (sbp, cres, rqs, RPC_FAILED);
 
   chunker->stop();
   vec<lbfs_chunk *> *cv = chunker->cvp;
@@ -279,7 +293,9 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     for (unsigned i=0; i<cv->size(); i++) {
       (*cv)[i]->loc.set_fh(fh);
       lbfsdb.add_chunk((*cv)[i]->fingerprint, &((*cv)[i]->loc)); 
+#if DEBUG > 2
       warn << "COMMITTMP: adding " << (*cv)[i]->fingerprint << " to database\n";
+#endif
     }
     lbfsdb.sync();
   }
@@ -290,7 +306,9 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   tmpfh_record *tfh_rec = fhtab.tab[tmpfh];
   if (tfh_rec) {
     tfh_rec->name[tfh_rec->len] = '\0';
+#if DEBUG > 1
     warn ("COMITTMP: remove %s\n", tfh_rec->name);
+#endif
     wccstat3 *rres = New wccstat3;
     diropargs3 rarg;
     rarg.dir = fsrv->sfs_trash_fhs[fsno];
@@ -331,10 +349,11 @@ void
 client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
                   size_t count, read3res *rres, str err)
 {
-  chunker->stop();
+  if (!err && rres->resok->eof) 
+    chunker->stop();
   vec<lbfs_chunk *> *cv = chunker->cvp;
   lbfs_getfp3res *res = New lbfs_getfp3res;
-  if (!err && cv->size() > 0) {
+  if (!err) {
     unsigned i = 0;
     unsigned n = cv->size() < 1024 ? cv->size() : 1024;
     size_t off = (*cv)[0]->loc.pos();
@@ -345,20 +364,30 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       x.fingerprint = (*cv)[i]->fingerprint;
       x.hash = *(chunker->hv[i]);
       res->resok->fprints[i] = x;
+#if DEBUG > 1
       warn << "GETFP: " << off << " " << (*cv)[i]->fingerprint 
 	   << " " << armor32(x.hash.base(), sha1::hashsize) << "\n";
+#endif
       off += x.count;
     }
     res->resok->eof=rres->resok->eof;
     res->resok->file_attributes = 
       *(reinterpret_cast<ex_post_op_attr*>(&(rres->resok->file_attributes)));
+    nfs3reply (sbp, res, rqs, RPC_SUCCESS);
   }
   else {
-    res->set_status(rres->status);
-    nfs3_exp_enable (NFSPROC3_READ, rres);
-    *(res->resfail) = *((reinterpret_cast<ex_read3res*>(rres))->resfail);
+#if DEBUG > 0
+    warn << "GETFP: failed " << err << "\n";
+#endif
+    if (rres->status) {
+      res->set_status(rres->status);
+      nfs3_exp_enable (NFSPROC3_READ, rres);
+      *(res->resfail) = *((reinterpret_cast<ex_read3res*>(rres))->resfail);
+      nfs3reply (sbp, res, rqs, RPC_SUCCESS);
+    }
+    else
+      nfs3reply (sbp, res, rqs, RPC_FAILED);
   }
-  nfs3reply (sbp, res, rqs, RPC_SUCCESS);
 
   for (unsigned i=0; i<cv->size(); i++) delete (*cv)[i];
   delete cv;
@@ -404,24 +433,17 @@ client::nfs3dispatch (svccb *sbp)
   if (!fsrv->fixarg (sbp, &rqs))
     return;
 
-  if (sbp->proc () == lbfs_MKTMPFILE) {
+  if (sbp->proc () == lbfs_MKTMPFILE)
     mktmpfile(sbp, rqs);
-    warn ("server: MKTMPFILE (%lu %lu)\n", xc->bytes_sent, xc->bytes_recv);
-  }
-  else if (sbp->proc () == lbfs_COMMITTMP) {
-    warn ("server: COMMITTMP (%lu %lu)\n", xc->bytes_sent, xc->bytes_recv);
+  else if (sbp->proc () == lbfs_COMMITTMP)
     committmp(sbp, rqs);
-  }
-  else if (sbp->proc () == lbfs_CONDWRITE) {
-    warn ("server: CONDWRITE (%lu %lu)\n", xc->bytes_sent, xc->bytes_recv);
+  else if (sbp->proc () == lbfs_CONDWRITE)
     condwrite(sbp, rqs);
-  }
-  else if (sbp->proc () == lbfs_GETFP) {
-    warn ("server: GETFP (%lu %lu)\n", xc->bytes_sent, xc->bytes_recv);
+  else if (sbp->proc () == lbfs_GETFP)
     getfp(sbp, rqs);
-  }
   else {
-    warn ("server: %d (%lu %lu)\n", sbp->proc(), xc->bytes_sent, xc->bytes_recv);
+    if (sbp->proc () == NFSPROC3_LOOKUP) 
+      warn ("server: %lu %lu\n", xc->bytes_sent, xc->bytes_recv);
     void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
     if (sbp->proc () == NFSPROC3_RENAME)
       fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
