@@ -123,7 +123,7 @@ sfslbcd_alloc(sfsprog *prog, ref<nfsserv> ns, int tcpfd,
 
 server::server (const sfsserverargs &a)
   : sfsserver_auth (a),
-    fc(50000, wrap(mkref(this), &server::file_cache_gc_remove)),
+    fc(4096, wrap(mkref(this), &server::file_cache_gc_remove)),
     lc(64, wrap(mkref(this), &server::dir_lc_gc_remove))
 {
   cdir = strbuf(LBFSCACHE) << "/" << a.ma->carg.ci5->sname;
@@ -174,7 +174,7 @@ main (int argc, char **argv)
   else
     fatal ("could not get connection to sfscd.\n");
 
-  server::fpdb.open_and_truncate(FP_DB);
+  server::fpdb.open_and_truncate(CLI_FPDB);
   delaycb (LBCD_GC_PERIOD, wrap(server::db_sync));
 
   amain ();

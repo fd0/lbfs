@@ -180,8 +180,8 @@ filesrv::init (cb_t c)
 {
   assert (!cb);
   cb = c;
-  
-  fpdb.open (FP_DB);
+ 
+  fpdb.open (SRV_FPDB);
   fp_db::iterator *iter = 0;
   delaycb(LBSD_GC_PERIOD, wrap(this, &filesrv::db_gc, iter));
 

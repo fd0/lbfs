@@ -1063,13 +1063,20 @@ server::dispatch (nfscall *nc)
   dispatch_to_server (nc);
 }
 
+static void
+unlink_cb (int)
+{
+}
+
 void
 server::file_cache_gc_remove (file_cache *e)
 {
   str fn = e->fn;
+  str pfn = e->prevfn;
   warn << "remove " << fn << "\n";
-  if (unlink(fn.cstr()) < 0)
-    perror("removing cache file");
+  file_cache::a->unlink(fn.cstr(), wrap(unlink_cb));
+  warn << "remove " << pfn << "\n";
+  file_cache::a->unlink(pfn.cstr(), wrap(unlink_cb));
   delete e;
 }
 

@@ -6,8 +6,10 @@
 #include "rabinpoly.h"
 #include "fingerprint.h"
 
-const char *FP_DB = getenv("LBFS_FPDB") ? getenv("LBFS_FPDB") 
-                                        : "/var/tmp/fp.db";
+const char *CLI_FPDB = getenv("LBFS_CLIDB") ? getenv("LBFS_CLIDB") 
+                                            : "/var/tmp/fp-cli.db";
+const char *SRV_FPDB = getenv("LBFS_SRVDB") ? getenv("LBFS_SRVDB") 
+                                            : "/var/tmp/fp-srv.db";
 
 unsigned Chunker::min_size_suppress = 0;
 unsigned Chunker::max_size_suppress = 0;

@@ -196,7 +196,8 @@ db_base<K,V>::add_entry(K k, V *v, int size)
 }
 
 #include "fingerprint.h"
-extern const char *FP_DB;
+extern const char *CLI_FPDB;
+extern const char *SRV_FPDB;
 typedef db_base<u_int64_t, chunk_location> fp_db;
 
 #endif _LBFS_DB_

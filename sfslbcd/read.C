@@ -183,7 +183,10 @@ struct read_obj {
       cb (outstanding_reads == 0,true);
     if (outstanding_reads == 0) {
       fe->afh->fsync (wrap (&read_obj::file_closed));
+      str pfn = fe->prevfn;
       fe->prevfn = fe->fn;
+      warn << "remove " << pfn << "\n";
+      file_cache::a->unlink(pfn.cstr(), wrap(&read_obj::file_closed));
       delete this;
     }
   }
