@@ -169,14 +169,14 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     
     delete chunker0;
     delete iter;
-    fsrv->fpdb.sync();
+    // fsrv->fpdb.sync();
     return;
   }
 
   delete iter;
   if (lbsd_trace > 0)
     warn << "CONDWRITE: ran out of files to try\n";
-  fsrv->fpdb.sync();
+  // fsrv->fpdb.sync();
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
 }
   
@@ -425,12 +425,12 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
 	     << c->location().count() << " to database\n";
       }
     }
-    fsrv->fpdb.sync();
     u->name[u->len] = '\0';
     fsrv->clear_trashent(rqs.fsno, u->srv_fd);
     ufdtab.tab.remove(u);
     delete u;
   }
+  fsrv->fpdb.sync();
 }
 
 void
@@ -474,7 +474,6 @@ client::aborttmp (svccb *sbp, filesrv::reqstate rqs)
 	       << c->location().count() << " to database\n";
         }
       }
-      fsrv->fpdb.sync();
     }
     else {
       for (size_t i=0; i<u->sbps.size(); i++)
@@ -488,7 +487,7 @@ client::aborttmp (svccb *sbp, filesrv::reqstate rqs)
   }
   else
     lbfs_nfs3exp_err (sbp, NFS3ERR_NOENT);
-
+  fsrv->fpdb.sync();
 }
 
 void 

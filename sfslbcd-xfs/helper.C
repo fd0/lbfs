@@ -734,7 +734,6 @@ struct getfp_obj {
 	  lbfsdb.add_entry (cvp[i]->fingerprint(), &(cvp[i]->location()));
 	  delete cvp[i];
 	}
-	lbfsdb.sync ();
 	delete this;
 	return;
       }
@@ -933,6 +932,7 @@ struct getfp_obj {
   { 
     if (out_fd) close(out_fd);
     (*cb) ();
+    lbfsdb.sync ();
   }
 
   getfp_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
@@ -2241,7 +2241,6 @@ struct putdata_obj {
       }
       eof = true;
     }
-    lbfsdb.sync ();
     if (lbcd_trace > 1)
       warn << "total_blocks = "  << total_blocks << " " 
 	   << count << " eof " << eof << "\n";
@@ -2266,6 +2265,7 @@ struct putdata_obj {
   ~putdata_obj () 
   {
     delete chunker;
+    lbfsdb.sync ();
   }
 
   putdata_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
