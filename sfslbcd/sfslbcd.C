@@ -55,8 +55,7 @@ sfslbcd_getfd(sfsprog*prog, ref<nfsserv> ns, int tcpfd,
   if (!isunixsocket (fd))
     tcp_nodelay (fd);
   ptr<axprt_crypt> xc = axprt_crypt::alloc (fd);
-  // ptr<axprt> x = axprt_compress::alloc (xc);
-  ptr<axprt> x = xc;
+  ptr<axprt> x = axprt_compress::alloc (xc);
   sfs_connect_withx
     (ma->carg, wrap(&sfslbcd_connect, prog, ns, tcpfd, ma, cb), x);
 }
@@ -106,7 +105,8 @@ main (int argc, char **argv)
   server::keygen ();
 
   if (ptr<axprt_unix> x = axprt_unix_stdin ())
-    vNew sfsprog (x, &sfslbcd_alloc);
+    // doesn't need simulated close, but mount with close option
+    vNew sfsprog (x, &sfslbcd_alloc, false, true);
   else
     fatal ("could not get connection to sfscd.\n");
 

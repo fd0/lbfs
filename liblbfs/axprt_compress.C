@@ -25,8 +25,9 @@ int lbfs_compress =
   (getenv("LBFS_COMPRESS")?atoi(getenv("LBFS_COMPRESS")):Z_DEFAULT_COMPRESSION);
 
 axprt_compress::axprt_compress (ref<axprt> xx)
-  : axprt (true, true, xx->socksize), docompress (false), x (xx)
+  : axprt (true, true, xx->socksize), docompress (false)
 {
+  x = xx;
   assert (x->reliable && x->connected);
   x->setrcb (NULL);
   bzero (&zin, sizeof (zin));

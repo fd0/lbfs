@@ -20,8 +20,13 @@
  *
  */
 
+#include <typeinfo>
 #include "sfslbcd.h"
 #include "axprt_crypt.h"
+#include "axprt_compress.h"
+#include "lbfs_prot.h"
+
+int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 2);
 
 /* #define NO_ACACHE 1 */
 
@@ -114,9 +119,8 @@ server::setfd(int fd)
 {
   warn << "setfd in sfslbcd called\n";
   assert (fd >= 0);
-  xx = axprt_crypt::alloc (fd);  // XXX - shouldn't always be crypt
-  // x = axprt_compress::alloc (xx);
-  x = xx;
+  xx = axprt_crypt::alloc (fd);
+  x = axprt_compress::alloc (xx);
   sfsc = aclnt::alloc (x, sfs_program_1);
   sfscbs = asrv::alloc (x, sfscb_program_1,
                         wrap (this, &server::dispatch_dummy));
@@ -136,7 +140,10 @@ server::setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_cb)
   }
 
   rootfh = fh;
-  nfsc = aclnt::alloc (x, ex_nfs_program_3);
+  if (typeid (*x) != typeid (refcounted<axprt_compress>))
+    panic("sfslbcd: transport must be axprt_compress!\n");
+  static_cast<axprt_compress *> (x.get ())->compress ();
+  nfsc = aclnt::alloc (x, lbfs_program_3);
   nfscbs = asrv::alloc (x, ex_nfscb_program_3,
 			wrap (this, &server::cbdispatch));
   err_cb (false);
@@ -145,21 +152,11 @@ server::setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_cb)
 void
 server::dispatch (nfscall *nc)
 {
-#if 0
-  if (sfsctl_intercept (this, srvno, nc))
-    return;
-#endif
-
-#if 0
-  if (nc->proc () == NFSPROC_CLOSE) {
-    nfs_fh3 *fhp = nc->getfh3arg ();
-    warn << "close 0x" << hexdump (fhp->data.base (), fhp->data.size ())
-	 << "\n";
-    nfsstat3 ok (NFS3_OK);
-    nc->reply (&ok);
+  if (nc->proc() == cl_NFSPROC3_CLOSE) {
+    warn << "close\n";
+    nc->error (NFS3_OK);
     return;
   }
-#endif
 
 #ifndef NO_ACACHE
   if (nc->proc () == NFSPROC3_GETATTR) {
