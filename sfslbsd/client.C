@@ -349,10 +349,7 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
 	   << " " << armor32(x.hash.base(), sha1::hashsize) << "\n";
       off += x.count;
     }
-    if (i < cv->size())
-      res->resok->eof=false;
-    else
-      res->resok->eof=true;
+    res->resok->eof=rres->resok->eof;
     res->resok->file_attributes = 
       *(reinterpret_cast<ex_post_op_attr*>(&(rres->resok->file_attributes)));
   }

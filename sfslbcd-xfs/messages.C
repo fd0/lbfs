@@ -58,8 +58,7 @@ NULL						/* gc nodes */
 };
 
 void lbfs_condwrite(ref<condwrite3args> cwa, clnt_stat err);
-void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count, 
-		 lbfs_getfp3res *fpres);
+void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count);
 void nfs3_rmdir(int fd, struct xfs_message_rmdir *h, ex_lookup3res *lres,
 		clnt_stat err);
 
@@ -89,7 +88,7 @@ void getrootattr(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, ex_geta
   xfs_send_message_wakeup_multiple (fd,	h->header.sequence_num, 0,
 				    h0, h0_len, NULL, 0);
   delete res;
-
+  delete fsi;
 }
 
 void nfs3_fsinfo(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, 
@@ -116,7 +115,6 @@ void sfs_getfsinfo(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, clnt_
 
   nfsc->call(lbfs_NFSPROC3_FSINFO, &fsi->nfs->v3->root, res,
 	     wrap(&nfs3_fsinfo, fd, h, fsi, res));
-  delete fsi;
 }
 
 int xfs_message_getroot (int fd, struct xfs_message_getroot *h, u_int size)
@@ -336,9 +334,8 @@ void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res, ti
   delete res;
 }
 
-void write_file(ref<getfp_args> ga, uint64 offset, uint32 count, ex_read3res *res,
-		lbfs_getfp3res *fpres) {
-//, clnt_stat cl_err) {
+void write_file(ref<getfp_args> ga, uint64 offset, uint32 count, ex_read3res *res)
+{
 #if 0
   if (fht.setcur(ga->h->handle)) {
     warn << "nfs3_readdir: Can't find node handle\n";
@@ -369,19 +366,19 @@ void write_file(ref<getfp_args> ga, uint64 offset, uint32 count, ex_read3res *re
   close(out_fd);
 
   if (res->resok->count < count)
-    normal_read(ga, offset+res->resok->count, count-res->resok->count, fpres);
+    normal_read(ga, offset+res->resok->count, count-res->resok->count);
   else ga->blocks_written++;
 
 }
 
-void nfs3_read(ref<getfp_args> ga, uint64 offset, uint32 count, lbfs_getfp3res *fpres,
-	       ex_read3res *res, clnt_stat err) {
-  
+void nfs3_read(ref<getfp_args> ga, uint64 offset, uint32 count, 
+               ex_read3res *res, clnt_stat err) 
+{
   if (res->status == NFS3_OK && res->resok->file_attributes.present) {
 
-    write_file(ga, offset, count, res, fpres); 
+    write_file(ga, offset, count, res); 
 
-    if (ga->blocks_written == ga->total_blocks) {//fpres->resok->fprints.size()) {
+    if (ga->blocks_written == ga->total_blocks) {
 
       //add chunk to the database
       vec<lbfs_chunk *> cvp;
@@ -416,9 +413,8 @@ void nfs3_read(ref<getfp_args> ga, uint64 offset, uint32 count, lbfs_getfp3res *
   delete res;
 }
 
-void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count, 
-		 lbfs_getfp3res *fpres) {
-
+void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count)
+{
   if (fht.setcur(ga->h->handle)) {
     warn << "normal_read: Can't find node handle\n";
     return;
@@ -431,7 +427,7 @@ void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count,
   
   ex_read3res *rres = New ex_read3res;
   nfsc->call(lbfs_NFSPROC3_READ, &ra, rres,
-	     wrap(&nfs3_read, ga, offset, count, fpres, rres));
+	     wrap(&nfs3_read, ga, offset, count, rres));
 }
 
 void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
@@ -442,7 +438,6 @@ void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
   lbfs_db::chunk_iterator *ci = NULL;
   bool found = false;
   //  ga->blocks_written = 0;
-  unsigned char *buf;
   nfs_fh3 fh;
   lbfs_chunk_loc c;
 
@@ -527,7 +522,7 @@ void compose_file(ref<getfp_args> ga, lbfs_getfp3res *res) {
     }
     if (!found) {
       warn << "compose_file: fp = " << res->resok->fprints[i].fingerprint << " not in DB\n";
-      normal_read(ga, offset, res->resok->fprints[i].count, res);
+      normal_read(ga, offset, res->resok->fprints[i].count);
     }
     offset += res->resok->fprints[i].count;
   }
