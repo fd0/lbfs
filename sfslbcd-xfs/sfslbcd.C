@@ -72,5 +72,7 @@ int main(int argc, char **argv) {
   amain();
 #endif
 
+  delete device_file;
+  delete hostpath;
   return 0;
 }

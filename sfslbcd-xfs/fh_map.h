@@ -139,6 +139,7 @@ class fh_map {
       entry[i].xh.c = 0;
       entry[i].xh.d = 0;
       //delete entry[i].nh;
+      entry[i].nh = nfs_fh3();
       delete entry[i].cache_name;
       //delete cache file
       entry[i].opened = false;
@@ -153,6 +154,7 @@ class fh_map {
       entry[i].xh.c = 0;
       entry[i].xh.d = 0;
       //delete entry[i].nh;
+      entry[i].nh = nfs_fh3();
       delete entry[i].cache_name;
 #if 0      
       //delete cache file
@@ -192,6 +194,7 @@ class fh_map {
 	  warn << strerror(errno) << "(" << errno << ") on file =" << fname << "\n";
 	  return -1;
 	}
+	delete dname;
       } else {
 	warn << strerror(errno) << "(" << errno << ") on file =" << fname << "\n";
 	return -1;

@@ -87,22 +87,23 @@ class getfp_args {
 class rename_args {
  public: 
   rename_args(int f, struct xfs_message_rename *header) :
-    fd(f), h(header) {
-    lres = 0;
-    rnres = 0;
-    gares = 0;
-  }
+    fd(f), h(header), 
+    lres(New refcounted<ex_lookup3res>), 
+    rnres(New refcounted<ex_rename3res>), 
+    gares(New refcounted<ex_getattr3res>) {} 
+#if 0
   ~rename_args() {
     if (lres) delete lres;
     if (rnres) delete rnres;
     if (gares) delete gares;
   }
+#endif
   int fd;
   struct xfs_message_rename *h;
-  ex_lookup3res *lres;
+  ref<ex_lookup3res> lres;
   time_t rqtime1; //first attr time
-  ex_rename3res *rnres;
-  ex_getattr3res *gares;
+  ref<ex_rename3res> rnres;
+  ref<ex_getattr3res> gares;
 };
 
 // returns 0 if sha1 hash of data is equals to the given hash
