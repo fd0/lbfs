@@ -62,7 +62,6 @@ sfslbcd_alloc(sfsprog *prog, ref<nfsserv> ns, int tcpfd,
     }
     if (i<path.len() && substr(path,0,i) == "lbfs") {
       ma->carg.ci5->sname = substr(path,i+1);
-      str newpath = ma->carg.ci5->sname;
       sfs_connect(ma->carg, wrap(&sfslbcd_connect, prog, ns, tcpfd, ma, cb));
       return;
     }
