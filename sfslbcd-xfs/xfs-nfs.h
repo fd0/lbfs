@@ -26,7 +26,6 @@
 #include <sys/dir.h>
 #include "nfs3exp_prot.h"
 #include <xfs/xfs_message.h>
-#include "fh_map.h"
 
 #ifdef __linux__
 #include <xfs/xfs_dirent.h>
@@ -35,7 +34,6 @@
 #define xfs_dirent dirent
 #endif
 
-extern fh_map fht;
 
 struct write_dirent_args {
     int fd;
@@ -59,5 +57,6 @@ int nfsdirent2xfsfile(int, const char*, uint64);
 int xfsfile_rm_dirent(int, const char* fname);
 int xfsattr2nfsattr(xfs_attr, sattr3 *);
 int fattr2sattr(ex_fattr3, sattr3 *);
+void setpath(xfs_handle, char *, nfs_fh3);
 
 #endif /* _XFS_NFS_H */

@@ -20,6 +20,7 @@
  */
 
 #include "xfs-nfs.h"
+#include "fh_map.h"
 
 fh_map fht = fh_map();
 
@@ -302,4 +303,20 @@ int fattr2sattr(ex_fattr3 fa, sattr3 *sa) {
   }
 
   return 0;  
+}
+
+void setpath(xfs_handle parent_handle, char *name, nfs_fh3 obj) {
+  char *pname = NULL;
+
+  if (fht.setcur(parent_handle)) {
+    warn << "setpath: Can't find parent_handle\n";
+    return;
+  }  
+  strcpy(pname, fht.getpath_name());
+  strcat(pname, name);
+  if (fht.setcur(obj)) {
+    warn << "setpath: Can't find node handle\n";
+    return;
+  }  
+  fht.setpath_name(pname);
 }

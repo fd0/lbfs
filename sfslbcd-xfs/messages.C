@@ -20,6 +20,7 @@
  */
 
 #include "messages.h"
+#include "fh_map.h"
 
 /* Non-volatile File System Info */
 ex_fsinfo3resok fsinfo;
@@ -92,7 +93,13 @@ void getrootattr(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, ex_geta
   warn << "uid = " << getuid() << "\n"; 
 
   nfsobj2xfsnode(h->cred, fsi->nfs->v3->root, *res->attributes, rqtime, &msg.node);
-  
+  if (fht.setcur(fsi->nfs->v3->root)) {
+    warn << "getrootattr: Can't find root handle\n";
+    return;
+  }
+  fht.setpath_name("");
+  fht.setcache_loc(NULL);
+    
   msg.header.opcode = XFS_MSG_INSTALLROOT;
   h0 = (struct xfs_message_header *)&msg;
   h0_len = sizeof(msg);
@@ -215,7 +222,11 @@ void nfs3_lookup(int fd, struct xfs_message_getnode *h,
   }
 
   nfsobj2xfsnode(h->cred, lres->resok->object, *a.attributes, rqtime, &msg.node);
-
+  if (!fht.opened()) {
+    setpath(h->parent_handle, h->name, lres->resok->object);
+    if ((*a.attributes).type == NF3REG || (*a.attributes).type == NF3DIR)
+      fht.setcache_loc(NULL);
+  }
   msg.header.opcode = XFS_MSG_INSTALLNODE;
   msg.parent_handle = h->parent_handle;
   strcpy(msg.name, h->name);
@@ -315,7 +326,7 @@ void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res, ti
     msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R;
 
     //fill in cache_name, cache_handle, flag
-    strcpy(msg.cache_name, fht.getcache_name());
+    strcpy(msg.cache_name, fht.getcache_loc());
     args.fd = open(msg.cache_name, O_CREAT | O_RDWR | O_TRUNC, 0666); 
 
     if (args.fd < 0) 
@@ -459,7 +470,7 @@ void compose_file(ref<getfp_args> ga) {
 	    return;
 	  }
 	  
-	  chfd = open(fht.getcache_name(), O_RDONLY, 0666);
+	  chfd = open(fht.getcache_loc(), O_RDONLY, 0666);
 	  if (chfd < 0) {
 	    warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
 	    return;
@@ -570,7 +581,7 @@ void nfs3_read_exist(int fd, struct xfs_message_getdata *h) {
   msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R 
                   | XFS_OPEN_NW | XFS_DATA_W; //This line is a hack...need to get read access 
 
-  strcpy(msg.cache_name, fht.getcache_name());
+  strcpy(msg.cache_name, fht.getcache_loc());
   fhandle_t cfh;
   if (getfh(msg.cache_name, &cfh)) {
     warn << "getfh failed\n";
@@ -606,7 +617,7 @@ void getfp(int fd, struct xfs_message_getdata *h) {
   msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R 
     | XFS_OPEN_NW | XFS_DATA_W; //This line is a hack...need to get read access 
 
-  strcpy(msg.cache_name, fht.getcache_name());
+  strcpy(msg.cache_name, fht.getcache_loc());
   int cfd = open(msg.cache_name, O_CREAT | O_WRONLY | O_TRUNC, 0666);
   if (cfd < 0) {
     warn << "xfs_message_getdata: " << strerror(errno) << "\n";
@@ -903,7 +914,7 @@ void lbfs_mktmpfile(int fd, struct xfs_message_putdata* h,
   } 
   
   char fname[MAXPATHLEN];
-  strcpy(fname, fht.getcache_name());
+  strcpy(fname, fht.getcache_loc());
 
   warn << "fname = " << fname << "\n";
 
@@ -1033,14 +1044,15 @@ void nfs3_create(int fd, struct xfs_message_create *h, ex_diropres3 *res, time_t
     //create new file
     nfsobj2xfsnode(h->cred, *(res->resok->obj.handle), 
 		   *(res->resok->obj_attributes.attributes), rqtime, &msg2.node);
-    //int new_fd = assign_file(msg3.cache_name, fht.getcur());
+    setpath(h->parent_handle, h->name, *(res->resok->obj.handle));
+    fht.setcache_loc(NULL);
 
     if (fht.setcur(*(res->resok->obj.handle))) {
       warn << "nfs3_create: Can't find node handle\n";
       return;
     }
 
-    strcpy(msg3.cache_name, fht.getcache_name());
+    strcpy(msg3.cache_name, fht.getcache_loc());
     int new_fd = open(msg3.cache_name, O_CREAT | O_RDWR | O_TRUNC, 0666); 
 
     if (new_fd < 0) {
@@ -1062,7 +1074,7 @@ void nfs3_create(int fd, struct xfs_message_create *h, ex_diropres3 *res, time_t
       return;
     }
 
-    strcpy(msg1.cache_name, fht.getcache_name());
+    strcpy(msg1.cache_name, fht.getcache_loc());
 #if 0
     int dir_fd = open(msg1.cache_name, O_CREAT | O_RDWR | O_APPEND, 0666);
     if (nfsdirent2xfsfile(dir_fd, h->name, (*res->resok->obj_attributes.attributes).fileid) < 0)
@@ -1155,7 +1167,7 @@ void nfs3_mkdir(int fd, struct xfs_message_mkdir *h, ex_diropres3 *res, time_t r
       return;
     }
 
-    strcpy(msg3.cache_name, fht.getcache_name());
+    strcpy(msg3.cache_name, fht.getcache_loc());
     int new_fd = open(msg3.cache_name, O_CREAT, 0666); 
 
     if (new_fd < 0) {
@@ -1177,7 +1189,7 @@ void nfs3_mkdir(int fd, struct xfs_message_mkdir *h, ex_diropres3 *res, time_t r
       return;
     }
 
-    strcpy(msg1.cache_name, fht.getcache_name());
+    strcpy(msg1.cache_name, fht.getcache_loc());
 #if 0    
     int dir_fd = open(msg1.cache_name, O_WRONLY | O_APPEND, 0666);
     if (nfsdirent2xfsfile(dir_fd, h->name, (*res->resok->obj_attributes.attributes).fileid) < 0) 
@@ -1261,13 +1273,15 @@ void nfs3_symlink(int fd, struct xfs_message_symlink *h, ex_diropres3 *res,
     //create symlink
     nfsobj2xfsnode(h->cred, *(res->resok->obj.handle), 
 		   *(res->resok->obj_attributes.attributes), rqtime, &msg2.node);
+    setpath(h->parent_handle, h->name, *(res->resok->obj.handle));
+    fht.setcache_loc(h->contents);
 
     //write new direntry to parent dirfile (do a readdir or just append that entry?)
     if (fht.setcur(h->parent_handle)) {
       warn << "nfs3_symlink: Can't find parent handle\n";
       return;
     }
-    strcpy(msg1.cache_name, fht.getcache_name());
+    strcpy(msg1.cache_name, fht.getcache_loc());
 
     //add entry to parent dir (changing the mtime)
     assert(res->resok->dir_wcc.after.present);
@@ -1311,8 +1325,6 @@ int xfs_message_symlink(int fd, struct xfs_message_symlink *h, u_int size) {
   sla->where.name = h->name;
   xfsattr2nfsattr(h->attr, &(sla->symlink.symlink_attributes));
   sla->symlink.symlink_data.setbuf(h->contents, strlen(h->contents));
-  //sla->symlink.symlink_data.setsize(strlen(h->contents));
-  //strncpy(sla->symlink.symlink_data.base(), h->contents, strlen(h->contents));
 
   ex_diropres3 *res = new ex_diropres3;
   nfsc->call(lbfs_NFSPROC3_SYMLINK, sla, res,
@@ -1342,7 +1354,7 @@ void remove(int fd, struct xfs_message_remove *h, ex_lookup3res *lres,
       return;
     }
     
-    strcpy(msg1.cache_name, fht.getcache_name());
+    strcpy(msg1.cache_name, fht.getcache_loc());
     fhandle_t cfh;
     if (getfh(msg1.cache_name, &cfh)) {
       warn << "getfh failed\n";

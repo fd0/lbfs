@@ -5,7 +5,7 @@ $(PROGRAMS): $(LDEPS)
 
 sfslib_PROGRAMS = sfslbcd cdtest
 
-noinst_HEADERS = sfslbcd.h kernel.h xfs.h messages.h xfs-sfs.h xfs-nfs.h fh_map.h
+noinst_HEADERS = sfslbcd.h kernel.h xfs.h messages.h xfs-sfs.h xfs-nfs.h fh_map.h 
 
 sfslbcd_LDADD = $(LDADD) $(DB3_LIB) $(ZLIB_LIB)
 
