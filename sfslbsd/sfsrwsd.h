@@ -36,6 +36,7 @@
 #include "nfstrans.h"
 #include "sfsserv.h"
 #include "lbfs_prot.h"
+#include "lbfs.h"
 #include "lbfsdb.h"
 #include "fingerprint.h"
 
@@ -203,6 +204,33 @@ void getfh3 (ref<aclnt> c, str path,
 void lookupfh3 (ref<aclnt> c, const nfs_fh3 &start, str path,
 		callback<void, const nfs_fh3 *, const FATTR3 *, str>::ref cb);
 
+// issues READ requests to server. for each successful read, pass data
+// pointer, number of bytes read, and offset to the rcb. when all read
+// requests are finished, call cb and pass the total number of bytes read.
+
+void nfs3_read (ref<aclnt> c, const nfs_fh3 &fh,
+                callback<void, const unsigned char *, size_t, off_t>::ref rcb,
+                callback<void, size_t, read3res *, str>::ref cb,
+                off_t pos, size_t count);
+
+// make nfs directory
+void nfs3_mkdir (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
+                 callback<void, const nfs_fh3 *, str>::ref);
+
+// copy data from one filehandle to another. for every successful read from
+// the src file handle, call rcb and pass in the data pointer, number of bytes
+// read, and offset. when copy is completed, call cb, pass in the file
+// attribute of the dst filehandle, and the final commit res object.
+void nfs3_copy (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst, 
+                callback<void, const unsigned char *, size_t, off_t>::ref rcb,
+                callback<void, const FATTR3 *, commit3res *, str>::ref cb);
+
+// issues multiple concurrent NFS write requests to server.
+void nfs3_write (ref<aclnt> c, const nfs_fh3 &fh, 
+                 callback<void, write3res *, str>::ref cb,
+		 unsigned char *data, off_t pos, uint32 count, stable_how s);
+
+
 class client : public virtual refcount, public sfsserv {
   filesrv *fsrv;
 
@@ -289,6 +317,10 @@ stat2str (T xstat, clnt_stat stat)
   else
     return NULL;
 }
+
+extern void lbfs_nfs3exp_err (svccb *sbp, nfsstat3 status);
+extern void lbfs_exp_enable(u_int32_t, void *);
+extern void lbfs_exp_disable(u_int32_t, void *);
 
 #endif
 

@@ -35,6 +35,20 @@ static str configfile;
 
 filesrv *defsrv;
 
+tmpfh_record::tmpfh_record(const nfs_fh3 &f, const char *s, unsigned l)
+{
+  fh = f;
+  assert (l <= TMPFN_MAX-1);
+  memmove(&name[0], s, l);
+  name[l] = '\0';
+  len = l;
+}
+
+tmpfh_record::~tmpfh_record()
+{
+}
+
+
 template<size_t max> inline hexdump
 bdump (const rpc_bytes<max> &b)
 {

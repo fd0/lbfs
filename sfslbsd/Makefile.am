@@ -5,16 +5,16 @@ $(PROGRAMS): $(LDEPS)
 
 sfslib_PROGRAMS = sfslbsd mkdb dbtest
 
-noinst_HEADERS = sfsrwsd.h lbfs.h
+noinst_HEADERS = sfsrwsd.h
 
 sfslbsd_SOURCES = \
-  client.C fhtrans.C filesrv.C getfh3.C lease.C sfsrwsd.C lbfs.C
+  client.C fhtrans.C filesrv.C getfh3.C lease.C sfsrwsd.C
 sfslbsd_LDADD = $(LDADD) $(DB3_LIB) $(ZLIB_LIB)
 
 mkdb_SOURCES = mkdb.C getfh3.C
 mkdb_LDADD = $(LDADD) $(DB3_LIB)
 
-dbtest_SOURCES = dbtest.C lbfs.C getfh3.C
+dbtest_SOURCES = dbtest.C getfh3.C
 dbtest_LDADD = $(LDADD) $(DB3_LIB)
 
 EXTRA_DIST = .cvsignore
