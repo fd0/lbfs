@@ -13,16 +13,18 @@ ptr<aclnt> _mountc;
 ptr<aclnt> _c;
 
 static const char *_host;
-static const char *_root;
-static int _totalfns = 0;
-static int _requests = 0;
+static const char *_mntp;
+
 static lbfs_db _db;
 static nfs_fh3 _rootfh;
 
+static int _totalfns = 0;
+static int _requests = 0;
+
+static int read_directory(const char *dpath, DIR *dirp = 0L);
+
 void done()
 {
-  if (_requests > 0) 
-    _requests--;
   if (_requests == 0) {
     printf("%d files\n", _totalfns);
     exit(0);
@@ -30,12 +32,16 @@ void done()
 }
 
 void
-gotattr(char *path, const nfs_fh3 *fhp, const FATTR3 *attr, str err)
+gotattr(const char *dpath, const char *fname, DIR *dirp,
+        const nfs_fh3 *fhp, const FATTR3 *attr, str err)
 {
   if (!err) {
+    char fspath[PATH_MAX];
+    sprintf(fspath, "%s/%s/%s", _mntp, dpath, fname);
+
     const u_char *fp;
     size_t fl; 
-    if (mapfile (&fp, &fl, path) == 0) {
+    if (mapfile (&fp, &fl, fspath) == 0) {
       for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
         vec<lbfs_chunk *> cv;
         if (chunk_data(CHUNK_SIZES(j), fp, fl, &cv) == 0) { 
@@ -44,7 +50,7 @@ gotattr(char *path, const nfs_fh3 *fhp, const FATTR3 *attr, str err)
 	    cv[i]->loc.set_mtime(attr->mtime);
 #if 0
             printf("add %s fp 0x%016qx size %d\n", 
-	           path, cv[i]->fingerprint, cv[i]->loc.count());
+	           fspath, cv[i]->fingerprint, cv[i]->loc.count());
 #endif
 	    _db.add_chunk(cv[i]->fingerprint, &(cv[i]->loc)); 
 	    delete cv[i];
@@ -55,41 +61,59 @@ gotattr(char *path, const nfs_fh3 *fhp, const FATTR3 *attr, str err)
       munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
     }
   }
-  delete path;
-  done();
+  else 
+    warn << "nfs: " << dpath << "/" << fname << ": " << err << "\n";
+  if (_requests > 0) 
+    _requests--;
+
+  delete fname;
+  read_directory(dpath, dirp);
+  delete dpath;
 }
 
 int 
-add_directory(const char *path)
+read_directory(const char *dpath, DIR *dirp = 0L)
 {
-  char tmp[PATH_MAX];
-  snprintf(tmp, PATH_MAX, "%s/%s", _root, path);
+  char fspath[PATH_MAX];
 
-  DIR *dirp;
-  if ((dirp = opendir (tmp)) == 0)
-    return -1;
+  if (dirp == 0L) {
+    snprintf(fspath, PATH_MAX, "%s/%s", _mntp, dpath);
+    if ((dirp = opendir (fspath)) == 0)
+      return -1;
+  }
 
   struct dirent *de = NULL;
-  while ((de = readdir (dirp))) { 
+  while ((de = readdir (dirp))) {
     struct stat sb;
     if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
       continue;
-
-    snprintf(tmp, PATH_MAX, "%s/%s", path, de->d_name);
-    char *fullpath = new char [PATH_MAX];
-    snprintf(fullpath, PATH_MAX, "%s/%s", _root, tmp);
+      
+    snprintf(fspath, PATH_MAX, "%s/%s/%s", _mntp, dpath, de->d_name);
+    stat(fspath, &sb);
+      
+    char newpath[PATH_MAX];
+    snprintf(newpath, PATH_MAX, "%s/%s", dpath, de->d_name);
     
-    stat(fullpath, &sb);
-    if (S_ISDIR(sb.st_mode)) 
-      add_directory(tmp);
+    if (S_ISDIR(sb.st_mode))
+      read_directory(newpath);
+    
     else if (S_ISREG(sb.st_mode)) {
       _requests++;
       _totalfns++;
-      lookupfh3(_c, _rootfh, tmp, wrap(gotattr, fullpath));
+      
+      char *dpath2 = new char[PATH_MAX];
+      strncpy(dpath2, dpath, PATH_MAX);
+      char *fname = new char[PATH_MAX];
+      strncpy(fname, de->d_name, PATH_MAX);
+
+      if (strncmp(dpath2, "/examples_java/AccessE", 16) == 0)
+	printf("lookup: %s\n", newpath);
+      lookupfh3(_c, _rootfh, newpath, wrap(gotattr, dpath2, fname, dirp));
+      return 0;
     }
   }
-
   closedir(dirp);
+  done();
   return 0;
 }
 
@@ -99,10 +123,9 @@ gotrootfh(const nfs_fh3 *fhp, str err)
   if (!err) {
     _rootfh = *fhp;
     _db.open(); 
-    add_directory("");
+    read_directory("");
   }
-  else
-    done();
+  done();
 }
 
 void
@@ -113,7 +136,7 @@ getmountc(ptr<aclnt> nc, clnt_stat stat)
     exit(-1);
   }
   _mountc = nc;
-  getfh3(_mountc, _root, wrap(gotrootfh));
+  getfh3(_mountc, _mntp, wrap(gotrootfh));
 }
 
 
@@ -133,11 +156,13 @@ int
 main(int argc, char *argv[]) 
 {
   if (argc != 3) {
-    printf("usage: %s host nfs_root_path\n", argv[0]);
+    printf("usage: %s host mount_point\n", argv[0]);
     return -1;
   }
+
   _host = argv[1];
-  _root = argv[2];
+  _mntp = argv[2];
+
   aclntudp_create (_host, 0, nfs_program_3, wrap(getnfsc));
   amain();
 }
