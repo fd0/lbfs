@@ -46,6 +46,8 @@ tmpfh_record::tmpfh_record(const nfs_fh3 &f, const char *s, unsigned l)
 
 tmpfh_record::~tmpfh_record()
 {
+  for(unsigned i=0; i<chunks.size(); i++) 
+    delete chunks[i];
 }
 
 

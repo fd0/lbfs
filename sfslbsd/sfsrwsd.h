@@ -75,6 +75,7 @@ struct tmpfh_record {
   nfs_fh3 fh;
   char name[TMPFN_MAX];
   int len;
+  vec<chunk*> chunks;
   ihash_entry<tmpfh_record> hlink;
 
   tmpfh_record (const nfs_fh3 &f, const char *s, unsigned l);
@@ -293,7 +294,7 @@ class client : public virtual refcount, public sfsserv {
   void chunk_data (Chunker *, const unsigned char *data, 
                    size_t count, off_t pos);
   void removetmp_cb (wccstat3 *, clnt_stat err);
-  void committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *, 
+  void committmp_cb (svccb *sbp, filesrv::reqstate rqs,
                      commit3res *res, str err);
   void committmp (svccb *sbp, filesrv::reqstate rqs);
  

@@ -34,9 +34,11 @@
 
 #define DEBUG 1
 
-#if DEBUG > 1
-struct timeval tv0, tv1;
-#endif
+struct timeval t0;
+struct timeval t1;
+inline unsigned timediff() {
+  return (t1.tv_sec*1000000+t1.tv_usec)-(t0.tv_sec*1000000+t0.tv_usec);
+}
 
 ihash<const u_int64_t, client, &client::generation, &client::glink> clienttab;
 
@@ -154,7 +156,6 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   }
  
   else {
-    delete chunker0;
 #if DEBUG > 1
     // fingerprint matches, do write
     warn << "CONDWRITE: bingo, found a condwrite candidate\n";
@@ -163,6 +164,8 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
 	       wrap(mkref(this), &client::condwrite_write_cb, 
 		    sbp, rqs, cwa->count),
 	       data, cwa->offset, cwa->count, UNSTABLE);
+    
+    delete chunker0;
     delete iter;
     fpdb.sync();
     return;
@@ -203,6 +206,12 @@ void
 client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
+    
+  tmpfh_record *tfh_rec = fhtab.tab[cwa->file]; 
+  if (tfh_rec) 
+    tfh_rec->chunks.push_back 
+      (New chunk(cwa->offset, cwa->count, cwa->fingerprint));
+
   fp_db::iterator *iter = 0;
   if (fpdb.get_iterator(cwa->fingerprint, &iter) == 0) {
     if (iter) { 
@@ -286,7 +295,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
 }
 
 void
-client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
+client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
                       commit3res *res, str err)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
@@ -294,6 +303,9 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   nfs_fh3 fh = cta->commit_to;
   u_int32_t authno = sbp->getaui ();
   unsigned fsno = rqs.fsno;
+  
+  gettimeofday(&t1, 0L);
+  warn << "committmp: " << timediff() << " usecs\n";
 
   commit3res *cres = New commit3res;
   if (!res)
@@ -307,24 +319,19 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     nfs3reply (sbp, cres, rqs, RPC_FAILED);
   }
 
-  chunker->stop();
-  const vec<chunk *>& cv = chunker->chunk_vector();
-  if (!err) {
-    for (unsigned i=0; i<cv.size(); i++) {
-      cv[i]->location().set_fh(fh);
-      fpdb.add_entry(cv[i]->fingerprint(), &(cv[i]->location())); 
+  tmpfh_record *tfh_rec = fhtab.tab[tmpfh];
+  if (tfh_rec) {
+    for (unsigned i=0; i<tfh_rec->chunks.size(); i++) {
+      chunk *c = tfh_rec->chunks[i];
+      c->location().set_fh(fh);
+      fpdb.add_entry(c->fingerprint(), &(c->location()));
 #if DEBUG > 1
-      warn << "COMMITTMP: adding " << cv[i]->fingerprint() << " @"
-	   << cv[i]->location().pos() << " " 
-	   << cv[i]->location().count() << " to database\n";
+      warn << "COMMITTMP: adding " << c->fingerprint() << " @"
+	   << c->location().pos() << " " 
+	   << c->location().count() << " to database\n";
 #endif
     }
     fpdb.sync();
-  }
-  delete chunker;
-
-  tmpfh_record *tfh_rec = fhtab.tab[tmpfh];
-  if (tfh_rec) {
     tfh_rec->name[tfh_rec->len] = '\0';
 #if DEBUG > 1
     warn ("COMMITTMP: remove %s\n", tfh_rec->name);
@@ -355,13 +362,18 @@ client::chunk_data
 }
 
 void
+read_cb_nop (const unsigned char *data, size_t count, off_t)
+{
+}
+
+void
 client::committmp (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
-  Chunker *chunker = New Chunker();
+  gettimeofday(&t0, 0L);
   nfs3_copy (fsrv->c, cta->commit_from, cta->commit_to,
-             wrap(mkref(this), &client::chunk_data, chunker),
-             wrap(mkref(this), &client::committmp_cb, sbp, rqs, chunker));
+             wrap(read_cb_nop),
+             wrap(mkref(this), &client::committmp_cb, sbp, rqs));
 }
 
 void 
@@ -414,13 +426,8 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   }
 
 #if DEBUG > 2
-  gettimeofday(&tv1, NULL);
-  unsigned a;
-  if (tv1.tv_usec >= tv0.tv_usec)
-    a = 1000000*(tv1.tv_sec-tv0.tv_sec) + tv1.tv_usec - tv0.tv_usec;
-  else
-    a = 1000000*(tv1.tv_sec-1-tv0.tv_sec) + tv1.tv_usec + 1000000 - tv0.tv_usec;
-  warn << "GETFP in " << a << " usecs\n";
+  gettimeofday(&t1, NULL);
+  warn << "GETFP in " << timediff() << " usecs\n";
   fflush(stdout);
   fflush(stderr);
 #endif
@@ -518,7 +525,7 @@ client::nfs3dispatch (svccb *sbp)
     condwrite(sbp, rqs);
   else if (sbp->proc () == lbfs_GETFP) {
 #if DEBUG > 2
-    gettimeofday(&tv0, NULL);
+    gettimeofday(&t0, NULL);
 #endif
     getfp(sbp, rqs);
   }
