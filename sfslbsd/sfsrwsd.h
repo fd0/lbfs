@@ -202,16 +202,19 @@ class client : public virtual refcount, public sfsserv {
   void renamecb_2 (svccb *sbp, rename3res *rres, filesrv::reqstate rqs,
 		   lookup3res *ares, clnt_stat err);
 
-  void condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
-		          lbfs_db::chunk_iterator * iter, 
-			  unsigned char *data, size_t count, str err);
+  void condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
+		            lbfs_db::chunk_iterator * iter, 
+			    unsigned char *data, size_t count, str err);
+  void condwrite_read_cb (unsigned char *, off_t, 
+                          unsigned char *, size_t, off_t);
   void condwrite (svccb *sbp, filesrv::reqstate rqs);
 
   void mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, 
                      void *_cres, clnt_stat err);
   void mktmpfile (svccb *sbp, filesrv::reqstate rqs);
   
-  void committmp_chunk (Chunker *, const unsigned char *data, size_t count);
+  void committmp_chunk (Chunker *, const unsigned char *data, 
+                        size_t count, off_t pos);
   void committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *,
                      const FATTR3 *attr, commit3res *res, str err);
   void committmp (svccb *sbp, filesrv::reqstate rqs);

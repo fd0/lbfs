@@ -107,9 +107,9 @@ compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
 }
 
 void
-client::condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
-                           lbfs_db::chunk_iterator *iter, 
-			   unsigned char *data, size_t count, str err)
+client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
+                             lbfs_db::chunk_iterator *iter,
+			     unsigned char *data, size_t count, str err)
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
   lbfs_chunk_loc c;
@@ -126,7 +126,7 @@ client::condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
       warn << "CONDWRITE: fingerprint mismatch\n";
     else 
       warn << "CONDWRITE: sha1 hash mismatch\n";
-    delete data;
+    delete[] data;
     // only remove record if it is not an error, so transient 
     // failures won't cause db to be incorrected deleted.
     if (!err)
@@ -134,9 +134,12 @@ client::condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
     if (!iter->next(&c)) { 
       nfs_fh3 fh; 
       c.get_fh(fh); 
-      readfh3(fsrv->c, fh,
-	      wrap(mkref(this), &client::condwrite_read_cb, 
-		   sbp, rqs, iter), c.pos(), c.count());
+      unsigned char *buf = new unsigned char[c.count()];
+      nfs3_read
+	(fsrv->c, fh, 
+	 wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos()), 
+	 wrap(mkref(this), &client::condwrite_got_chunk, sbp, rqs, iter, buf), 
+	 c.pos(), c.count());
       return; 
     }
   }
@@ -150,7 +153,7 @@ client::condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
     w3arg.offset = cwa->offset;
     w3arg.count = cwa->count;
     w3arg.stable = UNSTABLE;  // is this correct?
-    w3arg.data.set(reinterpret_cast<char*>(data), count, freemode::DELETE);
+    w3arg.data.set(reinterpret_cast<char*>(data), count, freemode::DELARRAY);
     void *res = nfs_program_3.tbl[NFSPROC3_WRITE].alloc_res ();
     fsrv->c->call (NFSPROC3_WRITE, &w3arg, res,
 		   wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
@@ -165,6 +168,13 @@ client::condwrite_read_cb (svccb *sbp, filesrv::reqstate rqs,
 }
 
 void
+client::condwrite_read_cb(unsigned char *buf, off_t pos0,
+                          unsigned char *data, size_t count, off_t pos)
+{
+  memmove(buf+(pos-pos0), data, count);
+}
+
+void
 client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
@@ -174,10 +184,13 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
       lbfs_chunk_loc c; 
       if (!iter->get(&c)) { 
 	nfs_fh3 fh; 
-	c.get_fh(fh); 
-	readfh3(fsrv->c, fh,
-	        wrap(mkref(this), &client::condwrite_read_cb, 
-		     sbp, rqs, iter), c.pos(), c.count());
+	c.get_fh(fh);
+	unsigned char *buf = new unsigned char[c.count()];
+	nfs3_read
+	  (fsrv->c, fh,
+	   wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos()), 
+	   wrap(mkref(this), &client::condwrite_got_chunk, sbp, rqs, iter, buf),
+	   c.pos(), c.count());
 	return;
       } 
       delete iter; 
@@ -253,7 +266,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
 
 void
 client::committmp_chunk 
-  (Chunker *chunker, const unsigned char *data, size_t count)
+  (Chunker *chunker, const unsigned char *data, size_t count, off_t)
 {
   chunker->chunk(data, count);
 }
@@ -264,9 +277,9 @@ client::committmp (svccb *sbp, filesrv::reqstate rqs)
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
   vec<lbfs_chunk *> *v = new vec<lbfs_chunk*>;
   Chunker *chunker = new Chunker(CHUNK_SIZES(0), v);
-  copy3 (fsrv->c, cta->commit_from, cta->commit_to,
-         wrap(mkref(this), &client::committmp_chunk, chunker),
-         wrap(mkref(this), &client::committmp_cb, sbp, rqs, chunker));
+  nfs3_copy (fsrv->c, cta->commit_from, cta->commit_to,
+             wrap(mkref(this), &client::committmp_chunk, chunker),
+             wrap(mkref(this), &client::committmp_cb, sbp, rqs, chunker));
 }
 
 void

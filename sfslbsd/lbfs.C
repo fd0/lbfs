@@ -5,8 +5,10 @@
 void lookupfh3 (ref<aclnt> c, const nfs_fh3 &start, str path,
 		callback<void, const nfs_fh3 *, const FATTR3 *, str>::ref cb);
 
-struct read3obj {
-  typedef callback<void, unsigned char *, size_t, str>::ref cb_t;
+struct read_obj {
+  typedef callback<void, unsigned char *, size_t, off_t>::ref read_cb_t;
+  typedef callback<void, size_t, str>::ref cb_t;
+  read_cb_t read_cb;
   cb_t cb;
   ref<aclnt> c;
 
@@ -14,18 +16,18 @@ struct read3obj {
   off_t pos; 
   uint32 count;
   uint32 want;
-  unsigned char *buf;
     
   read3res res;
 
-  void gotdata3 (clnt_stat stat) {
+  void gotdata (clnt_stat stat) {
     
     if (stat || res.status) {
-      (*cb) (buf, count, stat2str (res.status, stat));
+      (*cb) (count, stat2str (res.status, stat));
       delete this;
     }
     else {
-      memmove(buf+count, res.resok->data.base(), res.resok->count);
+      read_cb(reinterpret_cast<unsigned char*>(res.resok->data.base()),
+	      res.resok->count, pos);
       count += res.resok->count;
       if (want > res.resok->count) {
 	want -= res.resok->count;
@@ -33,9 +35,8 @@ struct read3obj {
       }
       else
 	want = 0;
-
       if (want == 0 || res.resok->eof) {
-        (*cb) (buf, count, NULL);
+        (*cb) (count, NULL);
         delete this;
       }
       else
@@ -49,29 +50,31 @@ struct read3obj {
     arg.offset = pos;
     arg.count = want;
     c->call (NFSPROC3_READ, &arg, &res,
-	     wrap (this, &read3obj::gotdata3), auth_root);
+	     wrap (this, &read_obj::gotdata), auth_root);
   }
   
-  read3obj (ref<aclnt> c, const nfs_fh3 &f, off_t p, uint32 cnt, cb_t cb)
-    : cb (cb), c (c), fh(f)
+  read_obj (ref<aclnt> c, const nfs_fh3 &f, off_t p, uint32 cnt, 
+            read_cb_t rcb, cb_t cb)
+    : read_cb(rcb), cb(cb), c(c), fh(f)
   {
     count = 0;
     pos = p;
     want = cnt;
-    buf = new unsigned char [cnt];
     do_read();
   }
 };
 
 void
-readfh3 (ref<aclnt> c, const nfs_fh3 &fh, read3obj::cb_t cb, 
-         off_t pos, uint32 count)
+nfs3_read (ref<aclnt> c, const nfs_fh3 &fh, 
+           read_obj::read_cb_t rcb, 
+           read_obj::cb_t cb, 
+           off_t pos, uint32 count)
 {
-  vNew read3obj (c, fh, pos, count, cb);
+  vNew read_obj (c, fh, pos, count, rcb, cb);
 }
 
 
-struct mkdir3obj {
+struct mkdir_obj {
   typedef callback<void, const nfs_fh3 *, str>::ref cb_t;
   cb_t cb;
   ref<aclnt> c;
@@ -115,15 +118,15 @@ struct mkdir3obj {
     arg.where.name = fname;
     arg.attributes = attr;
     c->call (NFSPROC3_MKDIR, &arg, &res,
-	     wrap (this, &mkdir3obj::gotdir), auth_root);
+	     wrap (this, &mkdir_obj::gotdir), auth_root);
   }
   
   void do_lookup()
   {
-    lookupfh3(c, dir, fname, wrap(this, &mkdir3obj::gotfh3));
+    lookupfh3(c, dir, fname, wrap(this, &mkdir_obj::gotfh3));
   }
 
-  mkdir3obj (ref<aclnt> c, const nfs_fh3 &d, const str &name, 
+  mkdir_obj (ref<aclnt> c, const nfs_fh3 &d, const str &name, 
              sattr3 &a, cb_t cb)
     : cb (cb), c (c), dir(d), fname(name), attr(a)
   {
@@ -135,16 +138,16 @@ struct mkdir3obj {
 
 // creates dir if it does not exist, otherwise return fh in cb
 void
-mkdir3 (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
-        mkdir3obj::cb_t cb)
+nfs3_mkdir (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
+            mkdir_obj::cb_t cb)
 {
-  vNew mkdir3obj (c, dir, name, attr, cb);
+  vNew mkdir_obj (c, dir, name, attr, cb);
 }
 
 
-struct copy3obj {
+struct copy_obj {
+  typedef callback<void, unsigned const char *, size_t, off_t>::ref read_cb_t;
   typedef callback<void, const FATTR3 *, commit3res *, str>::ref cb_t;
-  typedef callback<void, unsigned const char *, size_t>::ref read_cb_t;
   read_cb_t read_cb;
   cb_t cb;
   ref<aclnt> c;
@@ -182,7 +185,7 @@ struct copy3obj {
     }
     else
       c->call (NFSPROC3_GETATTR, &dst, &ares,
-	       wrap (this, &copy3obj::gotdstattr), auth_root);
+	       wrap (this, &copy_obj::gotdstattr), auth_root);
   }
 
   void check_finish()
@@ -194,7 +197,7 @@ struct copy3obj {
 	arg.offset = 0;
 	arg.count = size;
         c->call (NFSPROC3_COMMIT, &arg, &cres,
-	         wrap(this, &copy3obj::gotcommit), auth_root);
+	         wrap(this, &copy_obj::gotcommit), auth_root);
       }
       else 
 	delete this;
@@ -225,7 +228,7 @@ struct copy3obj {
 	   freemode::NOFREE);
         write3res *wres2 = new write3res;
         c->call (NFSPROC3_WRITE, &arg, wres2,
-	         wrap(this, &copy3obj::gotwrite, 
+	         wrap(this, &copy_obj::gotwrite, 
 		      arg.offset, arg.count, rres, wres2), auth_root);
       }
       else 
@@ -265,10 +268,10 @@ struct copy3obj {
       arg.stable = UNSTABLE;
       arg.data.set(res->resok->data.base(), count, freemode::NOFREE);
       read_cb(reinterpret_cast<unsigned char *>(res->resok->data.base()), 
-	      count);
+	      count, pos);
       write3res *wres = new write3res;
       c->call (NFSPROC3_WRITE, &arg, wres,
-	       wrap(this, &copy3obj::gotwrite, 
+	       wrap(this, &copy_obj::gotwrite, 
 		    arg.offset, arg.count, res, wres), auth_root);
       outstanding_writes++;
       outstanding_reads--;
@@ -283,7 +286,7 @@ struct copy3obj {
     arg.offset = pos;
     arg.count = count;
     c->call (NFSPROC3_READ, &arg, rres,
-	     wrap (this, &copy3obj::gotread, arg.offset, arg.count, rres), 
+	     wrap (this, &copy_obj::gotread, arg.offset, arg.count, rres), 
 	     auth_root);
     outstanding_reads++;
   }
@@ -297,7 +300,7 @@ struct copy3obj {
       FATTR3 * attr = ares.attributes.addr();
       size = attr->size;
       next_read = 0;
-      for(int i=0; i<5 && next_read < size; i++) {
+      for(int i=0; i<10 && next_read < size; i++) {
         int count = size > (next_read+READ_BLOCK_SZ) 
 	              ? READ_BLOCK_SZ : (size-next_read);
         do_read(next_read, count);
@@ -309,10 +312,10 @@ struct copy3obj {
   void do_getattr()
   {
     c->call (NFSPROC3_GETATTR, &src, &ares,
-	     wrap (this, &copy3obj::gotattr), auth_root);
+	     wrap (this, &copy_obj::gotattr), auth_root);
   }
 
-  copy3obj (ref<aclnt> c, const nfs_fh3 &s, const nfs_fh3 &d, 
+  copy_obj (ref<aclnt> c, const nfs_fh3 &s, const nfs_fh3 &d, 
             read_cb_t rcb, cb_t cb)
     : read_cb(rcb), cb(cb), c(c), src(s), dst(d)
   {
@@ -323,9 +326,9 @@ struct copy3obj {
 
 // cb may be called more than once
 void
-copy3 (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst,
-       copy3obj::read_cb_t rcb, copy3obj::cb_t cb)
+nfs3_copy (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst,
+           copy_obj::read_cb_t rcb, copy_obj::cb_t cb)
 {
-  vNew copy3obj (c, src, dst, rcb, cb);
+  vNew copy_obj (c, src, dst, rcb, cb);
 }
 

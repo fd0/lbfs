@@ -69,12 +69,19 @@ gotdata(u_int64_t fp, unsigned char *data, size_t count, str err)
       printf("0x%016qx %d 0x%016qx\n", fp, i, chunks[i]->fingerprint);
       delete chunks[i];
     }
-    delete data;
   }
+  delete[] data;
 
   if (_requests > 0) _requests--;
   if (_requests == 0)
     exit(0);
+}
+
+void
+gotdata0(unsigned char *buf, off_t pos0,
+         unsigned char *data, size_t count, off_t pos)
+{
+  memmove(buf+(pos-pos0), data, count);
 }
 
 
@@ -103,8 +110,11 @@ getnfsc(ptr<aclnt> nc, clnt_stat stat)
 	     _file, reusable_chunks[i]->pos(), reusable_chunks[i]->count());
       nfs_fh3 fh;
       reusable_chunks[i]->get_fh(fh);
-      readfh3(_c, fh, wrap(gotdata, new_chunks[i]->fingerprint), 
-	      reusable_chunks[i]->pos(), reusable_chunks[i]->count());
+      unsigned char *buf = new unsigned char[reusable_chunks[i]->count()];
+      nfs3_read(_c, fh, 
+	        wrap(gotdata0, buf, reusable_chunks[i]->pos()),
+	        wrap(gotdata, new_chunks[i]->fingerprint, buf),
+	        reusable_chunks[i]->pos(), reusable_chunks[i]->count());
       _requests++;
     }
     delete new_chunks[i];

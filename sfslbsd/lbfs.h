@@ -18,20 +18,26 @@
 
 extern void lbfs_nfs3exp_err (svccb *sbp, nfsstat3 status);
 
-// read from nfs_fh3 object. pass into callback a data ptr, a count, and a
-// reference to post_op_attr. callback should free data ptr when done, even if
-// an error state is passed to the callback.
+// issues READ requests to server. for each successful read, pass data
+// pointer, number of bytes read, and offset to the rcb. when all read
+// requests are finished, call cb and pass the total number of bytes read.
 
-void readfh3 (ref<aclnt> c, const nfs_fh3 &fh,
-              callback<void, unsigned char *, size_t, str>::ref,
-              off_t pos, size_t count);
+void nfs3_read (ref<aclnt> c, const nfs_fh3 &fh,
+                callback<void, unsigned char *, size_t, off_t>::ref rcb,
+                callback<void, size_t, str>::ref cb,
+                off_t pos, size_t count);
 
-void mkdir3 (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
-             callback<void, const nfs_fh3 *, str>::ref);
+// make nfs directory
+void nfs3_mkdir (ref<aclnt> c, const nfs_fh3 &dir, const str &name, sattr3 attr,
+                 callback<void, const nfs_fh3 *, str>::ref);
 
-void copy3 (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst, 
-            callback<void, const unsigned char *, size_t>::ref,
-            callback<void, const FATTR3 *, commit3res *, str>::ref);
+// copy data from one filehandle to another. for every successful read from
+// the src file handle, call rcb and pass in the data pointer, number of bytes
+// read, and offset. when copy is completed, call cb, pass in the file
+// attribute of the dst filehandle, and the final commit res object.
+void nfs3_copy (ref<aclnt> c, const nfs_fh3 &src, const nfs_fh3 &dst, 
+                callback<void, const unsigned char *, size_t, off_t>::ref rcb,
+                callback<void, const FATTR3 *, commit3res *, str>::ref cb);
 
 #endif _LBFS_H_
 

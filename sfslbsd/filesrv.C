@@ -204,8 +204,8 @@ filesrv::gotroots (bool ok)
     *(trash_attr.uid.val) = 0;
     trash_attr.gid.set_set(true);
     *(trash_attr.gid.val) = 0;
-    mkdir3 (c, fstab[i].fh_root, ".sfs.trash", trash_attr,
-	    wrap (this, &filesrv::gottrashdir, ea, i));
+    nfs3_mkdir (c, fstab[i].fh_root, ".sfs.trash", trash_attr,
+	        wrap (this, &filesrv::gottrashdir, ea, i));
   }
 }
 
