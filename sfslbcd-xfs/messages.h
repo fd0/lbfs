@@ -98,13 +98,8 @@ class rename_args {
     lres(New refcounted<ex_lookup3res>), 
     rnres(New refcounted<ex_rename3res>), 
     gares(New refcounted<ex_getattr3res>) {} 
-#if 0
   ~rename_args() {
-    if (lres) delete lres;
-    if (rnres) delete rnres;
-    if (gares) delete gares;
   }
-#endif
   int fd;
   ref<struct xfs_message_rename> h;
   ref<ex_lookup3res> lres;
@@ -127,46 +122,117 @@ compare_sha1_hash(unsigned char *data, size_t count, sfs_hash &hash)
   return strncmp(h, hash.base(), sha1::hashsize);
 }
 
-#if 0
-class xfs_message {
- public: xfs_message
-}
-#endif
-
-int xfs_message_wakeup (int fd, ref<struct xfs_message_wakeup> h, u_int size);
-
-int xfs_message_getroot (int, ref<struct xfs_message_getroot>, u_int);
-
-int xfs_message_getnode (int, ref<struct xfs_message_getnode>, u_int);
-
-int xfs_message_getdata (int, ref<struct xfs_message_getdata>, u_int);
-
-int xfs_message_open (int, ref<struct xfs_message_open>, u_int);
-
-int xfs_message_getattr (int, ref<struct xfs_message_getattr>, u_int);
-
-int xfs_message_inactivenode (int,ref<struct xfs_message_inactivenode>,u_int);
-
-int xfs_message_putdata (int fd, ref<struct xfs_message_putdata> h, u_int size);
-
-int xfs_message_putattr (int fd, ref<struct xfs_message_putattr> h, u_int size);
-
-int xfs_message_create (int fd, ref<struct xfs_message_create> h, u_int size);
-
-int xfs_message_mkdir (int fd, ref<struct xfs_message_mkdir> h, u_int size);
-
-int xfs_message_link (int fd, ref<struct xfs_message_link> h, u_int size);
-
-int xfs_message_symlink (int fd, ref<struct xfs_message_symlink> h, u_int size);
-
-int xfs_message_remove (int fd, ref<struct xfs_message_remove> h, u_int size);
-
-int xfs_message_rmdir (int fd, ref<struct xfs_message_rmdir> h, u_int size);
-
-int xfs_message_rename (int fd, ref<struct xfs_message_rename> h, u_int size);
-
-int xfs_message_pioctl (int fd, ref<struct xfs_message_pioctl> h, u_int size) ;
+int xfs_wakeup (xfscall *xfsc);
+int xfs_getroot (xfscall *xfsc);
+int xfs_getnode (xfscall *xfsc);
+int xfs_getdata (xfscall *xfsc);
+int xfs_open (xfscall *xfsc);
+int xfs_getattr (xfscall *xfsc);
+int xfs_inactivenode (xfscall *xfsc);
+int xfs_putdata (xfscall *xfsc);
+int xfs_putattr (xfscall *xfsc);
+int xfs_create (xfscall *xfsc);
+int xfs_mkdir (xfscall *xfsc);
+int xfs_link (xfscall *xfsc);
+int xfs_symlink (xfscall *xfsc);
+int xfs_remove (xfscall *xfsc);
+int xfs_rmdir (xfscall *xfsc);
+int xfs_rename (xfscall *xfsc);
+int xfs_pioctl (xfscall *xfsc);
 
 void cbdispatch(svccb *sbp);
+
+class xfs_wakeup_args {
+ public:
+  int fd;
+  struct xfs_message_wakeup *h;
+
+  xfs_wakeup_args (int file_des, struct xfs_message_wakeup *header) :
+    fd(file_des), h(header) { }
+  ~xfs_wakeup_args () {
+    delete h;
+  }
+
+};
+
+struct xfs_getroot_args {
+  struct xfs_message_getroot *h;
+  sfs_fsinfo *fsi;
+  ex_getattr3res *attr_res;
+
+  xfs_getroot_args (struct xfs_message_getroot *header) :
+    h(header), fsi(NULL), attr_res(NULL) { }
+
+  ~xfs_getroot_args () {
+    delete h;
+    if (fsi) 
+      delete fsi;
+    if (attr_res) 
+      delete attr_res;
+  }
+};
+
+class xfs_getnode_args {
+ public:
+  int fd;
+  struct xfs_message_getnode *h;
+  
+};
+
+class xfs_getdata_args {
+
+};
+
+class xfs_open_args {
+
+};
+
+class xfs_getattr_args {
+
+};
+
+class xfs_inactivenode_args {
+
+};
+
+class xfs_putdata_args {
+
+};
+
+class xfs_putattr_args {
+
+};
+
+class xfs_create_args {
+
+};
+
+class xfs_mkdir_args {
+
+};
+
+class xfs_link_args {
+
+};
+
+class xfs_symlink_args {
+
+};
+
+class xfs_remove_args {
+
+};
+
+class xfs_rmdir_args {
+
+};
+
+class xfs_rename_args {
+
+};
+
+class xfs_pioctl_args {
+
+};
 
 #endif /* _MESSAGES_H_ */

@@ -22,24 +22,13 @@
 #ifndef _KERNEL_H_
 #define _KERNEL_H_
 
-#include <xfs/xfs_message.h>
-#include "sfslbcd.h"
-#include "xfs.h"
-
-void kernel_interface(struct kernel_args *args);
-
-int kernel_opendevice(const char *dev);
-
 extern int kernel_fd;
 
-ssize_t
-kern_read(int fd, void *data, size_t len);
-
-ssize_t
-kern_write (int fd, const void *data, size_t len);
-
+void kernel_interface(struct kernel_args *args);
+int kernel_opendevice(const char *dev);
+ssize_t kern_read(int fd, void *data, size_t len);
+ssize_t kern_write (int fd, const void *data, size_t len);
 void akernel();
-void skernel(); //may not use
 
-#endif
+#endif /* _KERNEL_H_ */
 

@@ -3,18 +3,18 @@
 
 $(PROGRAMS): $(LDEPS)
 
-sfslib_PROGRAMS = sfslbcd sfsrwcd #cdtest 
+sfslib_PROGRAMS = sfslbcd #sfsrwcd cdtest 
 
 noinst_HEADERS = sfslbcd.h kernel.h xfs.h messages.h xfs-sfs.h xfs-nfs.h fh_map.h \
-		 sfsrwcd.h
+		 sfsrwcd.h #lbfsserv.h
 
 sfslbcd_LDADD = $(LDADD) $(DB3_LIB) $(ZLIB_LIB)
 
-sfslbcd_SOURCES = sfslbcd.C kernel.C xfs.C messages.C xfs-sfs.C xfs-nfs.C fh_map.C 
+sfslbcd_SOURCES = sfslbcd.C kernel.C xfs.C server.C xfs-sfs.C xfs-nfs.C fh_map.C 
 
-sfsrwcd_SOURCES = \
-attrcache.C server.C sfsrwcd.C
-sfsrwcd_LDFLAGS = $(NOPAGING) $(MALLOCK)
+#sfsrwcd_SOURCES = \
+#attrcache.C server.C sfsrwcd.C lbfsserv.C
+#sfsrwcd_LDFLAGS = $(NOPAGING) $(MALLOCK)
 
 $(exec_PROGRAMS): $(MALLOCK)
 

@@ -40,5 +40,5 @@ extern ptr<axprt_compress> x;
 extern ptr<axprt_crypt> xc;
 
 
-void sfsInit(const char* hostpath);
+int sfsInit(const char* hostpath);
 #endif

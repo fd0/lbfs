@@ -30,10 +30,6 @@ ihash<nfs_fh3, cache_entry, &cache_entry::nh,
 ihash<xfs_handle, cache_entry, &cache_entry::xh,
   &cache_entry::xlink> xfsindex;
 
-
-/* Non-volatile File System Info */
-ex_fsinfo3resok fsinfo;
-
 xfs_message_function rcvfuncs[] = {
 NULL,						/* version */
 (xfs_message_function)xfs_message_wakeup,	/* wakeup */
@@ -65,6 +61,9 @@ NULL,						/* advlock */
 NULL						/* gc nodes */
 #endif
 };
+
+/* Non-volatile File System Info */
+ex_fsinfo3resok fsinfo;
 
 void sendwrite (ref<condwrite3args > cwa, chunk * chunk);
 void lbfs_condwrite(ref<condwrite3args> cwa, clnt_stat err);
@@ -2577,7 +2576,6 @@ update_attr (cache_entry *e, ex_fattr3 attr1, ex_fattr3 attr2,
 void 
 nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
 {
-
 
   if (err || rena->gares->status != NFS3_OK) {
     if (err) {

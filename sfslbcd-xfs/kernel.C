@@ -19,7 +19,10 @@
  *
  */
 
+#include <xfs/xfs_message.h>
 #include "kernel.h"
+#include "async.h"
+#include "xfs.h"
 
 /*
  * The fd we use to talk with the kernel on.
@@ -32,21 +35,12 @@ process_message (int msg_length, char *msg)
 {
   struct xfs_message_header *header;
   char *p = msg;
-  int cnt;
 
-  cnt = 0;
   for (p = msg;
        msg_length > 0;
        p += header->size, msg_length -= header->size) {
     header = (struct xfs_message_header *) p;
-#if 0
-    cnthdr->size = header->size;
-    cnthdr->opcode = header->opcode;
-    cnthdr->sequence_num = header->sequence_num;
-    cnthdr->pad1 = header->pad1;
-#endif
     xfs_message_receive (kernel_fd, header, header->size);
-    ++cnt;
   }
   return 0;
 }

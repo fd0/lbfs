@@ -50,11 +50,13 @@ cd_parsepath (str path, str *host, sfs_hash *hostid, u_int16_t *portp)
   return *p++ == ':' && sfs_ascii2hostid (hostid, p);
 }
 
-void fail(int err) {
+void 
+fail (int err) {
   errno = err;
 }
 
-void gotconres(int fd, str hostname, sfs_hash hostid, clnt_stat err) {
+void 
+gotconres (int fd, str hostname, sfs_hash hostid, clnt_stat err) {
 
   if (err) {
     warn << sfs_path << ": " << err << "\n";
@@ -110,9 +112,10 @@ void gotconres(int fd, str hostname, sfs_hash hostid, clnt_stat err) {
 
 }
 
-void sfsConnect(str hostname, sfs_hash hid, int fd) {
+void 
+sfsConnect (str hostname, sfs_hash hid, int fd) {
   if (fd < 0) {
-    warn << strerror(errno) << ":bad fd\n";
+    warn << strerror(errno) << "..can't connect\n";
     return;
   }
   else {
@@ -153,19 +156,33 @@ void sfsConnect(str hostname, sfs_hash hid, int fd) {
 
 }
 
-void sfsInit(const char* path) {
+int
+sfsInit (const char* path) {
 
   str hostname;
   sfs_hash hid;
   u_int16_t port;
   if (!cd_parsepath (path, &hostname, &hid, &port)) {
     warn << strerror(ENOENT) << ": " << path << "\n";
-    return;
+    return -1;
   } 
   warn << "path = " << path << " port = " << port << "\n";
   strcpy(sfs_path, path);
   tcpconnect(hostname, port, wrap(sfsConnect, hostname, hid));
   random_init_file (sfsdir << "/random_seed");
   lbfsdb.open_and_truncate(FP_DB);
+  if (open("cache", O_RDONLY, 0666) < 0) {
+    if (errno == ENOENT) {
+      warn << "Creating dir: cache\n";
+      if (mkdir("cache", 0777) < 0) {
+	warn << strerror(errno) << "(" << errno << ") mkdir cache\n";
+	return -1;
+      }
+    } else {
+      warn << strerror(errno) << "(" << errno << ") open cache\n";
+      return -1;
+    }
+  } 
+  return 0;
 }
-
+  

@@ -61,7 +61,8 @@ int main (int argc, char **argv) {
   }
   warn << "Opened device file " << argv[1] << "\n";
   
-  sfsInit(hostpath); // or connect when usr sends a /sfs/hostname:hostid request
+  if (sfsInit(hostpath))
+    return -1;
 
   warn << "calling fdcb on kernel_fd " << kernel_fd << "\n";
   fdcb(kernel_fd, selread, wrap(&akernel));
