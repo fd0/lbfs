@@ -1,53 +1,82 @@
 
 Caching Client Implementation
 
+consistency:
+------------
+
 close-to-open consistency is: on any close, nfs client flushes all
 changes to server; on any open, nfs client fetches latest attributes
 from server, and loads new data when the cache time is less than
 mtime.
 
 consistency
- 0) don't update cache if cached file is dirty
+ 0) don't update cache if cached file is dirty or being flushed
  1) if lease has not expired, and cache time matches mtime, use cache
  2) if lease has expired, fetch attribute; if cache time matches
     mtime, use cache
  3) if lease has expired, fetch attribute; if cache time does not
     match mtime, update cache
 
-access
- - on each access, check if cache needs to be updated, if so, mark
-   cached file as blocked
- - on any subsequent read/write/setattr RPC to the file, if cached
-   file is blocked, RPC is queued
+
+operations on cached file:
+--------------------------
+
+a cached file can be in one of the following four states
+
+ IDLE
+DIRTY: dirty, not flushed backed to server yet
+FLUSH: in the middle of being flushed to server
+FETCH: in the middle of being fetched from server
+
+below is the state transition rule when different RPC occurs. X means
+exception. i.e. the cached file should not be in this state when this
+RPC occurs. XX means the RPC is blocked when the cached file is in
+this state, and executed after the cached file changes state.
+
+       ACCESS  FETCH_DONE   READ   WRITE   SETSIZE   CLOSE   FLUSH_DONE
+-----------------------------------------------------------------------
+ IDLE    IDLE    IDLE       IDLE   DIRTY   DIRTY     IDLE        X
+DIRTY   DIRTY      X        DIRTY  DIRTY   DIRTY     FLUSH       X
+FLUSH   FLUSH      X        FLUSH   XX      XX       FLUSH     IDLE
+FETCH   FETCH      X      FETCH/XX  XX      XX       FETCH       X
+
+
+detailed semantics:
+-------------------
+
+access/cache fetch
+ - access RPCs are treated as file open signals. on each access, check
+   if cache needs to be updated, if so, mark cached file as being
+   fetched
+ - if a file is being fetched, queue subsequent read/write/setattr RPCs
  - after each block received from server, check if any one of the RPC
    can be executed. that is, if the RPC operates on a range of data
    already received from the server
  - can fetch data out of order, in order to satisfy an out of order
    read request immediately
- - when cached file is updated, unqueue and execute each RPC
+ - when fetch is done, unqueue and execute each RPC
 
 attributes in attribute cache and file cache
- - if file is cached and dirty
+ - attribute cache always reflects attributes on the server
+ - if file is cached, and is dirty or being flushed
    - return attribute from file cache on GETATTR
-   - don't update attribute cache with new attributes from server
-   - XXX we don't modify the attribute returned from server on the
-         dirty file, such as, for example, ACCESS, should we?
+   - what about ACCESS ???
 
 write
- - don't update mtime on each write, because clocks can be out of sync
- - mark cached file dirty on first write, so we won't update the cache
-   file on subsequent ACCESS until the cache file is flushed to server
- - update size in both attribute cache and file cache
+ - don't update the mtime field of the attribute in file cache
+ - mark cached file dirty on first write
+ - update size in both attribute cache and file cache XXX
  - always return FILE_SYNC
- - XXX what verf should we return
+ - what verf should we return ???
 
 close
+ - change cache file into flush mode
  - send WRITE with UNSTABLE
  - send COMMIT
- - check wcc after each write/commit. after the last commit, if the
-   cached file is not dirty (i.e. has not been writen to since the
-   last close), use the last wcc.after as the attribute for the cached
-   file.
+ - while in flush mode, block on setsize or write operation; allow
+   close, read, and non-setsize setattr operations to run
+ - check wcc after each write/commit. after the last commit, use the
+   last wcc.after as the attribute for the cached file.
 
 commit
  - since we return FILE_SYNC on each WRITE RPC, we should not see any
@@ -56,20 +85,32 @@ commit
 
 setattr
  - if size is changed, update size in both attribute cache and file cache
- - wcc checking is done to update the attribute in the file cache
+ - on a non-setsize setattr while a cached file is being flushed, send
+   the setattr to server, update local file cache w/ post-attribute
+   returned from server, but don't update the size and mtime fields
+ - if file is not being flushed, perform wcc checking. if successful
+   update attribute in file cache
  - always forward setattr rpc onto the server
 
 wcc
  - wcc checking is done when we flush cached file to server (i.e.
    on write and commit RPCs) and when processing setattr
- - the goal of doing wcc checking is to make the attribute in the file
-   cache be the same as the attribute on the server, so after a close,
-   another open will not trigger a cache update
+ - the goal of doing wcc checking is to avoid doing a cache update
+   after file is written to server. w/o wcc checking, some other
+   client might have also written to the file, and we cannot simply
+   grab the latest mtime and pretend it is the mtime of the file
+ - because changes in ctime will not trigger a cache update, we only
+   check that the before and after size and mtime are the same, but
+   not ctime
  - to make wcc work, "osize" field is kept for each cached object that
    reflects the size of the object on server. as the size of the
    object in cache changes, osize does not change. osize is updated
    when the cached object is updated, flushed, or when setattr is
    processed (since setattr is always forwarded to server)
+
+
+misc:
+-----
 
 can we depend on nfs client to always send an ACCESS rpc before any
 read? we don't do access control upon seeing a READ rpc: we just

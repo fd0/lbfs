@@ -47,8 +47,7 @@ struct write_obj {
       if (res->resok->file_wcc.before.present &&
 	  res->resok->file_wcc.after.present) {
         if ((res->resok->file_wcc.before.attributes)->size == fa.size &&
-	    (res->resok->file_wcc.before.attributes)->mtime == fa.mtime &&
-	    (res->resok->file_wcc.before.attributes)->ctime == fa.ctime) {
+	    (res->resok->file_wcc.before.attributes)->mtime == fa.mtime) {
 	  ex_fattr3 *f = res->resok->file_wcc.after.attributes;
 	  fa = *reinterpret_cast<fattr3 *> (f);
 	}
@@ -59,7 +58,6 @@ struct write_obj {
 	       << fa.ctime.seconds << " -- "
 	       << (res->resok->file_wcc.before.attributes)->size << ":"
 	       << (res->resok->file_wcc.before.attributes)->mtime.seconds << ":"
-	       << (res->resok->file_wcc.before.attributes)->ctime.seconds
 	       << "\n";
 	}
       }
@@ -80,8 +78,7 @@ struct write_obj {
       if (res->resok->file_wcc.before.present &&
 	  res->resok->file_wcc.after.present) {
         if ((res->resok->file_wcc.before.attributes)->size == fa.size &&
-	    (res->resok->file_wcc.before.attributes)->mtime == fa.mtime &&
-	    (res->resok->file_wcc.before.attributes)->ctime == fa.ctime) {
+	    (res->resok->file_wcc.before.attributes)->mtime == fa.mtime) {
 	  ex_fattr3 *f = res->resok->file_wcc.after.attributes;
 	  fa = *reinterpret_cast<fattr3 *> (f);
 	}
@@ -92,7 +89,6 @@ struct write_obj {
 	       << fa.ctime.seconds << " -- "
 	       << (res->resok->file_wcc.before.attributes)->size << ":"
 	       << (res->resok->file_wcc.before.attributes)->mtime.seconds << ":"
-	       << (res->resok->file_wcc.before.attributes)->ctime.seconds
 	       << "\n";
 	}
       }

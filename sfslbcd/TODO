@@ -1,16 +1,11 @@
 
-connect to either sfs server or lbfs server
-
-partial file write on CLOSE
+* intercept attribute returned from ACCESS for dirty files
+* don't update attribute cache's size field on each WRITE
+* relax write back consistency
+  - optimize write right after flush/close
 
 partial file fetch - when should we fetch entire file, when should we
 wait for read before fetch
-
-relax write back consistency
-
-optimize
- - setattr right after open
- - write right after open
 
 write test cases for
  - open, open, write, close, write, close

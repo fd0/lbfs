@@ -23,24 +23,7 @@
 #define DEBUG 1
 
 //
-// a cached file can be in one of the following four states
-//
-//  IDLE
-// DIRTY: dirty, not flushed backed to server yet
-// FLUSH: in the middle of being flushed to server
-// FETCH: in the middle of being fetched from server
-//
-// below is the state transition rule when different RPC occurs. X
-// means exception. i.e. the cached file should not be in this state
-// when this RPC occurs. XX means the RPC is blocked when the cached
-// file is in this state, and executed after the cached file changes
-// state.
-//
-//        ACCESS  FETCH_DONE   READ   WRITE   SETSIZE   CLOSE   FLUSH_DONE
-//  IDLE    IDLE    IDLE       IDLE   DIRTY   DIRTY     IDLE        X
-// DIRTY   DIRTY      X        DIRTY  DIRTY   DIRTY     FLUSH       X
-// FLUSH   FLUSH      X        FLUSH   XX      XX       FLUSH     IDLE
-// FETCH   FETCH      X      FETCH/XX  XX      XX       FETCH       X
+// please consult "notes" on semantics of this client
 //
 
 #include <typeinfo>
@@ -58,6 +41,8 @@ server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
     // update file cache if cache time < mtime and file is not dirty
     // or fetch
     if (!e || ((e->fa.mtime < fa.mtime) && e->is_idle())) {
+      if (e)
+	warn << "re-fetch file " << e->fh << "\n";
       if (!e) {
         file_cache_insert (obj);
         e = file_cache_lookup(obj);
@@ -268,12 +253,6 @@ void
 server::getxattr (time_t rqtime, unsigned int proc,
                   sfs_aid aid, void *arg, void *res)
 {
-  nfs_fh3 *fh = static_cast<nfs_fh3 *> (arg);
-  file_cache *e = file_cache_lookup(*fh);
-  if (e && (e->is_dirty() || e->is_flush()))
-    // if file is dirty or being flushed, don't update attribute cache
-    return;
-
   xattrvec xv;
   nfs3_getxattr (&xv, proc, arg, res);
   for (xattr *x = xv.base (); x < xv.lim (); x++) {
@@ -311,34 +290,39 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     }
   }
   else if (nc->proc () == NFSPROC3_SETATTR) {
+    // if SETATTR ran while file is being flushed, take attributes
+    // from server as attribute in the file cache, but don't overwrite
+    // the size or the mtime fields. otherwise, run wcc checking. if
+    // successful, update attribute in file cache.
     setattr3args *a = nc->template getarg<setattr3args> ();
     ex_wccstat3 *sres = static_cast<ex_wccstat3 *> (res);
     file_cache *e = file_cache_lookup(a->object);
-    // only does wcc checking and save attribute if file is not being
-    // flushed. otherwise wcc checking will fail.
-    if (!sres->status && e && !e->is_flush() &&
+    if (!sres->status && e &&
 	sres->wcc->before.present && sres->wcc->after.present) {
-      // does wcc checking. if this is the only client making a change
-      // to the object, install the post operation attribute (ignoring
-      // the size, as we may have a more up-to-date size) as the
-      // attribute for the file cache.
-      if ((sres->wcc->before.attributes)->size == e->osize &&
-	  (sres->wcc->before.attributes)->mtime == e->fa.mtime &&
-	  (sres->wcc->before.attributes)->ctime == e->fa.ctime) {
+      if (e->is_flush()) {
 	ex_fattr3 *f = sres->wcc->after.attributes;
 	uint64 s = e->fa.size;
+	nfstime3 m = e->fa.mtime;
 	e->fa = *reinterpret_cast<fattr3 *> (f);
-	// update osize to reflect what the server knows
-        e->osize = e->fa.size;
 	e->fa.size = s;
+	e->fa.mtime = m;
       }
       else {
-        warn << "setattr wcc failed: "
-	     << e->osize << ":" << e->fa.mtime.seconds << ":"
-	     << e->fa.ctime.seconds << " -- "
-	     << (sres->wcc->before.attributes)->size << ":"
-	     << (sres->wcc->before.attributes)->mtime.seconds << ":"
-	     << (sres->wcc->before.attributes)->ctime.seconds << "\n";
+        if ((sres->wcc->before.attributes)->size == e->osize &&
+	    (sres->wcc->before.attributes)->mtime == e->fa.mtime) {
+	  ex_fattr3 *f = sres->wcc->after.attributes;
+	  uint64 s = e->fa.size;
+	  e->fa = *reinterpret_cast<fattr3 *> (f);
+	  // update osize to reflect what the server knows
+          e->osize = e->fa.size;
+	  e->fa.size = s;
+        }
+        else {
+          warn << "setattr wcc failed: "
+	       << e->osize << ":" << e->fa.mtime.seconds << " -- "
+	       << (sres->wcc->before.attributes)->size << ":"
+	       << (sres->wcc->before.attributes)->mtime.seconds << "\n";
+        }
       }
     }
   }
@@ -450,10 +434,10 @@ server::dont_run_rpc (nfscall *nc)
     return false;
 
   if (e) {
+    // if file is being flushed, block WRITE and SETATTR RPCs that set
+    // size of file
     if (e->is_flush() && nc->proc () != NFSPROC3_READ &&
 	nc->proc () != cl_NFSPROC3_CLOSE) {
-      // if a file is being flushed, don't touch it until flush is
-      // done. we hope this is a rare case.
 #if DEBUG
       warn << "RPC " << nc->proc () << " blocked due to flush\n";
 #endif
@@ -469,9 +453,10 @@ server::dont_run_rpc (nfscall *nc)
       e->rpcs.push_back(nc);
       return true;
     }
+    // if file is being fetched, can execute READ if range requested
+    // in the RPC has already been fetched, other READ RPCs and all
+    // WRITE and SETATTR RPCs must be queued
     else if (e->is_fetch()) {
-      // can execute READ if range requested in the RPC has already
-      // been fetched
       if (nc->proc () == NFSPROC3_READ) {
         read3args *a = nc->template getarg<read3args> ();
 	uint64 offset = a->offset;
@@ -504,8 +489,8 @@ void
 server::dispatch (nfscall *nc)
 {
   if (nc->proc () == NFSPROC3_GETATTR) {
-    // if file is cached, and dirty or being flushed, return attribute
-    // from file cache
+    // if file is cached, and is dirty or being flushed, return
+    // attribute from file cache
     file_cache *e = file_cache_lookup(*nc->template getarg<nfs_fh3> ());
     if (e && (e->is_dirty() || e->is_flush())) {
       getattr3res res (NFS3_OK);
