@@ -93,9 +93,7 @@ class server : public sfsserver_auth {
   struct fcache {
     nfs_fh3 fh;
     fattr3 fa;
-    int users;
-    fcache(nfs_fh3 fh, fattr3 fa)
-      : fh(fh), fa(fa), users(0) {}
+    fcache(nfs_fh3 fh, fattr3 fa) : fh(fh), fa(fa) {}
   };
 
   attr_cache ac;

@@ -1,9 +1,8 @@
 
-XXX user count is not kept correct, there are ACCESS RPCs w/o CLOSE
-
-XXX close-to-open consistency should be: on any open, fetch latest,
-    unless file already open for write. on any close, flush all data
-    to server. right now we count users, not writers.
+close-to-open consistency is: on any close, nfs client flushes all
+changes to server; on any open, nfs client fetches latest attributes
+from server, and loads new data when the cache time is less than
+mtime. no need to keep user/writer counts.
 
 XXX call getreply on all NFS replies, even those in helper functions
 XXX write to cached file, remember STABLE flag, update attribute (size+mtime)
@@ -13,8 +12,6 @@ XXX on CLOSE, send stuff to server, reflect STABLE flag, but don't
 XXX remember COMMIT
 
 consistency
- 0) don't update cache if the file is open; once someone opens a file,
-    subsequent open requests do not update cache
  1) if lease has not expired, and cache time matches mtime, use cache
  2) if lease has expired, fetch attribute; if cache time matches
     mtime, use cache
