@@ -1004,10 +1004,9 @@ struct create_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_header h;
+  const struct xfs_message_create h;
   sfs_aid sa;
   cache_entry *e;
-  struct xfs_message_create *ha;
   ptr<ex_diropres3> res;
   
   void install (time_t rqt, clnt_stat err) 
@@ -1027,9 +1026,14 @@ struct create_obj {
       cache_entry *e1 = update_cache (*res->resok->obj.handle, 
 				      *res->resok->obj_attributes.attributes);
       e1->set_exp (rqt);
-      nfsobj2xfsnode (ha->cred, e1, &msg2.node);
+      xfs_cred cred = h.cred;
+      if (e1->nfs_attr.type == NF3DIR) {
+	struct xfs_message_mkdir *hm = (xfs_message_mkdir *) &h;
+	cred = hm->cred;
+      }
+      nfsobj2xfsnode (cred, e1, &msg2.node);
     
-      int new_fd = assign_cachefile (fd, h.sequence_num, e, 
+      int new_fd = assign_cachefile (fd, h.header.sequence_num, e, 
 				     msg3.cache_name, &msg3.cache_handle);
       if (new_fd < 0)
 	delete this;
@@ -1038,7 +1042,7 @@ struct create_obj {
       assert (res->resok->dir_wcc.after.present);
       e->nfs_attr = *(res->resok->dir_wcc.after.attributes);
       e->set_exp (rqt);
-      nfsobj2xfsnode (ha->cred, e, &msg1.node);
+      nfsobj2xfsnode (cred, e, &msg1.node);
       //messages.C: benjie's rant.
       e->incache = false;
 
@@ -1050,15 +1054,17 @@ struct create_obj {
       msg2.node.tokens = XFS_ATTR_R
 	| XFS_OPEN_NW | XFS_OPEN_NR
 	| XFS_DATA_R | XFS_DATA_W;      
-      msg2.parent_handle = ha->parent_handle;
-      strlcpy (msg2.name, ha->name, sizeof (msg2.name));
+      msg2.parent_handle = h.parent_handle;
+      strlcpy (msg2.name, h.name, sizeof (msg2.name));
     
       msg2.header.opcode = XFS_MSG_INSTALLNODE;
       h1 = (struct xfs_message_header *) &msg2;
       h1_len = sizeof (msg2);
 
-      e1->incache = true;
-      e1->writers = 1;
+      if (e1->nfs_attr.type == NF3REG) {
+	e1->incache = true;
+	e1->writers = 1;
+      }
       msg3.node = msg2.node;
       msg3.flag = 0;
       msg3.header.opcode = XFS_MSG_INSTALLDATA;
@@ -1066,10 +1072,11 @@ struct create_obj {
       h2 = (struct xfs_message_header *) &msg3;
       h2_len = sizeof (msg3);
 
-      xfs_send_message_wakeup_multiple (fd, h.sequence_num,
+      xfs_send_message_wakeup_multiple (fd, h.header.sequence_num,
 					0, h0, h0_len, h1, h1_len, h2, h2_len,
 					NULL, 0);
-    } else xfs_reply_err (fd, h.sequence_num, err ? err : res->status);
+    } else xfs_reply_err (fd, h.header.sequence_num, err ? err : res->status);
+    delete this;
   }
 
   void do_mkdir ()
@@ -1087,41 +1094,39 @@ struct create_obj {
 
   void do_create ()
   {
-    struct xfs_message_create *h1 = (xfs_message_create *) &h;
     create3args ca;
     ca.where.dir = e->nh;
-    ca.where.name = h1->name;
+    ca.where.name = h.name;
     ca.how.set_mode (GUARDED);
     assert (ca.how.mode == UNCHECKED || ca.how.mode == GUARDED);
-    xfsattr2nfsattr (h1->header.opcode, h1->attr, &(*ca.how.obj_attributes));
+    xfsattr2nfsattr (h.header.opcode, h.attr, &(*ca.how.obj_attributes));
 
     res = New refcounted <ex_diropres3>;
     c->call (lbfs_NFSPROC3_CREATE, &ca, res,
 		wrap (this, &create_obj::install, timenow));
   }
 
-  create_obj (int fd1, const xfs_message_header &h1, sfs_aid sa1, 
+  create_obj (int fd1, const xfs_message_create &h1, sfs_aid sa1, 
 	      ref<aclnt> c1) :
     fd(fd1), c(c1), h(h1), sa(sa1)
   {
 
-    ha = (xfs_message_create *) &h;    
-    warn << ha->header.sequence_num << ":" <<" xfs_handle ("
-	 << (int) ha->parent_handle.a << ","
-	 << (int) ha->parent_handle.b << ","
-	 << (int) ha->parent_handle.c << ","
-	 << (int) ha->parent_handle.d << ")\n";
-    warn << "file name: " << ha->name << "\n";
-    e = xfsindex[ha->parent_handle];
+    warn << h.header.sequence_num << ":" <<" parent_handle ("
+	 << (int) h.parent_handle.a << ","
+	 << (int) h.parent_handle.b << ","
+	 << (int) h.parent_handle.c << ","
+	 << (int) h.parent_handle.d << ")\n";
+    warn << "file name: " << h.name << "\n";
+    e = xfsindex[h.parent_handle];
     if (!e) {
 #if DEBUG > 0
       warn << "create_obj: Can't find parent_handle\n";
 #endif
-      xfs_reply_err(fd, h.sequence_num, ENOENT);
+      xfs_reply_err(fd, h.header.sequence_num, ENOENT);
       delete this;
     }
 
-    switch (h.opcode) {
+    switch (h.header.opcode) {
     case XFS_MSG_CREATE:
       do_create ();
       break;
@@ -1133,8 +1138,99 @@ struct create_obj {
 };
 
 void 
-lbfs_create (int fd, const xfs_message_header &h, sfs_aid sa, 
-	     ref<aclnt> c)
+lbfs_create (int fd, const xfs_message_create &h, sfs_aid sa, ref<aclnt> c)
 {
   vNew create_obj (fd, h, sa, c);
+}
+
+struct link_obj {
+  int fd;
+  ref<aclnt> c;
+  
+  const struct xfs_message_link h;
+  sfs_aid sa;
+  cache_entry *e1, *e2;
+  ptr<ex_link3res> res;
+
+  void do_link (time_t rqt, clnt_stat err) 
+  {
+    if (!err && res->status == NFS3_OK) {
+      struct xfs_message_installdata msg1; //update parent dir's data
+      struct xfs_message_installnode msg2; //update attr of from_handle
+      
+      struct xfs_message_header *h0 = NULL;
+      size_t h0_len = 0;
+      struct xfs_message_header *h1 = NULL;
+      size_t h1_len = 0;
+
+      //change attributes of parent dir
+      //in the future implement local content change too..
+      int pfd = assign_cachefile (fd, h.header.sequence_num, e2, 
+				  msg1.cache_name, &msg1.cache_handle);
+      assert (res->res->linkdir_wcc.after.present);
+      e2->nfs_attr = *(res->res->linkdir_wcc.after.attributes);
+      e2->set_exp (rqt, true);
+      nfsobj2xfsnode (h.cred, e2, &msg1.node);
+      msg1.flag = 0;
+
+      e1->incache = false; // sad mtime update problem with openbsd nfsd
+      msg1.header.opcode = XFS_MSG_INSTALLDATA;
+      h0 = (struct xfs_message_header *) &msg1;
+      h0_len = sizeof (msg1);
+
+      assert (res->res->file_attributes.present);
+      e1->nfs_attr = *(res->res->file_attributes.attributes);
+      e1->set_exp (rqt, e1->nfs_attr.type == NF3DIR ? true : false);
+      nfsobj2xfsnode (h.cred, e1, &msg2.node);
+
+      msg2.node.tokens = XFS_ATTR_R;
+      msg2.parent_handle = h.parent_handle;
+      strcpy (msg2.name, h.name);
+
+      msg2.header.opcode = XFS_MSG_INSTALLNODE;
+      h1 = (struct xfs_message_header *) &msg2;
+      h1_len = sizeof (msg2);
+    
+      xfs_send_message_wakeup_multiple (fd, h.header.sequence_num, 0,
+					h0, h0_len, h1, h1_len, NULL, 0);
+    } else xfs_reply_err (fd, h.header.sequence_num, err ? err : res->status);
+    delete this;
+  }
+
+  link_obj (int fd1, const xfs_message_link &h1, sfs_aid sa1, 
+	      ref<aclnt> c1) : fd(fd1), c(c1), h(h1), sa(sa1) 
+  {
+    cache_entry *e1 = xfsindex[h.from_handle];
+    if (!e1) {
+#if DEBUG > 0
+      warn << "link_obj: Can't find from_handle\n";
+#endif
+      xfs_reply_err (fd, h.header.sequence_num, ENOENT);
+      delete this;
+    }
+    link3args la;
+    la.file = e1->nh;
+
+    e2 = xfsindex[h.parent_handle];
+    if (!e2) {
+#if DEBUG > 0
+      warn << "xfs_message_link: Can't find parent_handle\n";
+#endif
+      xfs_reply_err(fd, h.header.sequence_num, ENOENT);
+      delete this;
+    }
+    la.link.dir = e2->nh;
+    la.link.name = h.name;
+
+    res = New refcounted < ex_link3res >;
+    nfsc->call (lbfs_NFSPROC3_LINK, &la, res,
+		wrap (this, &link_obj::do_link, timenow), lbfs_authof (sa));    
+  }
+
+};
+
+void 
+lbfs_link (int fd, const xfs_message_link &h, sfs_aid sa, ref<aclnt> c)
+{
+  vNew link_obj (fd, h, sa, c);
 }

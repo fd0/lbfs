@@ -132,13 +132,13 @@ xfs_create (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif
 
-  lbfs_create (xfsc->fd, *((xfs_message_header *)h), xfsc->getaid(), nfsc);
+  lbfs_create (xfsc->fd, *h, xfsc->getaid(), nfsc);
 }
 
 void 
 xfs_mkdir (ref<xfscall> xfsc) 
 {
-  xfs_message_mkdir *h = (xfs_message_mkdir *) xfsc->argp;
+  xfs_message_create *h = (xfs_message_create *) xfsc->argp;
 #if DEBUG > 0
   warn << "Received xfs_create\n";
   warn << h->header.sequence_num << ":" <<" xfs_handle ("
@@ -149,20 +149,35 @@ xfs_mkdir (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif
 
-  lbfs_create (xfsc->fd, *((xfs_message_header *)h), xfsc->getaid(), nfsc);
+  lbfs_create (xfsc->fd, *h, xfsc->getaid (), nfsc);
 }
 
 void 
 xfs_link (ref<xfscall> xfsc) 
 {
-
+  xfs_message_link *h = (xfs_message_link *) xfsc->argp;
+#if DEBUG > 0
+  warn << "Received xfs_link (hard)\n";
+  warn << h->header.sequence_num << ":" <<" parent_handle ("
+       << (int) h->parent_handle.a << ","
+       << (int) h->parent_handle.b << ","
+       << (int) h->parent_handle.c << ","
+       << (int) h->parent_handle.d << ")\n";
+  warn << "file name: " << h->name << "\n";
+  warn << h->header.sequence_num << ":" <<" from_handle ("
+       << (int) h->from_handle.a << ","
+       << (int) h->from_handle.b << ","
+       << (int) h->from_handle.c << ","
+       << (int) h->from_handle.d << ")\n";
+#endif  
   
+  lbfs_link (xfsc->fd, *h, xfsc->getaid (), nfsc);
 }
 
 void 
 xfs_symlink (ref<xfscall> xfsc) 
 {
-
+  
   
 }
 
