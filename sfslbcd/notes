@@ -1,5 +1,15 @@
 
-LBFS Implementation
+0. Requirement
+
+This client can connect with sfsrwsd, sfszrwsd (distributed with
+lbfs), and sfslbsd. sfslbcd performs aggressive lookup and attribute
+caching. Both sfszrwsd and sfslbsd have been modified so they
+invalidate fh aggressively on rename and remove. sfslbcd works best
+with these modifications. Consequently, under some cases, using
+sfslbcd with the standard sfsrwsd may result in incorrect link counts.
+
+
+1. LBFS Implementation
 
 LBFS related code are in read.C and write.C.
 
@@ -18,13 +28,9 @@ version. When we write out the file to the server, we update the chunk
 database with new chunk information.
 
 
+2. Caching Client Implementation
 
-**********************************************
-
-Caching Client Implementation
-
-consistency:
-------------
+2.1 Consistency:
 
 close-to-open consistency is: on any close (CLOSE rpc), nfs client
 flushes all changes to server; on any open (ACCESS rpc), nfs client
@@ -64,8 +70,7 @@ application should close the file then re-open it.
 we may try to fix this problem in a later version of lbfs.
 
 
-operations on cached file:
---------------------------
+2.2 Operations on cached file:
 
 a cached file can be in one of the following four states
 
@@ -89,8 +94,7 @@ DIRTY   DIRTY      X        DIRTY     DIRTY    DIRTY    FLUSH     X
 FLUSH   FLUSH      X        FLUSH      (B)      (B)      (B)    IDLE
 
 
-detailed semantics:
--------------------
+2.3 Implementation Details
 
 keeps a negative lookup cache per directory accessed. cache is updated
 on CREATE, REMOVE, MKDIR, etc. cache is invalidated when we receive an

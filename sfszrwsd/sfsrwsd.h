@@ -181,10 +181,14 @@ class client : public virtual refcount, public sfsserv {
 
   void nfs3dispatch (svccb *);
   void nfs3reply (svccb *sbp, void *res, filesrv::reqstate rqs, clnt_stat err);
+  void renamecb_0 (svccb *sbp, lookup3res *ares, filesrv::reqstate rqs,
+                   clnt_stat err);
   void renamecb_1 (svccb *sbp, void *res, filesrv::reqstate rqs,
-		   clnt_stat err);
+                   lookup3res *ares, clnt_stat err);
   void renamecb_2 (svccb *sbp, rename3res *rres, filesrv::reqstate rqs,
-		   lookup3res *ares, clnt_stat err);
+                   lookup3res *ares_old, lookup3res *ares, clnt_stat err);
+  void renamecb_3 (svccb *sbp, getattr3res *gres, filesrv::reqstate rqs,
+                   nfs_fh3 fh, void *res, clnt_stat err);
   void removecb_1 (svccb *sbp, lookup3res *ares, filesrv::reqstate rqs,
 		   clnt_stat err);
   void removecb_2 (svccb *sbp, void *res, filesrv::reqstate rqs,

@@ -686,6 +686,7 @@ server::cbdispatch (svccb *sbp)
 	a = xa->attributes.attributes.addr ();
 	a->expire += timenow;
       }
+      warn << "invalidate " << xa->handle << "\n";
       ac.attr_enter (xa->handle, a, NULL);
       if (lc[xa->handle])
 	lc_clear(xa->handle);
@@ -1049,6 +1050,7 @@ server::dispatch (nfscall *nc)
           bool hit = lc_lookup(a->dir, a->name, fh);
 	  if (hit) {
 	    const ex_fattr3 *objf = ac.attr_lookup (fh);
+	    warn << "positive hit " << a->name << ": " << fh << "\n";
 	    if (objf) {
               lookup3res res(NFS3_OK);
 	      res.resok->object = fh;
