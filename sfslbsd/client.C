@@ -32,7 +32,7 @@
 #include "fingerprint.h"
 #include "lbfs.h"
 
-#define DEBUG 2
+#define DEBUG 1
 
 #if DEBUG > 1
 struct timeval tv0, tv1;
@@ -123,17 +123,13 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
   if (err || count != cwa->count || cv.size() != 1 || 
       cv[0]->fingerprint != cwa->fingerprint ||
       memcmp(cv[0]->hash.base(), cwa->hash.base(), sha1::hashsize) != 0) {
-#if DEBUG > 1
+#if DEBUG > 0
     if (err) 
       warn << "CONDWRITE: error reading file: " << err << "\n";
     else if (count != cwa->count)
       warn << "CONDWRITE: size does not match, old chunk? " 
 	   << "want " << cwa->count << " got " << count << "\n";
-#endif
-#if DEBUG > 0
-#if DEBUG > 1
     else 
-#endif
     if (cv.size() != 1 || cv[0]->fingerprint != cwa->fingerprint)
       warn << "CONDWRITE: fingerprint mismatch\n";
     else 
@@ -160,7 +156,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
  
   else {
     delete chunker0;
-#if DEBUG > 2
+#if DEBUG > 0
     // fingerprint matches, do write
     warn << "CONDWRITE: bingo, found a condwrite candidate\n";
 #endif
@@ -228,7 +224,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
       delete iter; 
     }
   }
-#if DEBUG > 2
+#if DEBUG > 0
   warn << "CONDWRITE: " << cwa->fingerprint << " not in DB\n";
 #endif
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
@@ -270,7 +266,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   str rstr = armor32((void*)&r, sizeof(int));
   char *tmpfile = New char[5+fhstr.len()+1+rstr.len()+1];
   sprintf(tmpfile, "sfs.%s.%s", fhstr.cstr(), rstr.cstr());
-#if DEBUG > 1
+#if DEBUG > 0
   warn << "MKTMPFILE: " << tmpfile << "\n";
 #endif
   
@@ -318,7 +314,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     for (unsigned i=0; i<cv.size(); i++) {
       cv[i]->loc.set_fh(fh);
       fpdb.add_entry(cv[i]->fingerprint, &(cv[i]->loc)); 
-#if DEBUG > 2
+#if DEBUG > 0
       warn << "COMMITTMP: adding " << cv[i]->fingerprint << " @"
 	   << cv[i]->loc.pos() << " " 
 	   << cv[i]->loc.count() << " to database\n";
@@ -331,7 +327,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   tmpfh_record *tfh_rec = fhtab.tab[tmpfh];
   if (tfh_rec) {
     tfh_rec->name[tfh_rec->len] = '\0';
-#if DEBUG > 1
+#if DEBUG > 0
     warn ("COMMITTMP: remove %s\n", tfh_rec->name);
 #endif
     wccstat3 *rres = New wccstat3;
@@ -451,6 +447,10 @@ void
 client::oscar_add_cb (svccb *sbp, filesrv::reqstate rqs, 
                       link3res *lnres, clnt_stat err)
 {
+#if DEBUG > 0
+  if (err) 
+    warn << "oscar_add_cb: failed\n";
+#endif
   normal_dispatch(sbp, rqs);
   delete lnres;
   fsrv->update_oscar(rqs.fsno);
@@ -544,7 +544,7 @@ client::nfs3dispatch (svccb *sbp)
 	           authtab[authno]);
   }
   else {
-#if DEBUG > 0
+#if DEBUG > 2
     if (sbp->proc () == NFSPROC3_LOOKUP) 
       warn ("server: %lu %lu\n", xc->bytes_sent, xc->bytes_recv);
 #endif
