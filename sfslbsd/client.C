@@ -347,7 +347,8 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       x.fingerprint = (*cv)[i]->fingerprint;
       x.hash = *(chunker->hv[i]);
       res->resok->fprints[i] = x;
-      warn << "GETFP: returning " << (*cv)[i]->fingerprint << "\n";
+      warn << "GETFP: returning " << (*cv)[i]->fingerprint 
+	   << " " << armor32(x.hash.base(), sha1::hashsize) << "\n";
     }
     if (i < cv->size())
       res->resok->eof=false;

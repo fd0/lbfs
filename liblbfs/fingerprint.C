@@ -113,7 +113,7 @@ void
 Chunker::chunk(const unsigned char *data, size_t size)
 {
   u_int64_t f_break = 0;
-  size_t pos0 = _cur_pos;
+  size_t start_i = 0;
   for (size_t i=0; i<size; i++, _cur_pos++) {
     f_break = _w.slide8 (data[i]);
     size_t cs = _cur_pos - _last_pos;
@@ -122,26 +122,23 @@ Chunker::chunk(const unsigned char *data, size_t size)
       lbfs_chunk *c = new lbfs_chunk(_last_pos, cs, _fp);
       _w.reset();
       _fp = 0;
-
       if (_hash) {
-	off_t start = _last_pos>pos0 ? _last_pos-pos0 : 0;
-	handle_hash(data+start, i-start+1);
+	if (i-start_i > 0) 
+	  handle_hash(data+start_i, i-start_i);
         sfs_hash *h = new sfs_hash;
 	sha1_hash(h->base(), _hbuf, _hbuf_cursor);
 	_hbuf_cursor = 0;
 	hv.push_back(h);
       }
       cvp->push_back(c);
-
       _last_pos = _cur_pos;
+      start_i = i;
     }
     _fp = _w.append8 (_fp, data[i]);
   }
       
-  if (_hash) { 
-    off_t start = _last_pos>pos0 ? _last_pos-pos0 : 0;
-    handle_hash(data+start, size-start);
-  }
+  if (_hash)
+    handle_hash(data+start_i, size-start_i);
 }
 
 int chunk_file(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
