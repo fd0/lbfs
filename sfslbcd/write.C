@@ -24,12 +24,12 @@
 
 struct write_obj {
   static const int PARALLEL_WRITES = 8;
-  static const int WRITE_SIZE = 4096;
-  typedef callback<void,bool>::ref cb_t;
+  typedef callback<void,fattr3,bool>::ref cb_t;
 
   cb_t cb;
   ref<server> srv;
   nfs_fh3 fh;
+  fattr3 fa;
   AUTH *auth;
   int fd;
   size_t size;
@@ -40,11 +40,22 @@ struct write_obj {
   
   void
   commit_reply(time_t rqtime, ref<commit3args> arg,
-               ref<ex_commit3res> res, clnt_stat err) 
-  {
+               ref<ex_commit3res> res, clnt_stat err) {
     outstanding_writes--;
-    if (!err)
-      srv->getattr (rqtime, NFSPROC3_COMMIT, 0, arg, res);
+    if (!err) {
+      srv->getxattr (rqtime, NFSPROC3_COMMIT, 0, arg, res);
+      if (res->resok->file_wcc.before.present &&
+	  res->resok->file_wcc.after.present) {
+        if ((res->resok->file_wcc.before.attributes)->size == fa.size &&
+	    (res->resok->file_wcc.before.attributes)->mtime == fa.mtime &&
+	    (res->resok->file_wcc.before.attributes)->ctime == fa.ctime) {
+	  ex_fattr3 *f = res->resok->file_wcc.after.attributes;
+	  fa = *reinterpret_cast<fattr3 *> (f);
+	}
+	else
+	  warn << "wcc check failed: reply out of order, or conflict\n";
+      }
+    }
     if (!callback && !err && res->status == NFS3_OK) {
       ok();
       return;
@@ -54,11 +65,22 @@ struct write_obj {
 
   void
   write_reply(time_t rqtime, ref<write3args> arg,
-              ref<ex_write3res> res, clnt_stat err) 
-  {
+              ref<ex_write3res> res, clnt_stat err) {
     outstanding_writes--;
-    if (!err)
-      srv->getattr (rqtime, NFSPROC3_WRITE, 0, arg, res);
+    if (!err) {
+      srv->getxattr (rqtime, NFSPROC3_WRITE, 0, arg, res);
+      if (res->resok->file_wcc.before.present &&
+	  res->resok->file_wcc.after.present) {
+        if ((res->resok->file_wcc.before.attributes)->size == fa.size &&
+	    (res->resok->file_wcc.before.attributes)->mtime == fa.mtime &&
+	    (res->resok->file_wcc.before.attributes)->ctime == fa.ctime) {
+	  ex_fattr3 *f = res->resok->file_wcc.after.attributes;
+	  fa = *reinterpret_cast<fattr3 *> (f);
+	}
+	else
+	  warn << "wcc check failed: reply out of order, or conflict\n";
+      }
+    }
     if (!callback && !err && res->status == NFS3_OK) {
       do_write();
       ok();
@@ -90,7 +112,6 @@ struct write_obj {
       }
       t += n;
     }
-    warn << "NFS WRITE " << off << ":" << size << "\n";
     outstanding_writes++;
     ref<ex_write3res> res = New refcounted <ex_write3res>;
     srv->nfsc->call (lbfs_NFSPROC3_WRITE, a, res,
@@ -101,15 +122,14 @@ struct write_obj {
 
   bool do_write() {
     if (written < size) {
-      int s = size-written;
-      s = s > WRITE_SIZE ? WRITE_SIZE : s;
+      unsigned s = size-written;
+      s = s > srv->wtpref ? srv->wtpref : s;
       if (nfs3_write (written, s) < 0)
 	return true;
       written += s;
     }
     if (written == size && !commit) {
       commit = true;
-      warn << "NFS COMMIT\n";
       ref<commit3args> a = New refcounted<commit3args>;
       a->file = fh;
       a->offset = 0;
@@ -130,7 +150,7 @@ struct write_obj {
     if (!callback) {
       close(fd);
       callback = true;
-      cb(false);
+      cb(fa, false);
     }
     if (outstanding_writes == 0)
       delete this;
@@ -141,15 +161,15 @@ struct write_obj {
       if (!callback) {
 	close(fd);
         callback = true;
-	cb(true);
+	cb(fa, true);
       }
       delete this;
     }
   }
 
-  write_obj (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
+  write_obj (str fn, nfs_fh3 fh, size_t size, fattr3 fa, ref<server> srv,
             AUTH *a, write_obj::cb_t cb)
-    : cb(cb), srv(srv), fh(fh), auth(a), size(size), written(0),
+    : cb(cb), srv(srv), fh(fh), fa(fa), auth(a), size(size), written(0),
       outstanding_writes(0), callback(false), commit(false)
   {
     fd = open (fn, O_RDONLY);
@@ -170,9 +190,9 @@ struct write_obj {
 };
 
 void
-lbfs_write (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
+lbfs_write (str fn, nfs_fh3 fh, size_t size, fattr3 fa, ref<server> srv,
             AUTH *a, write_obj::cb_t cb)
 {
-  vNew write_obj (fn, fh, size, srv, a, cb);
+  vNew write_obj (fn, fh, size, fa, srv, a, cb);
 }
 

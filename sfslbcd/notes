@@ -1,7 +1,6 @@
 
-XXX implement wcc
-  - on each write/commit, check if wcc.pre == previous attribute of
-    file, if so, update attribute, otherwise, don't update
+Caching Client Implementation
+
 
 close-to-open consistency is: on any close, nfs client flushes all
 changes to server; on any open, nfs client fetches latest attributes
@@ -24,21 +23,20 @@ attributes in attribute cache and file cache
          dirty file, such as, for example, ACCESS, should we?
 
 write
- - don't update mtime on each write or close. can't update on write
-   bcecause clocks can be out of sync; can't update on close because
-   we don't know if our writes and commit conflict with another
-   client's writes or not
- - mark cached file dirty on first write; we won't update the cache
+ - don't update mtime on each write, because clocks can be out of sync
+ - mark cached file dirty on first write, so we won't update the cache
    file on subsequent ACCESS until the cache file is flushed to server
- - update size in both attribute and file cache
+ - update size in both attribute cache and file cache
  - always return FILE_SYNC
  - XXX what verf should we return
 
 close
  - send WRITE with UNSTABLE
  - send COMMIT
- - does not update cache file's attribute (i.e. mtime), so the
-   subsequent read should trigger a fetch from server
+ - check wcc after each write/commit. after the last commit, if the
+   cached file is not dirty (i.e. has not been writen to since the
+   last close), use the last wcc.after as the attribute for the cached
+   file.
 
 commit
  - since we return FILE_SYNC on each WRITE RPC, we should not see any
@@ -46,7 +44,7 @@ commit
    them onto the server.
 
 setattr
- - if size is changed, update size in both attribute and file cache
+ - if size is changed, update size in both attribute cache and file cache
  - always forward setattr rpc onto the server
 
 can we depend on nfs client to always send an ACCESS rpc before any

@@ -103,6 +103,7 @@ server::server (const sfsserverargs &a)
     if (mkdir(f.cstr(), 0755) < 0 && errno != EEXIST)
       fatal ("cannot create cache directory %s\n", f.cstr());
   }
+  rtpref = wtpref = 4096;
 }
 
 int

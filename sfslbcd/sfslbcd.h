@@ -42,6 +42,19 @@ strbuf_cat(const strbuf &b, nfs_fh3 fh)
   return b;
 }
 
+inline bool
+operator< (const nfstime3 &t1, const nfstime3 &t2) {
+  unsigned int ts1 = t1.seconds;
+  unsigned int tns1 = t1.nseconds;
+  unsigned int ts2 = t2.seconds;
+  unsigned int tns2 = t2.nseconds;
+  ts1 += (tns1/1000000000);
+  tns1 = (tns1%1000000000);
+  ts2 += (tns2/1000000000);
+  tns2 = (tns2%1000000000);
+  return (ts1 < ts2 || (ts1 == ts2 && tns1 < tns2));
+}
+
 class attr_cache {
   struct access_dat {
     u_int32_t mask;
@@ -93,9 +106,11 @@ class server : public sfsserver_auth {
   struct fcache {
     nfs_fh3 fh;
     fattr3 fa;
+    uint64 osize;
     bool dirty;
     int fd;
-    fcache(nfs_fh3 fh, fattr3 fa) : fh(fh), fa(fa), dirty(false), fd(-1) {}
+    fcache(nfs_fh3 fh, fattr3 fa)
+      : fh(fh), fa(fa), osize(fa.size), dirty(false), fd(-1) {}
   };
 
   attr_cache ac;
@@ -113,9 +128,9 @@ class server : public sfsserver_auth {
   void write_to_cache (nfscall *nc, fcache *e);
   int truncate_cache (uint64 size, fcache *e);
 
-  void close_reply (nfscall *nc, bool ok);
-  void cache_file_reply (time_t rqtime, nfscall *nc, void *res, bool ok);
-  void access_reply_cached (nfscall *nc, int32_t perm, fattr3 fa,
+  void close_reply (nfscall *nc, fattr3 fa, bool ok);
+  void file_cached (time_t rqtime, nfscall *nc, void *res, bool ok);
+  void access_cached_reply (nfscall *nc, int32_t perm, fattr3 fa,
                             bool update_fa, bool ok);
 
   void remove_cache (fcache e);
@@ -139,6 +154,8 @@ public:
   typedef sfsserver_auth super;
   ptr<aclnt> nfsc;
   ptr<asrv> nfscbs;
+  unsigned rtpref;
+  unsigned wtpref;
 
   server (const sfsserverargs &a);
   ~server () { warn << path << " deleted\n"; }
@@ -146,14 +163,14 @@ public:
   void authclear (sfs_aid aid);
   void setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_c);
   void dispatch (nfscall *nc);
-  void getattr (time_t rqtime, unsigned int proc,
-                sfs_aid aid, void *arg, void *res);
+  void getxattr (time_t rqtime, unsigned int proc,
+                 sfs_aid aid, void *arg, void *res);
 };
 
 void lbfs_read (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
                 AUTH *a, callback<void, bool>::ref cb);
-void lbfs_write (str fn, nfs_fh3 fh, size_t size, ref<server> srv,
-                 AUTH *a, callback<void, bool>::ref cb);
+void lbfs_write (str fn, nfs_fh3 fh, size_t size, fattr3 fa, ref<server> srv,
+                 AUTH *a, callback<void, fattr3, bool>::ref cb);
 
 #endif
 

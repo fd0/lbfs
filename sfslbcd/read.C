@@ -24,7 +24,6 @@
 
 struct read_obj {
   static const int PARALLEL_READS = 8;
-  static const int READ_SIZE = 4096;
   typedef callback<void,bool>::ref cb_t;
 
   cb_t cb;
@@ -43,7 +42,7 @@ struct read_obj {
   {
     outstanding_reads--;
     if (!err)
-      srv->getattr (rqtime, NFSPROC3_READ, 0, arg, res);
+      srv->getxattr (rqtime, NFSPROC3_READ, 0, arg, res);
     if (!callback && !err && res->status == NFS3_OK) {
       if (lseek(fd, off, SEEK_SET) < 0) {
 	fail();
@@ -68,7 +67,6 @@ struct read_obj {
     a->offset = off;
     a->count = size;
     outstanding_reads++;
-    warn << "NFS READ " << off << ":" << size << "\n";
     ref<ex_read3res> res = New refcounted <ex_read3res>;
     srv->nfsc->call (lbfs_NFSPROC3_READ, a, res,
 	             wrap (this, &read_obj::read_reply,
@@ -78,8 +76,8 @@ struct read_obj {
 
   bool do_read() {
     if (requested < size) {
-      int s = size-requested;
-      s = s > READ_SIZE ? READ_SIZE : s;
+      unsigned s = size-requested;
+      s = s > srv->rtpref ? srv->rtpref : s;
       nfs3_read (requested, s);
       requested += s;
       if (requested < size)
