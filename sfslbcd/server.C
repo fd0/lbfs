@@ -34,6 +34,7 @@
 #include "ranges.h"
 
 aiod* file_cache::a = New aiod (2);
+unsigned server::tmpfd = 0;
 
 void
 server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
@@ -339,7 +340,7 @@ server::flush_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok)
     warn << "flush failed\n";
     e->error();
     if (nc)
-      nc->reject (SYSTEM_ERR);
+      nc->error (NFS3ERR_IO);
   }
   e->flush_wait = e->flush_scheduled = false;
   run_rpcs (e);
@@ -397,9 +398,13 @@ server::flush_cache (nfscall *nc, file_cache *e)
   fattr3 fa = e->fa;
   fa.size = e->osize;
 
+#if SUPPORT_PARTIAL_FLUSH
+  // XXX lbfs_write can't support partial flush
   uint64 start = e->mstart;
   uint64 size = e->mend - e->mstart;
 
+  // following logic is used for handling COMMIT, when COMMIT covers a
+  // region that may overlap with the modified region
   if (start <= e->mstart && (start+size) > e->mstart)
     e->mstart = start + size;
   if (start + size >= e->mend)
@@ -408,9 +413,14 @@ server::flush_cache (nfscall *nc, file_cache *e)
     e->mstart = 0;
     e->mend = 0;
   }
+#else
+  uint64 size = e->fa.size;
+  e->mstart = 0;
+  e->mend = 0;
+#endif
 
   lbfs_write
-    (fn, e, e->fh, start, size, fa, mkref(this), authof(aid),
+    (fn, e, e->fh, size, fa, mkref(this), authof(aid),
      wrap(mkref(this), &server::flush_done, nc, e->fh));
 }
 
@@ -735,7 +745,24 @@ server::setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_cb)
   nfsc = aclnt::alloc (x, lbfs_program_3);
   nfscbs = asrv::alloc (x, ex_nfscb_program_3,
 			wrap (mkref(this), &server::cbdispatch));
+
+  // check if server supports lbfs
+  lbfs_committmp3args arg;
+  void *res = lbfs_program_3.tbl[lbfs_ABORTTMP].alloc_res ();
+  nfsc->call (lbfs_ABORTTMP, &arg, res,
+              wrap (mkref(this), &server::check_lbfs, res), 0L);
+
   err_cb (false);
+}
+
+void
+server::check_lbfs (void *res, clnt_stat err)
+{
+  auto_xdr_delete axd (lbfs_program_3.tbl[lbfs_ABORTTMP].xdr_res, res);
+  if (!err) {
+    warn << "check_lbfs returned " << err << ", server supports LBFS\n";
+    do_lbfs = true;
+  }
 }
 
 bool

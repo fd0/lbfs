@@ -167,11 +167,13 @@ class server : public sfsserver_auth {
 protected:
   str cdir;
   bool try_compress;
+  bool do_lbfs;
   writeverf3 verf3;
   lbfs_attr_cache ac;
   lrucache<nfs_fh3, file_cache *> fc;
   lrucache<nfs_fh3, dir_lc *> lc; 
 
+  void check_lbfs (void *res, clnt_stat err);
   void dispatch_dummy (svccb *sbp);
   void cbdispatch (svccb *sbp);
   void setfd (int fd);
@@ -321,18 +323,22 @@ public:
 
   server (const sfsserverargs &a);
   ~server () { warn << path << " deleted\n"; }
+  bool use_lbfs () const { return do_lbfs; }
+
   void flushstate ();
   void authclear (sfs_aid aid);
   void setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_c);
   void dispatch (nfscall *nc);
   void getxattr (time_t rqtime, unsigned int proc,
                  sfs_aid aid, void *arg, void *res);
+
+  static unsigned tmpfd;
 };
 
 void lbfs_read (str fn, nfs_fh3 fh, uint64 size, ref<server> srv,
                 AUTH *a, callback<void, bool, bool>::ref cb);
 void lbfs_write (str fn, file_cache *fe,
-                 nfs_fh3 fh, uint64 start, uint64 size, fattr3 fa,
+                 nfs_fh3 fh, uint64 size, fattr3 fa,
 		 ref<server> srv,
                  AUTH *a, callback<void, fattr3, bool>::ref cb);
 

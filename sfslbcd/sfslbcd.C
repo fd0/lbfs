@@ -135,6 +135,7 @@ server::server (const sfsserverargs &a)
   }
   rtpref = wtpref = 4096;
   try_compress = true;
+  do_lbfs = false;
 
   bigint verf;
   char xxb[20];

@@ -157,7 +157,10 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
       warn << "CONDWRITE: bingo, found a condwrite candidate\n";
 
     ufd_rec *u = ufdtab.tab[cwa->fd];
-    assert(u);
+    if (!u) {
+      lbfs_nfs3exp_err (sbp, NFS3ERR_NOENT);
+      return;
+    }
     nfs_fh3 fh = u->fh;
     nfs3_write(rqs.c, fh,
 	       wrap(mkref(this), &client::condwrite_write_cb, 
@@ -203,8 +206,8 @@ client::condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, size_t count,
   else {
     lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
     ufd_rec *u = ufdtab.tab[cwa->fd];
-    assert(u);
-    u->error = true;
+    if (u)
+      u->error = true;
     nfs3reply(sbp, wres, rqs, RPC_FAILED);
   }
 }
@@ -270,7 +273,10 @@ client::tmpwrite_cb (svccb *sbp, filesrv::reqstate rqs,
 {
   lbfs_tmpwrite3args *twa = sbp->template getarg<lbfs_tmpwrite3args> ();
   ufd_rec *u = ufdtab.tab[twa->fd];
-  assert(u);
+  if (!u) {
+    lbfs_nfs3exp_err (sbp, NFS3ERR_NOENT);
+    return;
+  }
   u->writes--;
   if (!err && !wres->status)
     nfs3reply(sbp, wres, rqs, RPC_SUCCESS);
@@ -409,7 +415,6 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
   }
 
   ufd_rec *u = ufdtab.tab[cta->fd];
-  assert(u);
   if (u) {
     for (unsigned i=0; i<u->chunks.size(); i++) {
       chunk *c = u->chunks[i];

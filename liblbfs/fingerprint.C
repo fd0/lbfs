@@ -91,6 +91,8 @@ Chunker::chunk_data(const unsigned char *data, size_t size)
       if (i-start_i > 0) 
 	handle_hash(data+start_i, i-start_i);
       chunk *c = New chunk(_last_pos, cs, _hbuf);
+      if (_hbuf_cursor != cs)
+	warn << "_hbuf_cursor = " << _hbuf_cursor << ", cs = " << cs << "\n";
       assert(_hbuf_cursor == cs);
       _hbuf_cursor = 0;
       _cv.push_back(c);

@@ -22,9 +22,11 @@
 #include "sfslbcd.h"
 #include "lbfs_prot.h"
 #include "fingerprint.h"
+  
+typedef callback<void, ptr<aiobuf>, ssize_t, int>::ref aiofh_cbrw;
 
 struct write_obj {
-  static const int PARALLEL_WRITES = 8;
+  static const int PARALLEL_WRITES = 16;
   typedef callback<void,fattr3,bool>::ref cb_t;
 
   cb_t cb;
@@ -33,27 +35,36 @@ struct write_obj {
   fattr3 fa;
   file_cache *fe;
   AUTH *auth;
-  uint64 start;
   uint64 size;
   uint64 written;
   unsigned int outstanding_writes;
   bool callback;
   bool commit;
 
+  unsigned tmpfd;
+  unsigned chunkv_sz;
   Chunker chunker;
+  
+  void
+  aborttmp_reply(void *res, clnt_stat err) {
+    auto_xdr_delete axd (lbfs_program_3.tbl[lbfs_ABORTTMP].xdr_res, res);
+    delete this;
+  }
+  
+  void
+  committmp_reply(ref<ex_commit3res> res, clnt_stat err) {
+    warn << "committmp reply\n";
+    outstanding_writes--;
+    if (!callback && !err && res->status == NFS3_OK) {
+      ok();
+      return;
+    }
+    fail();
+  }
   
   void
   commit_reply(time_t rqtime, ref<commit3args> arg,
                ref<ex_commit3res> res, clnt_stat err) {
-
-    chunker.stop ();
-    for (unsigned i=0; i<chunker.chunk_vector().size(); i++) {
-      chunk *c = chunker.chunk_vector()[i];
-      uint64 off = c->location ().pos ();
-      uint64 cnt = c->location ().count ();
-      warn << c->hashidx () << ": " << off << "+" << cnt << "\n";
-    }
-
     outstanding_writes--;
     if (!err) {
       srv->getxattr (rqtime, NFSPROC3_COMMIT, 0, arg, res);
@@ -114,29 +125,180 @@ struct write_obj {
     fail();
   }
 
-  void nfs3_write (uint64 off, uint32 cnt)
+  void tmpwrite_reply (ref<ex_write3res> res, clnt_stat err) {
+    outstanding_writes--;
+    warn << "tmpwrite reply, counter " << outstanding_writes << "\n";
+    if (!callback && !err && res->status == NFS3_OK) {
+      do_write();
+      ok();
+      return;
+    }
+    fail();
+  }
+
+  void condwrite_reply (uint64 off, uint32 cnt, ref<ex_write3res> res,
+                        clnt_stat err)
   {
+    if (!callback && !err && res->status == NFS3ERR_FPRINTNOTFOUND) {
+      warn << "hash not found\n";
+      while (cnt > 0) {
+        unsigned s = cnt;
+        s = s > srv->wtpref ? srv->wtpref : s;
+        nfs3_read (off, s, wrap (this, &write_obj::lbfs_tmpwrite, off, s));
+	warn << "do real write, counter " << outstanding_writes << "\n";
+        off += s;
+	cnt -= s;
+      }
+      outstanding_writes--;
+      warn << "condwrite reply, counter " << outstanding_writes << "\n";
+      return;
+    }
+
+    outstanding_writes--;
+    warn << "condwrite fail, counter " << outstanding_writes << "\n";
+    if (!callback && !err && res->status == NFS3_OK) {
+      warn << "hash found\n";
+      do_write();
+      ok();
+      return;
+    }
+
+    warn << "condwrite_reply " << err << ", " << res->status << "\n";
+    fail();
+  }
+  
+  void nfs3_read (uint64 off, uint32 cnt, aiofh_cbrw cb)
+  {
+    outstanding_writes++;
+    warn << "nfs3_read, counter " << outstanding_writes << "\n";
     ptr<aiobuf> buf = file_cache::a->bufalloc (cnt);
     if (!buf) {
       file_cache::a->bufwait
-        (wrap (this, &write_obj::nfs3_write, off, cnt));
+        (wrap (this, &write_obj::nfs3_read_again, off, cnt, cb));
       return;
     }
-    outstanding_writes++;
-    fe->afh->read (off, buf,
-                   wrap (this, &write_obj::nfs3_write_read, off, cnt));
+    fe->afh->read (off, buf, cb);
   }
-  
-  void nfs3_write_read (uint64 off, uint32 cnt, ptr<aiobuf> buf,
-                        ssize_t sz, int err)
+
+  void nfs3_read_again (uint64 off, uint32 cnt, aiofh_cbrw cb)
+  {
+    if (callback) {
+      outstanding_writes--;
+      warn << "nfs3_read calledback, counter " << outstanding_writes << "\n";
+      fail ();
+      return;
+    }
+    ptr<aiobuf> buf = file_cache::a->bufalloc (cnt);
+    if (!buf) {
+      file_cache::a->bufwait
+        (wrap (this, &write_obj::nfs3_read_again, off, cnt, cb));
+      return;
+    }
+    fe->afh->read (off, buf, cb);
+  }
+
+  void lbfs_condwrite (uint64 off, uint32 cnt,
+                       ptr<aiobuf> buf, ssize_t sz, int err)
   {
     if (err || (unsigned)sz != cnt) {
       outstanding_writes--;
+      warn << "condwrite fail, counter " << outstanding_writes << "\n";
       if (err)
-        warn << "flush_cache: read failed: " << err << "\n";
+        warn << "lbfs_write: read failed: " << err << "\n";
       else
-        warn << "flush_cache: short read: got "
+        warn << "lbfs_write: short read: got "
              << sz << " wanted " << cnt << "\n";
+      fail ();
+      return;
+    }
+
+    if (callback) {
+      outstanding_writes--;
+      warn << "condwrite calledback, counter " << outstanding_writes << "\n";
+      fail ();
+      return;
+    }
+
+    chunker.chunk_data ((unsigned char*) buf->base (), (unsigned)sz);
+    const vec<chunk *>& cv = chunker.chunk_vector ();
+    if (chunkv_sz < cv.size ()) {
+      for (unsigned i=chunkv_sz; i < cv.size (); i++) {
+        chunk *c = cv[i];
+        uint64 off = c->location ().pos ();
+        uint64 cnt = c->location ().count ();
+        warn << c->hashidx () << ": " << off << "+" << cnt << "\n";
+
+	lbfs_condwrite3args arg;
+        arg.commit_to = fh;
+        arg.fd = tmpfd;
+	arg.offset = off;
+	arg.count = cnt;
+	arg.hash = c->hash ();
+        ref<ex_write3res> res = New refcounted <ex_write3res>;
+        outstanding_writes++;
+        srv->nfsc->call (lbfs_CONDWRITE, &arg, res,
+	                 wrap (this, &write_obj::condwrite_reply,
+			       off, cnt, res), auth);
+      }
+      chunkv_sz = cv.size ();
+    }
+    outstanding_writes--;
+  }
+
+  void lbfs_tmpwrite (uint64 off, uint32 cnt,
+                      ptr<aiobuf> buf, ssize_t sz, int err)
+  {
+    if (err || (unsigned)sz != cnt) {
+      outstanding_writes--;
+      warn << "tmpwrite fail, counter " << outstanding_writes << "\n";
+      if (err)
+        warn << "lbfs_write: read failed: " << err << "\n";
+      else
+        warn << "lbfs_write: short read: got "
+             << sz << " wanted " << cnt << "\n";
+      fail ();
+      return;
+    }
+
+    if (callback) {
+      outstanding_writes--;
+      warn << "tmpwrite calledback, counter " << outstanding_writes << "\n";
+      fail ();
+      return;
+    }
+
+    lbfs_tmpwrite3args arg;
+    arg.commit_to = fh;
+    arg.fd = tmpfd;
+    arg.offset = off;
+    arg.count = sz;
+    arg.stable = UNSTABLE;
+    arg.data.setsize(sz);
+    memmove (arg.data.base (), buf->base (), sz);
+    
+    ref<ex_write3res> res = New refcounted <ex_write3res>;
+    srv->nfsc->call (lbfs_TMPWRITE, &arg, res,
+	             wrap (this, &write_obj::tmpwrite_reply, res), auth);
+  }
+
+  void nfs3_write (uint64 off, uint32 cnt,
+                   ptr<aiobuf> buf, ssize_t sz, int err)
+  {
+    if (err || (unsigned)sz != cnt) {
+      outstanding_writes--;
+      warn << "nfswrite fail, counter " << outstanding_writes << "\n";
+      if (err)
+        warn << "lbfs_write: read failed: " << err << "\n";
+      else
+        warn << "lbfs_write: short read: got "
+             << sz << " wanted " << cnt << "\n";
+      fail ();
+      return;
+    }
+
+    if (callback) {
+      outstanding_writes--;
+      warn << "nfswrite calledback, counter " << outstanding_writes << "\n";
       fail ();
       return;
     }
@@ -149,33 +311,39 @@ struct write_obj {
     a->data.setsize(sz);
     memmove (a->data.base (), buf->base (), sz);
     
-    chunker.chunk_data ((unsigned char*) a->data.base (), (unsigned)sz);
-
     ref<ex_write3res> res = New refcounted <ex_write3res>;
     srv->nfsc->call (lbfs_NFSPROC3_WRITE, a, res,
 	             wrap (this, &write_obj::write_reply, timenow, a, res),
 		     auth);
   }
 
+  void nfs3_commit () {
+    ref<commit3args> a = New refcounted<commit3args>;
+    a->file = fh;
+    a->offset = 0;
+    a->count = 0;
+    outstanding_writes++;
+    ref<ex_commit3res> res = New refcounted <ex_commit3res>;
+    srv->nfsc->call (lbfs_NFSPROC3_COMMIT, a, res,
+	             wrap (this, &write_obj::commit_reply, timenow, a, res),
+		     auth);
+  }
+
   bool do_write() {
-    if (written < size) {
+    if (written < size && !callback) {
       unsigned s = size-written;
       s = s > srv->wtpref ? srv->wtpref : s;
-      nfs3_write (start+written, s);
+      if (srv->use_lbfs ())
+	nfs3_read (written, s,
+	           wrap (this, &write_obj::lbfs_condwrite, written, s));
+      else
+	nfs3_read (written, s,
+	           wrap (this, &write_obj::nfs3_write, written, s));
       written += s;
     }
-    if (written == size && !commit) {
+    if (!srv->use_lbfs () && written == size && !commit) {
       commit = true;
-      ref<commit3args> a = New refcounted<commit3args>;
-      a->file = fh;
-      a->offset = 0;
-      a->count = 0;
-      outstanding_writes++;
-      ref<ex_commit3res> res = New refcounted <ex_commit3res>;
-      srv->nfsc->call (lbfs_NFSPROC3_COMMIT, a, res,
-	               wrap (this, &write_obj::commit_reply,
-			     timenow, a, res),
-		       auth);
+      nfs3_commit ();
     }
     if (written < size)
       return false;
@@ -184,19 +352,45 @@ struct write_obj {
 
   static void file_closed (int) { }
 
-  void fail() {
+  void fail () {
     if (!callback) {
       fe->afh->close (wrap (&write_obj::file_closed));
       fe->afh = 0;
       callback = true;
       cb(fa, false);
     }
-    if (outstanding_writes == 0)
-      delete this;
+    if (outstanding_writes == 0) {
+      warn << "in fail(), outstanding write = 0\n";
+      if (srv->use_lbfs ()) {
+        lbfs_committmp3args arg;
+        arg.commit_to = fh;
+        arg.fd = tmpfd;
+        void *res = lbfs_program_3.tbl[lbfs_ABORTTMP].alloc_res ();
+        srv->nfsc->call (lbfs_ABORTTMP, &arg, res,
+	                 wrap (this, &write_obj::aborttmp_reply, res), auth);
+      }
+      else {
+	warn << "delete this\n";
+	delete this;
+      }
+    }
   }
 
-  void ok() {
+  void ok () {
     if (outstanding_writes == 0) {
+      if (srv->use_lbfs () && !commit) {
+        commit = true;
+        outstanding_writes++;
+    
+	lbfs_committmp3args arg;
+        arg.commit_to = fh;
+        arg.fd = tmpfd;
+        ref<ex_commit3res> res = New refcounted <ex_commit3res>;
+        srv->nfsc->call (lbfs_COMMITTMP, &arg, res,
+	                 wrap (this, &write_obj::committmp_reply, res), auth);
+	return;
+      }
+
       if (!callback) {
 	warn << "close after flush\n";
         fe->afh->close (wrap (&write_obj::file_closed));
@@ -204,19 +398,13 @@ struct write_obj {
         callback = true;
 	cb(fa, true);
       }
+
+      warn << "in ok(), delete this\n";
       delete this;
     }
   }
 
-  write_obj (str fn, file_cache *fe, nfs_fh3 fh,
-             uint64 start, uint64 size, fattr3 fa, ref<server> srv,
-             AUTH *a, write_obj::cb_t cb)
-    : cb(cb), srv(srv), fh(fh), fa(fa), fe(fe), auth(a),
-      start(start), size(size), written(0),
-      outstanding_writes(0), callback(false), commit(false)
-  {
-    assert (fe->afh);
-
+  void start_write () {
     bool eof = false;
     for (int i=0; i<PARALLEL_WRITES && !eof; i++)
       eof = do_write();
@@ -224,14 +412,60 @@ struct write_obj {
       ok();
   }
 
+  void mktmpfile_reply (ref<ex_diropres3> res, clnt_stat err) {
+    if (err || res->status != NFS3_OK)
+      fail ();
+  }
+
+  write_obj (str fn, file_cache *fe, nfs_fh3 fh,
+             uint64 size, fattr3 fa, ref<server> srv,
+             AUTH *a, write_obj::cb_t cb)
+    : cb(cb), srv(srv), fh(fh), fa(fa), fe(fe), auth(a),
+      size(size), written(0), outstanding_writes(0),
+      callback(false), commit(false)
+  {
+    assert (fe->afh);
+
+    if (srv->use_lbfs ()) {
+      lbfs_mktmpfile3args arg;
+      arg.commit_to = fh;
+      tmpfd = server::tmpfd;
+      server::tmpfd ++;
+      arg.fd = tmpfd;
+      arg.obj_attributes.mode.set_set (true);
+      *(arg.obj_attributes.mode.val) = fa.mode;
+      arg.obj_attributes.uid.set_set (true);
+      *(arg.obj_attributes.uid.val) = fa.uid;
+      arg.obj_attributes.gid.set_set (true);
+      *(arg.obj_attributes.gid.val) = fa.gid;
+      arg.obj_attributes.size.set_set (true);
+      *(arg.obj_attributes.size.val) = size; // assume this is size of file?
+      arg.obj_attributes.atime.set_set (SET_TO_CLIENT_TIME);
+      arg.obj_attributes.atime.time->seconds = fa.atime.seconds;
+      arg.obj_attributes.atime.time->nseconds = fa.atime.nseconds;
+      arg.obj_attributes.mtime.set_set (SET_TO_CLIENT_TIME);
+      arg.obj_attributes.mtime.time->seconds = fa.mtime.seconds;
+      arg.obj_attributes.mtime.time->nseconds = fa.mtime.nseconds;
+
+      ref<ex_diropres3> res = New refcounted <ex_diropres3>;
+      srv->nfsc->call (lbfs_MKTMPFILE, &arg, res,
+	               wrap (this, &write_obj::mktmpfile_reply, res),
+		       auth);
+
+      chunkv_sz = 0;
+    }
+
+    start_write ();
+  }
+
   ~write_obj() {}
 };
 
 void
 lbfs_write (str fn, file_cache *fe, nfs_fh3 fh,
-            uint64 start, uint64 size, fattr3 fa, ref<server> srv,
+            uint64 size, fattr3 fa, ref<server> srv,
             AUTH *a, write_obj::cb_t cb)
 {
-  vNew write_obj (fn, fe, fh, start, size, fa, srv, a, cb);
+  vNew write_obj (fn, fe, fh, size, fa, srv, a, cb);
 }
 
