@@ -70,7 +70,7 @@ Chunker::stop()
 }
 
 void
-Chunker::chunk_data(const unsigned char *data, size_t size)
+Chunker::chunk(const unsigned char *data, size_t size)
 {
   u_int64_t f_break = 0;
   for (size_t i=0; i<size; i++, _cur_pos++) {
@@ -86,15 +86,25 @@ Chunker::chunk_data(const unsigned char *data, size_t size)
   }
 }
 
-int
-Chunker::chunk_file(const char *path)
+int chunk_file(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
+               const char *path)
 {
   const u_char *fp;
   size_t fl;
-  if (mapfile (&fp, &fl, path) != 0)
-    return -1;
-  chunk_data(fp, fl);
+  if (mapfile (&fp, &fl, path) != 0) return -1;
+  Chunker chunker(chunk_size, cvp);
+  chunker.chunk(fp, fl);
+  chunker.stop();
   munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
+  return 0;
+}
+
+int chunk_data(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
+               const unsigned char *data, size_t size)
+{
+  Chunker chunker(chunk_size, cvp);
+  chunker.chunk(data, size);
+  chunker.stop();
   return 0;
 }
 

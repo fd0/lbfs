@@ -9,6 +9,12 @@
 int mapfile (const u_char **bufp, size_t *sizep, const char *path);
 u_int64_t fingerprint(const unsigned char *data, size_t count);
 
+int chunk_data(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
+               const unsigned char *data, size_t count);
+int chunk_file(unsigned chunk_size, vec<lbfs_chunk *> *cvp,
+               const char *path);
+
+
 class Chunker {
 private:
   window _w;
@@ -24,8 +30,7 @@ public:
   ~Chunker();
 
   void stop();
-  void chunk_data (const unsigned char *data, size_t size);
-  int chunk_file (const char *path);
+  void chunk (const unsigned char *data, size_t size);
 };
 
 

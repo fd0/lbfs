@@ -55,8 +55,7 @@ gotattr(const char *dpath, const char *fname, DIR *dirp,
     if (mapfile (&fp, &fl, fspath) == 0) {
       for (unsigned j = 0; j < NUM_CHUNK_SIZES; j++) {
         vec<lbfs_chunk *> cv;
-	Chunker chunker(CHUNK_SIZES(j), &cv);
-        chunker.chunk_data(fp, fl);
+        chunk_data(CHUNK_SIZES(j), &cv, fp, fl);
 	for(unsigned i=0; i<cv.size(); i++) { 
 	  cv[i]->loc.set_fh(*fhp);
 	  cv[i]->loc.set_mtime(attr->mtime);

@@ -665,8 +665,7 @@ void lbfs_nfs3_mktmpfile(int fd, struct xfs_message_putdata* h,
   cwa->chunk_index = 0;
   cwa->res = NULL;
 
-  Chunker chunker(CHUNK_SIZES(0), cwa->cvp);
-  if (chunker.chunk_file((char const*)fname) < 0) {
+  if (chunk_file(CHUNK_SIZES(0), cwa->cvp, (char const*)fname) < 0) {
     warn << strerror(errno) << "(" << errno << "): lbfs_nfs3_mktmpfile(chunkfile)\n";
     return;
   }
