@@ -48,11 +48,10 @@ int  xfs_send_message_multiple (int fd, ...);
 int  xfs_send_message_vmultiple (int fd, va_list args);
 #endif /* May not use */
 
-int  xfs_message_send (int fd, struct xfs_message_header *h, u_int size); 
 int  xfs_message_rpc (int fd, struct xfs_message_header *h, u_int size);
 
 typedef int 
-(*xfs_message_function) (int, struct xfs_message_header*, u_int);
+(*xfs_message_function) (int, struct xfs_message_header *, u_int);
 
 extern xfs_message_function rcvfuncs[XFS_MSG_COUNT];
 

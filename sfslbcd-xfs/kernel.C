@@ -35,31 +35,62 @@ static unsigned recv_count[20];
 
 static unsigned recv_count_overflow;
 
-
 static int
 process_message (int msg_length, char *msg)
 {
-     struct xfs_message_header *header;
-     char *p;
-     int cnt;
+  //ref<struct xfs_message_header> cnthdr = New refcounted<struct xfs_message_header>;
+  struct xfs_message_header *header;
+  char *p = msg;
+  int cnt;
 
-     cnt = 0;
-     for (p = msg;
-	  msg_length > 0;
-	  p += header->size, msg_length -= header->size) {
-	 header = (struct xfs_message_header *)p;
-	 xfs_message_receive (kernel_fd, header, header->size);
-	 ++cnt;
-     }
+  cnt = 0;
+  for (p = msg;
+       msg_length > 0;
+       p += header->size, msg_length -= header->size) {
+    header = (struct xfs_message_header *) p;
+#if 0
+    cnthdr->size = header->size;
+    cnthdr->opcode = header->opcode;
+    cnthdr->sequence_num = header->sequence_num;
+    cnthdr->pad1 = header->pad1;
+#endif
+    xfs_message_receive (kernel_fd, header, header->size);
+    ++cnt;
+  }
+#if 0
      if (u_int(cnt) < sizeof(recv_count)/sizeof(recv_count[0]))
 	 ++recv_count[cnt];
      else
 	 ++recv_count_overflow;
-     
+#endif     
      return 0;
 }
 
 #if 0
+
+static int
+process_message (int msg_length, char *msg)
+{
+  struct xfs_message_header header;
+  char *p = msg;
+  int cnt;
+  
+  cnt = 0;
+  for (p = msg;
+       msg_length > 0;
+       p += header->size, msg_length -= header->size) {
+    header = (struct xfs_message_header *)p;
+    xfs_message_receive (kernel_fd, header, header->size);
+    ++cnt;
+  }
+
+  if (u_int(cnt) < sizeof(recv_count)/sizeof(recv_count[0]))
+    ++recv_count[cnt];
+  else
+    ++recv_count_overflow;
+
+  return 0;
+}
 
 /*
  * The work threads.
@@ -313,12 +344,13 @@ kernel_opendevice (const char *dev)
     return 0;
 }
 
-char data[MAX_XMSG_SIZE];
+//char data[MAX_XMSG_SIZE];
 
 void akernel() {
   u_int32_t data_size = MAX_XMSG_SIZE;
+  mstr data(MAX_XMSG_SIZE);
   //char* data = New char[data_size]; //(char *) malloc(data_size);
-  int len = kern_read(kernel_fd, data, data_size);
+  int len = kern_read(kernel_fd, data.cstr(), data_size);
 
   if ((len == -1) && (errno != EAGAIN)) { 
     warn << "can't read from kernel_fd = " << kernel_fd << ":" 
@@ -330,7 +362,7 @@ void akernel() {
     return;
   } else {
     warn << "akernel: received data\n";
-    process_message(len, data);
+    process_message(len, data.cstr());
   }
   //delete [] data;
   fdcb(kernel_fd, selread, wrap(&akernel));

@@ -20,6 +20,7 @@
  */
 
 #include "xfs.h"
+#include "messages.h"
 
 u_int *seqnums;
 
@@ -166,20 +167,198 @@ xfs_message_init (void)
 int
 xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 {
-     unsigned opcode = h->opcode;
+  unsigned opcode = h->opcode;
+  
+  if (opcode >= XFS_MSG_COUNT || rcvfuncs[opcode] == NULL ) {
+    warn << "Bad message opcode = " << opcode << "!!!!!!!!!\n";
+    return -1;
+  }
+  
+  ++recv_stat[opcode];
+  
+  warn << "Rec message: opcode = " << opcode << "("
+       << rcvfuncs_name[opcode] << "), seq = " << h->sequence_num 
+       << " size = " << h->size << "\n";
 
-     if (opcode >= XFS_MSG_COUNT || rcvfuncs[opcode] == NULL ) {
-       warn << "Bad message opcode = " << opcode << "!!!!!!!!!\n";
-       return -1;
-     }
+  str msgstr = str((const char *)h, size);
+  switch (opcode) {
+  case XFS_MSG_GETROOT: {
+    struct xfs_message_getroot *hh = (struct xfs_message_getroot *)msgstr.cstr();
+    ref<struct xfs_message_getroot> msg = New refcounted<struct xfs_message_getroot>;
+    msg->header = hh->header;
+    msg->cred = hh->cred;
+    return xfs_message_getroot(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_GETNODE: {
+    struct xfs_message_getnode *hh = (struct xfs_message_getnode *)msgstr.cstr();
+    ref<struct xfs_message_getnode> msg = New refcounted<struct xfs_message_getnode>;
+    msg->header = hh->header;
+    msg->cred = hh->cred;
+    msg->parent_handle = hh->parent_handle;
+    strcpy(msg->name, hh->name);
+    return xfs_message_getnode(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_GETATTR: {
+    struct xfs_message_getattr *hh = (struct xfs_message_getattr *)msgstr.cstr();
+    ref<struct xfs_message_getattr> msg = New refcounted<struct xfs_message_getattr>;
+    msg->header = hh->header;
+    msg->cred = hh->cred;    
+    return xfs_message_getattr(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_INACTIVENODE: {
+    struct xfs_message_inactivenode *hh = (struct xfs_message_inactivenode*)msgstr.cstr();
+    ref<struct xfs_message_inactivenode> msg = New refcounted<struct xfs_message_inactivenode>;
+    msg->header = hh->header;
+    msg->handle = hh->handle;
+    msg->flag = hh->flag;
+    msg->pad1 = hh->pad1;    
+    return xfs_message_inactivenode(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_OPEN:
+  case XFS_MSG_GETDATA:
+    {
+    struct xfs_message_getdata *hh = (struct xfs_message_getdata *)msgstr.cstr();
+    ref<struct xfs_message_getdata> msg = New refcounted<struct xfs_message_getdata>;
+    msg->header = hh->header;
+    msg->cred = hh->cred;
+    msg->handle = hh->handle;
+    msg->tokens = hh->tokens;
+    msg->pad1 = hh->pad1;
+    return  xfs_message_getdata(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_PUTDATA: {
+    struct xfs_message_putdata *hh = (struct xfs_message_putdata*)msgstr.cstr();
+    ref<struct xfs_message_putdata> msg = New refcounted<struct xfs_message_putdata>;
+    msg->header = hh->header;
+    msg->handle = hh->handle;
+    msg->attr = hh->attr;
+    msg->cred = hh->cred;    
+    msg->flag = hh->flag;
+    msg->pad1 = hh->pad1;    
+    return xfs_message_putdata(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_PUTATTR: {
+    struct xfs_message_putattr *hh = (struct xfs_message_putattr*)msgstr.cstr();
+    ref<struct xfs_message_putattr> msg = New refcounted<struct xfs_message_putattr>;
+    msg->header = hh->header;
+    msg->handle = hh->handle;
+    msg->attr = hh->attr;
+    msg->cred = hh->cred;        
+    return xfs_message_putattr(fd, msg, size);
+  }
+  case XFS_MSG_CREATE: {
+    struct xfs_message_create *hh = (struct xfs_message_create*)msgstr.cstr();
+    ref<struct xfs_message_create> msg = New refcounted<struct xfs_message_create>;
+    msg->header = hh->header;
+    msg->parent_handle = hh->parent_handle;
+    strcpy(msg->name, hh->name);
+    msg->attr = hh->attr;
+    msg->mode = hh->mode;
+    msg->pad1 = hh->pad1;    
+    msg->cred = hh->cred;    
+    return xfs_message_create(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_MKDIR: {
+    struct xfs_message_mkdir *hh = (struct xfs_message_mkdir*)msgstr.cstr();
+    ref<struct xfs_message_mkdir> msg = New refcounted<struct xfs_message_mkdir>;
+    msg->header = hh->header;
+    msg->parent_handle = hh->parent_handle;
+    strcpy(msg->name, hh->name);
+    msg->attr = hh->attr;
+    msg->cred = hh->cred;         
+    return xfs_message_mkdir(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_LINK: {
+    struct xfs_message_link *hh = (struct xfs_message_link*)msgstr.cstr();
+    ref<struct xfs_message_link> msg = New refcounted<struct xfs_message_link>;
+    msg->header = hh->header;
+    msg->parent_handle = hh->parent_handle;
+    strcpy(msg->name, hh->name);
+    msg->from_handle = hh->from_handle;
+    msg->cred = hh->cred;             
+    return xfs_message_link(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_SYMLINK: {
+    struct xfs_message_symlink *hh = (struct xfs_message_symlink*)msgstr.cstr();
+    ref<struct xfs_message_symlink> msg = New refcounted<struct xfs_message_symlink>;
+    msg->header = hh->header;
+    msg->parent_handle = hh->parent_handle;
+    strcpy(msg->name, hh->name);
+    strcpy(msg->contents,hh->contents);
+    msg->attr = hh->attr;
+    msg->cred = hh->cred;             
+    return xfs_message_symlink(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_REMOVE: {
+    struct xfs_message_remove *hh = (struct xfs_message_remove*)msgstr.cstr();
+    ref<struct xfs_message_remove> msg = New refcounted<struct xfs_message_remove>;
+    msg->header = hh->header;
+    msg->parent_handle = hh->parent_handle;
+    strcpy(msg->name, hh->name);
+    msg->cred = hh->cred;                
+    return xfs_message_remove(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_RMDIR: {
+    struct xfs_message_rmdir *hh = (struct xfs_message_rmdir*)msgstr.cstr();
+    ref<struct xfs_message_rmdir> msg = New refcounted<struct xfs_message_rmdir>;
+    msg->header = hh->header;
+    msg->parent_handle = hh->parent_handle;
+    strcpy(msg->name, hh->name);
+    msg->cred = hh->cred;                
+    return xfs_message_rmdir(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_RENAME: {
+    struct xfs_message_rename *hh = (struct xfs_message_rename *)msgstr.cstr();
+    ref<struct xfs_message_rename> msg = New refcounted<struct xfs_message_rename>;
+    msg->header = hh->header;
+    msg->old_parent_handle = hh->old_parent_handle;
+    strcpy(msg->old_name, hh->old_name);
+    msg->new_parent_handle = hh->new_parent_handle;
+    strcpy(msg->new_name, hh->new_name);
+    msg->cred = hh->cred;                
+    return xfs_message_rename(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_PIOCTL: {
+    struct xfs_message_pioctl *hh = (struct xfs_message_pioctl*)msgstr.cstr();
+    ref<struct xfs_message_pioctl> msg = New refcounted<struct xfs_message_pioctl>;
+    msg->header = hh->header;
+    msg->opcode = hh->opcode;
+    msg->pad1 = hh->pad1;    
+    msg->cred = hh->cred;    
+    msg->insize = hh->insize;    
+    msg->outsize = hh->outsize;  
+    strcpy(msg->msg, hh->msg);
+    msg->handle = hh->handle;    
+    return xfs_message_pioctl(fd, msg, size);
+    break;
+  }
+#if 0
+  case : {
+    *hh = ()msgstr.cstr();
+    ref<> msg = New refcounted<>;
+  return (fd, msg, size);
 
-     ++recv_stat[opcode];
-
-     warn << "Rec message: opcode = " << opcode << "("
-	  << rcvfuncs_name[opcode] << "), seq = " << h->sequence_num 
-	  << " size = " << h->size << "\n";
-
-     return (*rcvfuncs[opcode])(fd, h, size);
+    break;
+  }
+#endif
+   default:
+    return 0;
+    break;
+  }
+  //return (*rcvfuncs[opcode])(fd, (struct xfs_message_header *)msg.cstr(), size);
 }
 
 
@@ -224,12 +403,12 @@ int
 xfs_send_message_wakeup (int fd, u_int seqnum, int error)
 {
      struct xfs_message_wakeup msg;
-     
+
      msg.header.opcode = XFS_MSG_WAKEUP;
      msg.sleepers_sequence_num = seqnum;
      msg.error = error;
      warn << "sending wakeup: seq = " << seqnum << ", error = " << error <<"\n";
-     return xfs_message_send (fd, (struct xfs_message_header *)&msg, 
+     return xfs_message_send (fd, (struct xfs_message_header*)(&msg), 
 			      sizeof(msg));
 }
 

@@ -68,7 +68,7 @@ NULL						/* gc nodes */
 
 void lbfs_condwrite(ref<condwrite3args> cwa, clnt_stat err);
 void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count);
-void nfs3_rmdir(int fd, struct xfs_message_rmdir *h, ref<ex_lookup3res> lres,
+void nfs3_rmdir(int fd, ref<struct xfs_message_rmdir> h, ref<ex_lookup3res> lres,
 		clnt_stat err);
 
 void 
@@ -81,7 +81,7 @@ reply_err (int fd, u_int seqnum, int err)
 }
 
 int
-xfs_message_wakeup (int fd, struct xfs_message_wakeup *h, u_int size)
+xfs_message_wakeup (int fd, ref<struct xfs_message_wakeup> h, u_int size)
 {
   warn << "Got xfs_message_wakeup from XFS !!!\n";
 
@@ -89,7 +89,7 @@ xfs_message_wakeup (int fd, struct xfs_message_wakeup *h, u_int size)
 }
 
 void 
-getrootattr (int fd, struct xfs_message_getroot *h, ref<sfs_fsinfo> fsi,
+getrootattr (int fd, ref<struct xfs_message_getroot> h, ref<sfs_fsinfo> fsi,
 	     ref<ex_getattr3res > res, time_t rqtime, clnt_stat err)
 {
 
@@ -112,7 +112,7 @@ getrootattr (int fd, struct xfs_message_getroot *h, ref<sfs_fsinfo> fsi,
 }
 
 void 
-nfs3_fsinfo (int fd, struct xfs_message_getroot *h, ref<sfs_fsinfo> fsi,
+nfs3_fsinfo (int fd, ref<struct xfs_message_getroot> h, ref<sfs_fsinfo> fsi,
 	     ref<ex_fsinfo3res > res, clnt_stat err)
 {
 
@@ -129,7 +129,7 @@ nfs3_fsinfo (int fd, struct xfs_message_getroot *h, ref<sfs_fsinfo> fsi,
 }
 
 void 
-sfs_getfsinfo (int fd, struct xfs_message_getroot *h, ref<sfs_fsinfo> fsi, clnt_stat err)
+sfs_getfsinfo (int fd, ref<struct xfs_message_getroot> h, ref<sfs_fsinfo> fsi, clnt_stat err)
 {
 
   assert (fsi->prog == ex_NFS_PROGRAM && fsi->nfs->vers == ex_NFS_V3);
@@ -141,7 +141,7 @@ sfs_getfsinfo (int fd, struct xfs_message_getroot *h, ref<sfs_fsinfo> fsi, clnt_
 }
 
 int 
-xfs_message_getroot (int fd, struct xfs_message_getroot *h, u_int size)
+xfs_message_getroot (int fd, ref<struct xfs_message_getroot> h, u_int size)
 {
   warn << "get root!!\n";
 
@@ -153,7 +153,7 @@ xfs_message_getroot (int fd, struct xfs_message_getroot *h, u_int size)
 }
 
 void 
-nfs3_lookup (int fd, struct xfs_message_getnode *h, uint32 seqnum,
+nfs3_lookup (int fd, ref<struct xfs_message_getnode> h, uint32 seqnum,
 	     ref<ex_lookup3res > lres, time_t rqtime, clnt_stat err)
 {
 
@@ -195,7 +195,7 @@ nfs3_lookup (int fd, struct xfs_message_getnode *h, uint32 seqnum,
 }
 
 int 
-xfs_message_getnode (int fd, struct xfs_message_getnode *h, u_int size)
+xfs_message_getnode (int fd, ref<struct xfs_message_getnode> h, u_int size)
 {
   warn << h->header.sequence_num << ":" <<"get node !! msg.parent_handle ("
     << (int) h->parent_handle.a << ","
@@ -223,7 +223,7 @@ xfs_message_getnode (int fd, struct xfs_message_getnode *h, u_int size)
 }
 
 void 
-write_dirfile (int fd, struct xfs_message_getdata *h, //cache_entry *e, 
+write_dirfile (int fd, ref<struct xfs_message_getdata> h, //cache_entry *e, 
 	       ref<ex_readdir3res > res, write_dirent_args args, 
 	       struct xfs_message_installdata msg,
 	       clnt_stat cl_err)
@@ -282,7 +282,7 @@ write_dirfile (int fd, struct xfs_message_getdata *h, //cache_entry *e,
 }
 
 void 
-nfs3_readdir (int fd, struct xfs_message_getdata *h, cache_entry *e, 
+nfs3_readdir (int fd, ref<struct xfs_message_getdata> h, cache_entry *e, 
 	      ref<ex_readdir3res > res,
 	      time_t rqtime, clnt_stat err)
 {
@@ -609,7 +609,7 @@ lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
 }
 
 void 
-nfs3_read_exist (int fd, struct xfs_message_getdata *h, cache_entry *e)
+nfs3_read_exist (int fd, ref<struct xfs_message_getdata> h, cache_entry *e)
 {
 
   struct xfs_message_installdata msg;
@@ -641,7 +641,7 @@ nfs3_read_exist (int fd, struct xfs_message_getdata *h, cache_entry *e)
 }
 
 void 
-getfp (int fd, struct xfs_message_getdata *h, cache_entry *e)
+getfp (int fd, ref<struct xfs_message_getdata> h, cache_entry *e)
 {
 
   struct xfs_message_installdata msg;
@@ -706,7 +706,7 @@ greater (nfstime3 a, nfstime3 b)
 }
 
 void 
-comp_time (int fd, struct xfs_message_getdata *h, bool dirfile,
+comp_time (int fd, ref<struct xfs_message_getdata> h, bool dirfile,
 	   ptr < ex_getattr3res > res, time_t rqtime, clnt_stat err)
 {
   cache_entry *e = xfsindex[h->handle];
@@ -756,7 +756,7 @@ comp_time (int fd, struct xfs_message_getdata *h, bool dirfile,
 }
 
 void 
-nfs3_readlink (int fd, struct xfs_message_getdata *h, cache_entry *e,
+nfs3_readlink (int fd, ref<struct xfs_message_getdata> h, cache_entry *e,
 	       ref<ex_readlink3res > res,
 	       time_t rqtime, clnt_stat err)
 {
@@ -814,7 +814,7 @@ nfs3_readlink (int fd, struct xfs_message_getdata *h, cache_entry *e,
 }
 
 int 
-xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
+xfs_message_getdata (int fd, ref<struct xfs_message_getdata> h, u_int size)
 {
 
   warn << "get data !! msg.handle ("
@@ -875,7 +875,7 @@ xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
 }
 
 void 
-nfs3_getattr (int fd, struct xfs_message_getattr *h, cache_entry *e,
+nfs3_getattr (int fd, ref<struct xfs_message_getattr> h, cache_entry *e,
 	      ref<ex_getattr3res > res, time_t rqtime, clnt_stat err)
 {
 
@@ -903,7 +903,7 @@ nfs3_getattr (int fd, struct xfs_message_getattr *h, cache_entry *e,
 }
 
 int 
-xfs_message_getattr (int fd, struct xfs_message_getattr *h, u_int size)
+xfs_message_getattr (int fd, ref<struct xfs_message_getattr> h, u_int size)
 {
   warn << "get attr !!\n";
   warn << "msg.handle ("
@@ -1102,7 +1102,7 @@ sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
 }
 
 void 
-lbfs_mktmpfile (int fd, struct xfs_message_putdata *h,
+lbfs_mktmpfile (int fd, ref<struct xfs_message_putdata> h,
 		ref<ex_diropres3 > res, clnt_stat err)
 {
   if (err) {
@@ -1166,7 +1166,7 @@ lbfs_mktmpfile (int fd, struct xfs_message_putdata *h,
 }
 
 int 
-xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size)
+xfs_message_putdata (int fd, ref<struct xfs_message_putdata> h, u_int size)
 {
 
   warn << "putdata !!\n";
@@ -1191,7 +1191,7 @@ xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size)
 }
 
 int 
-xfs_message_inactivenode (int fd, struct xfs_message_inactivenode *h, u_int size)
+xfs_message_inactivenode (int fd, ref<struct xfs_message_inactivenode> h, u_int size)
 {
 
   warn << "inactivenode !!(" 
@@ -1217,7 +1217,7 @@ xfs_message_inactivenode (int fd, struct xfs_message_inactivenode *h, u_int size
 }
 
 void 
-nfs3_setattr (int fd, struct xfs_message_putattr *h, ref<ex_wccstat3 > res,
+nfs3_setattr (int fd, ref<struct xfs_message_putattr> h, ref<ex_wccstat3 > res,
 	      time_t rqtime, clnt_stat err)
 {
 
@@ -1255,7 +1255,7 @@ nfs3_setattr (int fd, struct xfs_message_putattr *h, ref<ex_wccstat3 > res,
 }
 
 int 
-xfs_message_putattr (int fd, struct xfs_message_putattr *h, u_int size)
+xfs_message_putattr (int fd, ref<struct xfs_message_putattr> h, u_int size)
 {
 
   warn << "putattr !!\n";
@@ -1282,7 +1282,7 @@ xfs_message_putattr (int fd, struct xfs_message_putattr *h, u_int size)
 }
 
 void 
-nfs3_create (int fd, struct xfs_message_create *h, ref<ex_diropres3 > res,
+nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
 	     time_t rqtime, clnt_stat err)
 {
   
@@ -1388,7 +1388,7 @@ nfs3_create (int fd, struct xfs_message_create *h, ref<ex_diropres3 > res,
 }
 
 int 
-xfs_message_create (int fd, struct xfs_message_create *h, u_int size)
+xfs_message_create (int fd, ref<struct xfs_message_create> h, u_int size)
 {
 
   warn << "create !!\n";
@@ -1416,7 +1416,7 @@ xfs_message_create (int fd, struct xfs_message_create *h, u_int size)
 }
 
 void 
-nfs3_mkdir (int fd, struct xfs_message_mkdir *h, ref<ex_diropres3 > res,
+nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
 	    time_t rqtime, clnt_stat err)
 {
 
@@ -1525,7 +1525,7 @@ nfs3_mkdir (int fd, struct xfs_message_mkdir *h, ref<ex_diropres3 > res,
 }
 
 int 
-xfs_message_mkdir (int fd, struct xfs_message_mkdir *h, u_int size)
+xfs_message_mkdir (int fd, ref<struct xfs_message_mkdir> h, u_int size)
 {
 
   warn << "mkdir !!\n";
@@ -1549,7 +1549,7 @@ xfs_message_mkdir (int fd, struct xfs_message_mkdir *h, u_int size)
 }
 
 void 
-nfs3_link (int fd, struct xfs_message_link *h, ref<ex_link3res > res,
+nfs3_link (int fd, ref<struct xfs_message_link> h, ref<ex_link3res > res,
 	   time_t rqtime, clnt_stat err)
 {
 
@@ -1619,7 +1619,7 @@ nfs3_link (int fd, struct xfs_message_link *h, ref<ex_link3res > res,
 }
 
 int 
-xfs_message_link (int fd, struct xfs_message_link *h, u_int size)
+xfs_message_link (int fd, ref<struct xfs_message_link> h, u_int size)
 {
 
   warn << "(hard) link !!\n";
@@ -1648,7 +1648,7 @@ xfs_message_link (int fd, struct xfs_message_link *h, u_int size)
 }
 
 void 
-nfs3_symlink (int fd, struct xfs_message_symlink *h, cache_entry *e, 
+nfs3_symlink (int fd, ref<struct xfs_message_symlink> h, cache_entry *e, 
 	      ref<ex_diropres3 > res, time_t rqtime, clnt_stat err)
 {
 
@@ -1711,7 +1711,7 @@ nfs3_symlink (int fd, struct xfs_message_symlink *h, cache_entry *e,
 }
 
 int 
-xfs_message_symlink (int fd, struct xfs_message_symlink *h, u_int size)
+xfs_message_symlink (int fd, ref<struct xfs_message_symlink> h, u_int size)
 {
 
   warn << "symlimk !!\n";
@@ -1736,7 +1736,7 @@ xfs_message_symlink (int fd, struct xfs_message_symlink *h, u_int size)
 }
 
 void 
-remove (int fd, struct xfs_message_remove *h, ref<ex_lookup3res > lres,
+remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
 	ref<ex_wccstat3 > wres, time_t rqtime, clnt_stat err)
 {
 
@@ -1859,7 +1859,7 @@ remove (int fd, struct xfs_message_remove *h, ref<ex_lookup3res > lres,
 }
 
 void 
-nfs3_remove (int fd, struct xfs_message_remove *h, ref<ex_lookup3res > lres,
+nfs3_remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
 	     clnt_stat err)
 {
 
@@ -1895,7 +1895,7 @@ nfs3_remove (int fd, struct xfs_message_remove *h, ref<ex_lookup3res > lres,
 }
 
 int 
-xfs_message_remove (int fd, struct xfs_message_remove *h, u_int size)
+xfs_message_remove (int fd, ref<struct xfs_message_remove> h, u_int size)
 {
 
   warn << "remove !!\n";
@@ -1919,7 +1919,7 @@ xfs_message_remove (int fd, struct xfs_message_remove *h, u_int size)
 }
 
 void 
-nfs3_rmdir (int fd, struct xfs_message_rmdir *h, ref<ex_lookup3res > lres,
+nfs3_rmdir (int fd, ref<struct xfs_message_rmdir> h, ref<ex_lookup3res > lres,
 	    clnt_stat err)
 {
 
@@ -1939,9 +1939,15 @@ nfs3_rmdir (int fd, struct xfs_message_rmdir *h, ref<ex_lookup3res > lres,
     doa.dir = e->nh;
     doa.name = h->name;
 
+    ref<struct xfs_message_remove> hr = New refcounted<struct xfs_message_remove>;
+    hr->header = h->header;
+    hr->parent_handle = h->parent_handle;
+    hr->name = h->name;
+    hr->cred = h->cred;
+
     ref<ex_wccstat3 > wres = New refcounted < ex_wccstat3 >;
     nfsc->call (lbfs_NFSPROC3_RMDIR, &doa, wres,
-		wrap (&remove, fd, (struct xfs_message_remove *) h, lres, wres, timenow));
+		wrap (&remove, fd, /*(struct xfs_message_remove *)*/ hr, lres, wres, timenow));
 
   }
   else {
@@ -1955,7 +1961,7 @@ nfs3_rmdir (int fd, struct xfs_message_rmdir *h, ref<ex_lookup3res > lres,
 }
 
 int 
-xfs_message_rmdir (int fd, struct xfs_message_rmdir *h, u_int size)
+xfs_message_rmdir (int fd, ref<struct xfs_message_rmdir> h, u_int size)
 {
 
   warn << "rmdir !!\n";
@@ -2166,7 +2172,7 @@ nfs3_rename_lookup (ref<rename_args> rena, time_t rqtime, clnt_stat err)
 }
 
 int 
-xfs_message_rename (int fd, struct xfs_message_rename *h, u_int size)
+xfs_message_rename (int fd, ref<struct xfs_message_rename> h, u_int size)
 {
 
   warn << "rename !!\n";
@@ -2189,7 +2195,7 @@ xfs_message_rename (int fd, struct xfs_message_rename *h, u_int size)
 }
 
 int
-xfs_message_pioctl (int fd, struct xfs_message_pioctl *h, u_int size) {
+xfs_message_pioctl (int fd, ref<struct xfs_message_pioctl> h, u_int size) {
   
   warn << "pioctl!! return 0 no matter what!!!\n";
 
