@@ -129,6 +129,9 @@ public:
 
   // add a chunk to the database, returns db3 errnos
   int add_chunk(u_int64_t fingerprint, lbfs_chunk_loc *c);
+
+  // sync data to stable storage
+  int sync();
 };
 
 inline
@@ -183,6 +186,13 @@ lbfs_db::chunk_iterator::next(lbfs_chunk_loc *c)
   }
   return ret;
 }
+
+inline int
+lbfs_db::sync()
+{
+  return _fp_dbp->sync(_fp_dbp,0);
+}
+
 
 
 #endif _LBFS_DB_

@@ -234,7 +234,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   str rstr = armor32((void*)&r, sizeof(int));
   char tmpfile[5+fhstr.len()+1+rstr.len()+1];
   sprintf(tmpfile, "sfs.%s.%s", fhstr.cstr(), rstr.cstr());
-  warn << "MKTMPFILE: tmp file is " << tmpfile << "\n";
+  warn << "MKTMPFILE: " << tmpfile << "\n";
   
   u_int32_t authno = sbp->getaui ();
   create3args c3arg;
@@ -265,6 +265,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       lbfsdb.add_chunk((*cv)[i]->fingerprint, &((*cv)[i]->loc)); 
       warn << "COMMITTMP: adding " << (*cv)[i]->fingerprint << " to database\n";
     }
+    lbfsdb.sync();
   }
   for (unsigned i=0; i<cv->size(); i++) delete (*cv)[i];
   delete cv;
@@ -316,9 +317,8 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   }
   else {
     res->set_status(rres->status);
-    res->resfail = 
-      *(union_entry<ex_post_op_attr>*)(&rres->resfail);
-    // XXX is this correct
+    nfs3_exp_enable (NFSPROC3_READ, rres);
+    *(res->resfail) = *((reinterpret_cast<ex_read3res*>(rres))->resfail);
   }
   // XXX - how to make sure nfs3reply does not crash?
   nfs3reply (sbp, res, rqs, RPC_SUCCESS);
@@ -367,14 +367,22 @@ client::nfs3dispatch (svccb *sbp)
   if (!fsrv->fixarg (sbp, &rqs))
     return;
 
-  if (sbp->proc () == lbfs_MKTMPFILE)
+  if (sbp->proc () == lbfs_MKTMPFILE) {
+    warn << "server: got MKTMPFILE\n";
     mktmpfile(sbp, rqs);
-  else if (sbp->proc () == lbfs_COMMITTMP)
+  }
+  else if (sbp->proc () == lbfs_COMMITTMP) {
+    warn << "server: got COMMITTMP\n";
     committmp(sbp, rqs);
-  else if (sbp->proc () == lbfs_CONDWRITE)
+  }
+  else if (sbp->proc () == lbfs_CONDWRITE) {
+    warn << "server: got CONDWRITE\n";
     condwrite(sbp, rqs);
-  else if (sbp->proc () == lbfs_GETFP)
+  }
+  else if (sbp->proc () == lbfs_GETFP) {
+    warn << "server: got GETFP\n";
     getfp(sbp, rqs);
+  }
   else {
     void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
     if (sbp->proc () == NFSPROC3_RENAME)
