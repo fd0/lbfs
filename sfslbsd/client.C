@@ -87,7 +87,7 @@ client::renamecb_1 (svccb *sbp, void *_res, filesrv::reqstate rqs,
 
 void
 client::condwritecb (svccb *sbp, void *_res, filesrv::reqstate rqs,
-		     lookup3res *ares, clnt_stat err)
+		     getattr3res *ares, clnt_stat err)
 {
   if (!err && !ares->status) {
     // lbfs_condwrite3args *cwa = sbp->template getarg<lbfs_condwrite3args> ();
@@ -132,10 +132,10 @@ client::nfs3dispatch (svccb *sbp)
 		   authtab[authno]);
   else if (sbp->proc () == lbfs_NFSPROC3_CONDWRITE) {
     printf("condwrite instr %d received\n", sbp->proc());
-    lookup3res *ares = New lookup3res;
-    fsrv->c->call (NFSPROC3_LOOKUP, 
-	           &sbp->template getarg<lbfs_condwrite3args> ()->file, ares, 
-		   wrap (mkref (this), &client::condwritecb, sbp, res, 
+    getattr3res *ares = New getattr3res;
+    fsrv->c->call (NFSPROC3_GETATTR,
+	           &sbp->template getarg<lbfs_condwrite3args> ()->file, ares,
+		   wrap (mkref (this), &client::condwritecb, sbp, res,
 		         rqs, ares), authtab[authno]);
   }
   else
