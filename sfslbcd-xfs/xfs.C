@@ -218,7 +218,6 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     return xfs_message_inactivenode(fd, msg, size);
     break;
   }
-  case XFS_MSG_OPEN:
   case XFS_MSG_GETDATA:
     {
     struct xfs_message_getdata *hh = (struct xfs_message_getdata *)msgstr.cstr();
@@ -229,6 +228,18 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->tokens = hh->tokens;
     msg->pad1 = hh->pad1;
     return  xfs_message_getdata(fd, msg, size);
+    break;
+  }
+  case XFS_MSG_OPEN:
+    {
+    struct xfs_message_open *hh = (struct xfs_message_open *)msgstr.cstr();
+    ref<struct xfs_message_open> msg = New refcounted<struct xfs_message_open>;
+    msg->header = hh->header;
+    msg->cred = hh->cred;
+    msg->handle = hh->handle;
+    msg->tokens = hh->tokens;
+    msg->pad1 = hh->pad1;
+    return  xfs_message_open(fd, msg, size);
     break;
   }
   case XFS_MSG_PUTDATA: {

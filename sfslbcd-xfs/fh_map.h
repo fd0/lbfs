@@ -31,7 +31,6 @@
 #define MAX_FH 65535 //4000
 //#define MAX_FH MAXHANDLE //xfs constant for max file handles opened at any time
 //#define MAXPATHLEN (1024+4) //This is what arla used...
-#define INCACHE 1234;
 
 bool xfs_fheq(xfs_handle, xfs_handle);
 bool nfs_fheq(nfs_fh3, nfs_fh3);
@@ -60,8 +59,8 @@ typedef struct cache_entry{
   ex_fattr3 nfs_attr;
   nfstime3 ltime;
   str cache_name;
-  uint32 open;
-  bool inactive;
+  bool incache;
+  uint32 writers;
   ihash_entry<cache_entry> nlink;
   ihash_entry<cache_entry> xlink;
 
@@ -76,7 +75,7 @@ extern ihash<xfs_handle, cache_entry, &cache_entry::xh,
 
 inline
 cache_entry::cache_entry (nfs_fh3 &n, ex_fattr3 &na)
-  : nh (n), nfs_attr(na), open(0), inactive(false)
+  : nh (n), nfs_attr(na), incache(false), writers(0)
 {
   bzero (&xh, sizeof (xh));
   xh.a = ++nextxh;

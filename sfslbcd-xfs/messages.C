@@ -47,7 +47,7 @@ NULL,						/* installattr */
 NULL,						/* installdata */
 (xfs_message_function)xfs_message_inactivenode,	/* inactivenode */
 NULL,						/* invalidnode */ 
-(xfs_message_function)xfs_message_getdata,	/* open */
+(xfs_message_function)xfs_message_open,		/* open */
 (xfs_message_function)xfs_message_putdata,      /* put_data */
 (xfs_message_function)xfs_message_putattr,      /* put attr */
 (xfs_message_function)xfs_message_create,       /* create */
@@ -86,6 +86,39 @@ xfs_message_wakeup (int fd, ref<struct xfs_message_wakeup> h, u_int size)
   warn << "Got xfs_message_wakeup from XFS !!!\n";
 
   return 0;
+}
+
+void
+xfs_expire_node_cb (int fd, struct xfs_msg_node node, xfs_handle handle)
+{
+  cache_entry *e = xfsindex[handle];
+  if (e) {
+    warn << "xfs_expire_node_cb " << e->nfs_attr.expire 
+         << " now " << (uint32)timenow << "\n";
+  }
+  if (e && e->incache && e->nfs_attr.expire <= (uint32)timenow) {
+    warn << "expire handle (" 
+         << (int) handle.a << "," << (int) handle.b << ","
+         << (int) handle.c << "," << (int) handle.d << ")\n";
+    
+    struct xfs_message_installdata msg;
+    msg.header.opcode = XFS_MSG_INSTALLDATA;
+    msg.node = node;
+    msg.flag = XFS_ID_INVALID_DNLC;
+    strcpy (msg.cache_name, e->cache_name);
+    fhandle_t cfh;
+    if (getfh (msg.cache_name, &cfh)) {
+      warn << "getfh failed, can't invalidate\n";
+      return;
+    }
+    memmove (&msg.cache_handle, &cfh, sizeof (cfh));
+
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+    h0 = (struct xfs_message_header *) &msg;
+    h0_len = sizeof (msg);
+    xfs_send_message_wakeup_multiple (fd, 0, 0, h0, h0_len, NULL, 0);
+  }
 }
 
 void 
@@ -223,7 +256,7 @@ xfs_message_getnode (int fd, ref<struct xfs_message_getnode> h, u_int size)
 }
 
 void 
-write_dirfile (int fd, ref<struct xfs_message_getdata> h, //cache_entry *e, 
+write_dirfile (int fd, ref<struct xfs_message_open> h, //cache_entry *e, 
 	       ref<ex_readdir3res > res, write_dirent_args args, 
 	       struct xfs_message_installdata msg,
 	       clnt_stat cl_err)
@@ -250,7 +283,7 @@ write_dirfile (int fd, ref<struct xfs_message_getdata> h, //cache_entry *e,
 
     return;
   }
-
+     
   if (!res->resok->reply.eof) {
     readdir3args rda;
     rda.dir = e->nh; 
@@ -269,8 +302,7 @@ write_dirfile (int fd, ref<struct xfs_message_getdata> h, //cache_entry *e,
 
     close (args.fd);
 
-    e->open = INCACHE;
-
+    e->incache = true;
     msg.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &msg;
     h0_len = sizeof (msg);
@@ -278,11 +310,13 @@ write_dirfile (int fd, ref<struct xfs_message_getdata> h, //cache_entry *e,
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				      h0, h0_len, NULL, 0);
 
+    unsigned exp = e->nfs_attr.expire - timenow + 1;
+    delaycb(exp, wrap(&xfs_expire_node_cb, fd, msg.node, h->handle));
   }
 }
 
 void 
-nfs3_readdir (int fd, ref<struct xfs_message_getdata> h, cache_entry *e, 
+nfs3_readdir (int fd, ref<struct xfs_message_open> h, cache_entry *e, 
 	      ref<ex_readdir3res > res,
 	      time_t rqtime, clnt_stat err)
 {
@@ -299,8 +333,7 @@ nfs3_readdir (int fd, ref<struct xfs_message_getdata> h, cache_entry *e,
     }
 #endif
     ex_fattr3 attr = *res->resok->dir_attributes.attributes;
-    nfsobj2xfsnode (h->cred, e->nh,
-		    attr, rqtime, &msg.node);
+    nfsobj2xfsnode (h->cred, e->nh, attr, (uint32)timenow, &msg.node);
     e->ltime = max(attr.mtime, attr.ctime);
 
     msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R;
@@ -397,11 +430,11 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
       }
       lbfsdb.sync ();
       e->cache_name = ga->msg.cache_name;
-      e->open = INCACHE;
 
       struct xfs_message_header *h0 = NULL;
       size_t h0_len = 0;
 
+      e->incache = true;
       ga->msg.header.opcode = XFS_MSG_INSTALLDATA;
       h0 = (struct xfs_message_header *) &(ga->msg);
       h0_len = sizeof (ga->msg);
@@ -433,6 +466,7 @@ normal_read (ref<getfp_args> ga, uint64 offset, uint32 count)
   ra.file = e->nh;
   ra.offset = offset;
   ra.count = count < NFS_MAXDATA ? count : NFS_MAXDATA;
+  warn << "client normal read @" << offset << " +" << ra.count << "\n";
 
   ref<ex_read3res > rres = New refcounted < ex_read3res >;
   nfsc->call (lbfs_NFSPROC3_READ, &ra, rres,
@@ -550,11 +584,11 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res > res)
       return;      
     }
     e->cache_name = ga->msg.cache_name;
-    e->open = INCACHE;
 
     struct xfs_message_header *h0 = NULL;
     size_t h0_len = 0;
 
+    e->incache = true;
     ga->msg.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &(ga->msg);
     h0_len = sizeof (ga->msg);
@@ -568,7 +602,6 @@ void
 lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
 	    clnt_stat err)
 {
-
   if (!err && res->status == NFS3_OK) {
     cache_entry *e = xfsindex[ga->h->handle];
     if (!e) {
@@ -631,6 +664,7 @@ nfs3_read_exist (int fd, ref<struct xfs_message_getdata> h, cache_entry *e)
   struct xfs_message_header *h0 = NULL;
   size_t h0_len = 0;
 
+  e->incache = true;
   msg.header.opcode = XFS_MSG_INSTALLDATA;
   h0 = (struct xfs_message_header *) &msg;
   h0_len = sizeof (msg);
@@ -641,7 +675,7 @@ nfs3_read_exist (int fd, ref<struct xfs_message_getdata> h, cache_entry *e)
 }
 
 void 
-getfp (int fd, ref<struct xfs_message_getdata> h, cache_entry *e)
+getfp (int fd, ref<struct xfs_message_open> h, cache_entry *e)
 {
 
   struct xfs_message_installdata msg;
@@ -706,7 +740,7 @@ greater (nfstime3 a, nfstime3 b)
 }
 
 void 
-comp_time (int fd, ref<struct xfs_message_getdata> h, bool dirfile,
+comp_time (int fd, ref<struct xfs_message_open> h, bool dirfile,
 	   ptr < ex_getattr3res > res, time_t rqtime, clnt_stat err)
 {
   cache_entry *e = xfsindex[h->handle];
@@ -751,12 +785,16 @@ comp_time (int fd, ref<struct xfs_message_getdata> h, bool dirfile,
     else
       getfp (fd, h, e);
   }
-  else
-    nfs3_read_exist (fd, h, e);
+  else {
+    ref<struct xfs_message_getdata> hga = 
+      New refcounted <struct xfs_message_getdata>;
+    *hga = *(*(reinterpret_cast< ref<struct xfs_message_getdata>* >(&h)));
+    nfs3_read_exist (fd, hga, e);
+  }
 }
 
 void 
-nfs3_readlink (int fd, ref<struct xfs_message_getdata> h, cache_entry *e,
+nfs3_readlink (int fd, ref<struct xfs_message_open> h, cache_entry *e,
 	       ref<ex_readlink3res > res,
 	       time_t rqtime, clnt_stat err)
 {
@@ -796,8 +834,8 @@ nfs3_readlink (int fd, ref<struct xfs_message_getdata> h, cache_entry *e,
     memmove (&msg.cache_handle, &cfh, sizeof (cfh));
     write (lfd, res->resok->data.cstr (), res->resok->data.len ());
     close (lfd);
-    e->open = INCACHE;
 
+    e->incache = true;
     msg.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &msg;
     h0_len = sizeof (msg);
@@ -816,8 +854,28 @@ nfs3_readlink (int fd, ref<struct xfs_message_getdata> h, cache_entry *e,
 int 
 xfs_message_getdata (int fd, ref<struct xfs_message_getdata> h, u_int size)
 {
+  warn << "XXXX getdata!! msg.handle ("
+    << (int) h->handle.a << ","
+    << (int) h->handle.b << ","
+    << (int) h->handle.c << ","
+    << (int) h->handle.d << ")\n";
 
-  warn << "get data !! msg.handle ("
+  cache_entry *e = xfsindex[h->handle];
+  assert(e->incache);
+  if (!e) {
+    warn << "xfs_message_getdata: Can't find node handle\n";
+    return -1;
+  }
+  assert(e->nfs_attr.type != NF3DIR);
+  nfs3_read_exist (fd, h, e);
+  return 0;
+}
+
+int 
+xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
+{
+
+  warn << "XXXX open!! msg.handle ("
     << (int) h->handle.a << ","
     << (int) h->handle.b << ","
     << (int) h->handle.c << ","
@@ -825,13 +883,13 @@ xfs_message_getdata (int fd, ref<struct xfs_message_getdata> h, u_int size)
 
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
-    warn << "xfs_message_getdata: Can't find node handle\n";
+    warn << "xfs_message_open: Can't find node handle\n";
     return -1;
   }
-
-  if (e->open == XFS_OPEN_NW || e->open == XFS_OPEN_EW) {
-    nfs3_read_exist (fd, h, e);
-    return 0;
+  
+  if (h->tokens & (XFS_OPEN_NW|XFS_OPEN_EW)) {
+    e->writers++;
+    warn << "open for write: " << e->writers << " writers\n";
   }
 
   if (e->nfs_attr.type == NF3LNK) {
@@ -843,8 +901,7 @@ xfs_message_getdata (int fd, ref<struct xfs_message_getdata> h, u_int size)
     return 0;
   }
 
-  if (!e->open) {
-    e->open = h->tokens & XFS_OPEN_MASK;
+  if (!e->incache) {
     if (e->nfs_attr.type == NF3DIR) {
       readdir3args rda;
       rda.dir = e->nh;
@@ -861,6 +918,13 @@ xfs_message_getdata (int fd, ref<struct xfs_message_getdata> h, u_int size)
 	getfp (fd, h, e);
   }
   else {
+    // XXX don't worry about exclusiveness for now
+    if ((h->tokens & (XFS_OPEN_NW|XFS_OPEN_EW)) && e->writers > 1) {
+      ref<struct xfs_message_getdata> hga = 
+        New refcounted <struct xfs_message_getdata>;
+      *hga = *(*(reinterpret_cast< ref<struct xfs_message_getdata>* >(&h)));
+      nfs3_read_exist (fd, hga, e);
+    }
     if (e->nfs_attr.expire < (uint32) timenow) {
       nfs_fh3 fh = e->nh;
       ptr < ex_getattr3res > res = New refcounted < ex_getattr3res >;
@@ -1169,7 +1233,12 @@ int
 xfs_message_putdata (int fd, ref<struct xfs_message_putdata> h, u_int size)
 {
 
-  warn << "putdata !!\n";
+  warn << "XXXX putdata!! msg.handle ("
+    << (int) h->handle.a << ","
+    << (int) h->handle.b << ","
+    << (int) h->handle.c << ","
+    << (int) h->handle.d << ")\n";
+  warn << "putdata " << h->flag << "\n";
 
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
@@ -1187,6 +1256,11 @@ xfs_message_putdata (int fd, ref<struct xfs_message_putdata> h, u_int size)
   nfsc->call (lbfs_MKTMPFILE, &mt, res,
 	      wrap (&lbfs_mktmpfile, fd, h, res));
 
+  assert(e->writers>0);
+  if (!(h->flag&XFS_FSYNC)) {
+    e->writers--;
+    warn << "close for write: " << e->writers << " writers\n";
+  }
   return 0;
 }
 
@@ -1204,7 +1278,7 @@ xfs_message_inactivenode (int fd, ref<struct xfs_message_inactivenode> h, u_int 
        h->flag == XFS_NOREFS) {	//Node is still in kernel cache. Delete when convenient.
     cache_entry *e = xfsindex[h->handle];
     if (e) {
-      e->inactive = true;
+      e->incache = false;
 #if 0 //keep everything for now
       delete e;
 #endif 
@@ -1348,7 +1422,8 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
     
     nfsobj2xfsnode (h->cred, e2->nh,
 		    *(res->resok->dir_wcc.after.attributes), rqtime, &msg1.node);
-    
+   
+    e2->incache = true;
     msg1.flag = 0;
     msg1.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &msg1;
@@ -1364,7 +1439,9 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
     msg2.header.opcode = XFS_MSG_INSTALLNODE;
     h1 = (struct xfs_message_header *) &msg2;
     h1_len = sizeof (msg2);
-    
+
+    e1->incache = true;
+    e1->writers++;
     msg3.node = msg2.node;
     msg3.flag = 0;
     msg3.header.opcode = XFS_MSG_INSTALLDATA;
@@ -1375,7 +1452,6 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num,
 				      0, h0, h0_len, h1, h1_len, h2, h2_len,
 				      NULL, 0);
-
   }
   else {
     if (err)
@@ -1608,6 +1684,7 @@ nfs3_link (int fd, ref<struct xfs_message_link> h, ref<ex_link3res > res,
     
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				      h0, h0_len, h1, h1_len, NULL, 0);
+
   } else {
     if (err)
       warn << err << ": nfs3_link\n";
@@ -1703,7 +1780,6 @@ nfs3_symlink (int fd, ref<struct xfs_message_symlink> h, cache_entry *e,
 
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num,
 				      0, h0, h0_len, h1, h1_len, NULL, 0);
-
   }
   else {
     if (err)
@@ -1873,7 +1949,7 @@ nfs3_remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
     //lookup entry's filehandle and attr
     //if the entry being removed from parent is still being referenced (nlink > 1)
     //update its attr
-
+    
     cache_entry *e = xfsindex[h->parent_handle];
     if (!e) {
       warn << "xfs_message_mkdir: Can't find parent_handle\n";
@@ -1939,7 +2015,7 @@ nfs3_rmdir (int fd, ref<struct xfs_message_rmdir> h, ref<ex_lookup3res > lres,
       warn << "xfs_message_mkdir: Can't find parent_handle\n";
       return;
     }
-
+    
     diropargs3 doa;
     doa.dir = e->nh;
     doa.name = h->name;

@@ -65,7 +65,7 @@ public:
 
 class getfp_args {
  public:
-  getfp_args(int f, ref<struct xfs_message_getdata> header) : 
+  getfp_args(int f, ref<struct xfs_message_open> header) : 
     fd(f), h(header), offset(0), blocks_written(0), total_blocks(0), eof(0) {
     out_fname = New char[MAXPATHLEN];
   }
@@ -74,7 +74,7 @@ class getfp_args {
   }
 
  int fd;
- ref<struct xfs_message_getdata> h;
+ ref<struct xfs_message_open> h;
  uint64 offset; 
  //int cfd;
  struct xfs_message_installdata msg;
@@ -131,6 +131,8 @@ int xfs_message_getroot (int, ref<struct xfs_message_getroot>, u_int);
 int xfs_message_getnode (int, ref<struct xfs_message_getnode>, u_int);
 
 int xfs_message_getdata (int, ref<struct xfs_message_getdata>, u_int);
+
+int xfs_message_open (int, ref<struct xfs_message_open>, u_int);
 
 int xfs_message_getattr (int, ref<struct xfs_message_getattr>, u_int);
 
