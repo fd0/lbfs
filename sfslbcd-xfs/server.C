@@ -191,7 +191,7 @@ xfs_create (ref<xfscall> xfsc)
   xfs_message_create *h = (xfs_message_create *) xfsc->argp;
 #if DEBUG > 0
   warn << "Received xfs_create\n";
-  warn << h->header.sequence_num << ":" <<" xfs_handle ("
+  warn << h->header.sequence_num << ":" <<" parent_handle ("
     << (int) h->parent_handle.a << ","
     << (int) h->parent_handle.b << ","
     << (int) h->parent_handle.c << ","

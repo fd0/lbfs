@@ -21,7 +21,7 @@
 
 #ifndef __XFS_H_V
 #define __XFS_H_V 1
-#define DEBUG 3
+#define DEBUG 0
 
 #include <stdarg.h>
 #include <xfs/xfs_message.h>
@@ -51,15 +51,7 @@ struct xfscall {
 
   xfscall (u_int32_t oc, int file_des, void *const ap, xfs_cred *xc = NULL) : 
     cred(xc), opcode(oc), inst(-1), fd(file_des), argp(ap) { }
-  ~xfscall () {
-#if 0
-    if (argp) 
-      delete argp;
-    for (int i=0; i<5; i++)
-      if (resp[i])
-	delete resp[i];
-#endif
-  }
+  ~xfscall () { }
   sfs_aid getaid () const { return xfscred2aid (cred); }
   void *getvoidarg () { return argp; }
   void *getvoidres (int i) { return resp[i]; }

@@ -406,7 +406,7 @@ lbfs_readexist (int fd, const xfs_message_getdata &h, cache_entry *e)
   struct xfs_message_installdata msg;
 
   nfsobj2xfsnode (h.cred, e, &msg.node);
-  msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R; // | XFS_OPEN_NW | XFS_DATA_W;
+  msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R | XFS_OPEN_NW | XFS_DATA_W;
   int cfd = assign_cachefile (fd, h.header.sequence_num, e, 
 			      msg.cache_name, &msg.cache_handle);
   close (cfd);
@@ -495,8 +495,10 @@ struct readdir_obj {
       args.fd = assign_cachefile (fd, h.header.sequence_num, e, 
 				  msg.cache_name, &msg.cache_handle);
       int error = truncate (msg.cache_name, 0);
-      if (error < 0)
-	delete this;
+      if (error < 0) {
+	delete this; 
+	return;
+      }
       write_dirfile (args, msg, clnt_stat (0));
     } else {
       xfs_reply_err (fd, h.header.sequence_num, err ? err : rdres->status);      
@@ -524,7 +526,7 @@ struct readdir_obj {
 	e->set_exp (rqt, true);
       } else {
 	xfs_reply_err (fd, h.header.sequence_num, err ? err : res->status);
-	delete this;
+	delete this; return;
       }
     } 
     nfstime3 maxtime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
@@ -562,7 +564,7 @@ struct readdir_obj {
       if (owriters > 0) {
 	xfs_message_getdata *h1 = (xfs_message_getdata *) &h;
 	lbfs_readexist (fd, *h1, e);
-	delete this;
+	delete this; return;
       } else {
 #if DEBUG > 0
 	warn << "directory in cache, exp " << e->nfs_attr.expire << " " 
@@ -638,7 +640,7 @@ struct getfp_obj {
 #if DEBUG > 0
       warn << "getfp_obj::write_file1: " << out_fname << " " << strerror (errno) << "\n";
 #endif
-      delete this;
+      delete this; return;
     } 
 
     if ((err = write (out_fd, rres->resok->data.base (), 
@@ -646,13 +648,13 @@ struct getfp_obj {
 #if DEBUG > 0
       warn << "getfp_obj::write_file2: " << out_fname << " " << strerror (errno) << "\n";
 #endif
-      delete this;
+      delete this; return;
     } else
       if (err != (int) rres->resok->count) {
 #if DEBUG > 0
 	warn << "write error or short write!!\n";
 #endif
-	delete this;
+	delete this; return;
       }
 
     if (rres->resok->count < size)
@@ -674,7 +676,7 @@ struct getfp_obj {
 #if DEBUG > 0
 	  warn << "getfp::gotdata: " << strerror (errno) << "(" << errno << ")\n";
 #endif
-	  delete this;
+	  delete this; return;
 	}
 	for (uint i = 0; i < cvp.size (); i++) {
 #if DEBUG > 0
@@ -685,7 +687,7 @@ struct getfp_obj {
 	  delete cvp[i];
 	}
 	lbfsdb.sync ();
-	delete this;
+	delete this; return;
       }
     } else {
       if (err && (retries++ < 1))
@@ -721,7 +723,7 @@ struct getfp_obj {
 	   << "(" << errno << ")\n";
 #endif
       xfs_reply_err (fd, h.header.sequence_num, EIO);
-      delete this;
+      delete this; return;
     }
     int err;
     if ((err = write (out_fd, buf, c->count ())) < 0
@@ -731,7 +733,7 @@ struct getfp_obj {
 	   << c->count () << " or " << strerror (errno) << "\n";
 #endif
       xfs_reply_err (fd, h.header.sequence_num, EIO);
-      delete this;
+      delete this; return;
     }     
 
     blocks_written++;
@@ -838,7 +840,7 @@ struct getfp_obj {
     offset = cur_offst;
     if (blocks_written == total_blocks && eof) {
       installdata ();
-      delete this;
+      delete this; return;
     }
   }
 
@@ -890,7 +892,7 @@ struct getfp_obj {
       warn << "getfp_obj::getfp_obj: " << strerror (errno) << "\n";
 #endif
       xfs_reply_err (fd, h.header.sequence_num, EIO);
-      delete this;
+      delete this; return;
     }
     gfa.file = e->nh;
     gfa.offset = 0;
@@ -923,7 +925,7 @@ struct readfile_obj {
 
   void done () 
   {
-    delete this;
+    delete this; return;
   }
 
   void get_updated_copy (ptr<ex_getattr3res> res, time_t rqt, clnt_stat err) {
@@ -933,7 +935,7 @@ struct readfile_obj {
 	e->set_exp (rqt, true);
       } else {
 	xfs_reply_err (fd, h.header.sequence_num, err ? err : res->status);
-	delete this;
+	delete this; return;
       }
     } 
     nfstime3 maxtime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
@@ -942,7 +944,7 @@ struct readfile_obj {
     else {
       xfs_message_getdata *h1 = (xfs_message_getdata *) &h;
       lbfs_readexist (fd, *h1, e);
-      delete this;
+      delete this; return;
     }
   }
   
@@ -964,7 +966,7 @@ struct readfile_obj {
       if (owriters > 0) {
 	xfs_message_getdata *h1 = (xfs_message_getdata *) &h;
 	lbfs_readexist (fd, *h1, e);
-	delete this;
+	delete this; return;
       } else 
 	if (e->nfs_attr.expire < (uint32) timenow) {
 	  const struct xfs_message_putattr *h1 = (xfs_message_putattr *) &h;
@@ -1067,7 +1069,7 @@ struct create_obj {
       }
       nfsobj2xfsnode (cred, e1, &msg2.node);
     
-      int cfd = assign_cachefile (fd, h.header.sequence_num, e, 
+      int cfd = assign_cachefile (fd, h.header.sequence_num, e1, 
 				  msg3.cache_name, &msg3.cache_handle);
       close (cfd);
       
@@ -1144,19 +1146,13 @@ struct create_obj {
     fd(fd1), c(c1), h(h1), sa(sa1)
   {
 
-    warn << h.header.sequence_num << ":" <<" parent_handle ("
-	 << (int) h.parent_handle.a << ","
-	 << (int) h.parent_handle.b << ","
-	 << (int) h.parent_handle.c << ","
-	 << (int) h.parent_handle.d << ")\n";
-    warn << "file name: " << h.name << "\n";
     e = xfsindex[h.parent_handle];
     if (!e) {
 #if DEBUG > 0
       warn << "create_obj: Can't find parent_handle\n";
 #endif
       xfs_reply_err (fd, h.header.sequence_num, ENOENT);
-      delete this;
+      delete this; return;
     }
 
     switch (h.header.opcode) {
@@ -1241,7 +1237,7 @@ struct link_obj {
       warn << "link_obj: Can't find from_handle\n";
 #endif
      xfs_reply_err (fd, h.header.sequence_num, ENOENT);
-      delete this;
+      delete this; return;
     }
     link3args la;
     la.file = e1->nh;
@@ -1252,7 +1248,7 @@ struct link_obj {
       warn << "xfs_message_link: Can't find parent_handle\n";
 #endif
       xfs_reply_err(fd, h.header.sequence_num, ENOENT);
-      delete this;
+      delete this; return;
     }
     la.link.dir = e2->nh;
     la.link.name = h.name;
@@ -1334,7 +1330,7 @@ struct symlink_obj {
       warn << "symlink_obj: Can't find parent handle\n";
 #endif
       xfs_reply_err(fd, h.header.sequence_num, ENOENT);
-      delete this;
+      delete this; return;
     }
 
     symlink3args sla;
@@ -1405,7 +1401,7 @@ struct remove_obj {
 #if DEBUG > 0
 	  warn << "remove_obj::install: Can't find handle\n";
 #endif
-	  delete this;
+	  delete this; return;
 	}
 	
 	msg2.header.opcode = XFS_MSG_INSTALLATTR;
@@ -1444,7 +1440,7 @@ struct remove_obj {
       }	
     } else {
       xfs_reply_err (fd, h.header.sequence_num, err ? err : wres->status);
-      delete this;
+      delete this; return;
     }
   }
 
@@ -1457,7 +1453,7 @@ struct remove_obj {
       warn << "xfs_message_remove: Can't find parent_handle\n";
 #endif
       xfs_reply_err(fd, h.header.sequence_num, ENOENT);
-      delete this;
+      delete this; return;
     }
 
     doa.dir = e1->nh;
@@ -1530,7 +1526,7 @@ struct rename_obj {
 	warn << "rename_obj::do_install: Can't find file handle\n";
 #endif
 	xfs_reply_err(fd, h.header.sequence_num, ENOENT);
-	delete this;
+	delete this; return;
       }
       ex_fattr3 lattr = lres->resok->obj_attributes.present ?
 	*(lres->resok->obj_attributes.attributes) : 
@@ -1606,7 +1602,7 @@ struct rename_obj {
 	warn << "rename_obj::do_lookup: Can't find new_parent_handle\n";
 #endif
 	xfs_reply_err(fd, h.header.sequence_num, ENOENT);
-	delete this;
+	delete this; return;
       }   
       
       rename3args rna;
@@ -1627,6 +1623,12 @@ struct rename_obj {
   rename_obj (int fd1, const xfs_message_rename &h1, sfs_aid sa1, ref<aclnt> c1) :
     fd(fd1), c(c1), h(h1), sa(sa1) 
   {
+    warn << " old_parent_handle ("
+    << (int) h.old_parent_handle.a << ","
+    << (int) h.old_parent_handle.b << ","
+    << (int) h.old_parent_handle.c << ","
+    << (int) h.old_parent_handle.d << ")\n";
+
     e1 =  xfsindex[h.old_parent_handle];
     if (!e1) {
 #if DEBUG > 0
@@ -1634,6 +1636,7 @@ struct rename_obj {
 #endif
       xfs_reply_err(fd, h.header.sequence_num, ENOENT);
       delete this;
+      return;
     }
     
     diropargs3 doa;
@@ -1660,7 +1663,6 @@ struct putdata_obj {
   sfs_aid sa;
   cache_entry *e;
   nfs_fh3 tmpfh;
-  //  char *fname;
   uint blocks_written;
   uint total_blocks;
   Chunker *chunker;
@@ -1712,7 +1714,6 @@ struct putdata_obj {
 	   << chunk->location().pos() << ", "
 	   << res->resok->count << " total needed "
 	   << chunk->location().count() << "\n"; 
-	//" had " << chunk->aux_count << "\n";
 #endif
       chunk->got_bytes(res->resok->count);
       assert(chunk->bytes() <= chunk->location().count());
@@ -1734,7 +1735,7 @@ struct putdata_obj {
 	retries++;
       } else {
 	xfs_reply_err (fd, h.header.sequence_num, err ? err : res->status);
-	delete this;
+	delete this; return;
       }
     }
     if (!eof && outstanding_condwrites < OUTSTANDING_CONDWRITES) 
@@ -1753,7 +1754,7 @@ struct putdata_obj {
     int rfd = open (e->cache_name, O_RDONLY, 0666);
     if (rfd < 0) {
       xfs_reply_err(fd, h.header.sequence_num, EIO);
-      delete this;
+      delete this; return;
     }
 
     while (count > 0) {
@@ -1764,7 +1765,7 @@ struct putdata_obj {
 	err = read (rfd, iobuf, NFS_MAXDATA);
       if (err < 0) {
 	xfs_reply_err(fd, h.header.sequence_num, EIO);
-	delete this;
+	delete this; return;
       }
       count -= err;
       offst += err;
@@ -1877,7 +1878,7 @@ struct putdata_obj {
       warn << "putdata_obj::condwrite_chunk: " << strerror (errno) << "\n";
 #endif
       xfs_reply_err (fd, h.header.sequence_num, EIO);
-      delete this;
+      delete this; return;
     }
   
     uint index, v_size;
@@ -1887,7 +1888,7 @@ struct putdata_obj {
       warn << "putdata_obj::condwrite_chunk: " << strerror (errno) << "\n";
 #endif
       xfs_reply_err (fd, h.header.sequence_num, EIO);
-      delete this;
+      delete this; return;
     }
     
     uint count;
@@ -1962,10 +1963,9 @@ struct putdata_obj {
       warn << "xfs_putdata: Can't find node handle\n";
 #endif
       xfs_reply_err (fd, h.header.sequence_num, ENOENT);
-      delete this;
+      delete this; return;
     }
 
-    //    strcpy (fname, e->cache_name);
     lbfs_mktmpfile3args mt;
     mt.commit_to = e->nh;
     xfsattr2nfsattr (h.header.opcode, h.attr, &mt.obj_attributes);

@@ -119,23 +119,24 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 #endif
 
   ++recv_stat[opcode];
-  str msgstr = str((const char *)h, size);
+  //str msgstr = str((const char *)h, size);
+  char *msgstr = New char [size];
+  strncpy (msgstr, (const char *)h, size);
   ptr<xfscall> xfsc;
 
   switch (opcode) {
   case XFS_MSG_GETROOT: {
-    struct xfs_message_getroot *hh = 
-      (struct xfs_message_getroot *)msgstr.cstr();
-    struct xfs_message_getroot *msg = New (struct xfs_message_getroot);
+    struct xfs_message_getroot *hh = (struct xfs_message_getroot *) h;
+    struct xfs_message_getroot *msg = New xfs_message_getroot;
     msg->header = hh->header;
     msg->cred = hh->cred;
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_GETNODE: {
     struct xfs_message_getnode *hh = 
-      (struct xfs_message_getnode *)msgstr.cstr();
+      (struct xfs_message_getnode *) h; //h.cstr();
     struct xfs_message_getnode *msg = 
       New (struct xfs_message_getnode);
     msg->header = hh->header;
@@ -143,25 +144,25 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->parent_handle = hh->parent_handle;
     strcpy(msg->name, hh->name);
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_GETATTR: {
     struct xfs_message_getattr *hh = 
-      (struct xfs_message_getattr *)msgstr.cstr();
-    ref<struct xfs_message_getattr> msg = 
-      New refcounted<struct xfs_message_getattr>;
+      (struct xfs_message_getattr *) h; //h.cstr();
+    xfs_message_getattr *msg = 
+      New (struct xfs_message_getattr);
     msg->header = hh->header;
     msg->cred = hh->cred;    
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_INACTIVENODE: {
     struct xfs_message_inactivenode *hh = 
-      (struct xfs_message_inactivenode*)msgstr.cstr();
-    ref<struct xfs_message_inactivenode> msg = 
-      New refcounted<struct xfs_message_inactivenode>;
+      (struct xfs_message_inactivenode*) h; //h.cstr();
+    xfs_message_inactivenode *msg = 
+      New (struct xfs_message_inactivenode);
     msg->header = hh->header;
     msg->handle = hh->handle;
     msg->flag = hh->flag;
@@ -172,37 +173,37 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
   }
   case XFS_MSG_GETDATA: {
     struct xfs_message_getdata *hh = 
-      (struct xfs_message_getdata *)msgstr.cstr();
-    ref<struct xfs_message_getdata> msg = 
-      New refcounted<struct xfs_message_getdata>;
+      (struct xfs_message_getdata *) h; //h.cstr();
+    xfs_message_getdata *msg = 
+      New (struct xfs_message_getdata);
     msg->header = hh->header;
     msg->cred = hh->cred;
     msg->handle = hh->handle;
     msg->tokens = hh->tokens;
     msg->pad1 = hh->pad1;
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_OPEN: {
     struct xfs_message_open *hh = 
-      (struct xfs_message_open *)msgstr.cstr();
-    ref<struct xfs_message_open> msg = 
-      New refcounted<struct xfs_message_open>;
+      (struct xfs_message_open *) h; //h.cstr();
+    xfs_message_open *msg = 
+      New (struct xfs_message_open);
     msg->header = hh->header;
     msg->cred = hh->cred;
     msg->handle = hh->handle;
     msg->tokens = hh->tokens;
     msg->pad1 = hh->pad1;
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_PUTDATA: {
     struct xfs_message_putdata *hh = 
-      (struct xfs_message_putdata*)msgstr.cstr();
-    ref<struct xfs_message_putdata> msg = 
-      New refcounted<struct xfs_message_putdata>;
+      (struct xfs_message_putdata*) h; //h.cstr();
+    xfs_message_putdata *msg = 
+      New (struct xfs_message_putdata);
     msg->header = hh->header;
     msg->handle = hh->handle;
     msg->attr = hh->attr;
@@ -210,27 +211,27 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->flag = hh->flag;
     msg->pad1 = hh->pad1;    
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_PUTATTR: {
     struct xfs_message_putattr *hh = 
-      (struct xfs_message_putattr*)msgstr.cstr();
-    ref<struct xfs_message_putattr> msg = 
-      New refcounted<struct xfs_message_putattr>;
+      (struct xfs_message_putattr*) h; //h.cstr();
+    xfs_message_putattr *msg = 
+      New (struct xfs_message_putattr);
     msg->header = hh->header;
     msg->handle = hh->handle;
     msg->attr = hh->attr;
     msg->cred = hh->cred;
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_CREATE: {
     struct xfs_message_create *hh = 
-      (struct xfs_message_create*)msgstr.cstr();
-    ref<struct xfs_message_create> msg = 
-      New refcounted<struct xfs_message_create>;
+      (struct xfs_message_create*) h; //h.cstr();
+    xfs_message_create *msg = 
+      New (struct xfs_message_create);
     msg->header = hh->header;
     msg->parent_handle = hh->parent_handle;
     strcpy(msg->name, hh->name);
@@ -239,41 +240,41 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->pad1 = hh->pad1;    
     msg->cred = hh->cred;    
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_MKDIR: {
     struct xfs_message_mkdir *hh = 
-      (struct xfs_message_mkdir*)msgstr.cstr();
-    ref<struct xfs_message_mkdir> msg = 
-      New refcounted<struct xfs_message_mkdir>;
+      (struct xfs_message_mkdir*) h; //h.cstr();
+    xfs_message_mkdir *msg = 
+      New (struct xfs_message_mkdir);
     msg->header = hh->header;
     msg->parent_handle = hh->parent_handle;
     strcpy(msg->name, hh->name);
     msg->attr = hh->attr;
     msg->cred = hh->cred;         
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_LINK: {
-    struct xfs_message_link *hh = (struct xfs_message_link*)msgstr.cstr();
-    ref<struct xfs_message_link> msg = 
-      New refcounted<struct xfs_message_link>;
+    struct xfs_message_link *hh = (struct xfs_message_link*) h; //h.cstr();
+    xfs_message_link *msg = 
+      New (struct xfs_message_link);
     msg->header = hh->header;
     msg->parent_handle = hh->parent_handle;
     strcpy(msg->name, hh->name);
     msg->from_handle = hh->from_handle;
     msg->cred = hh->cred;             
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_SYMLINK: {
     struct xfs_message_symlink *hh = 
-      (struct xfs_message_symlink*)msgstr.cstr();
-    ref<struct xfs_message_symlink> msg = 
-      New refcounted<struct xfs_message_symlink>;
+      (struct xfs_message_symlink*) h; //h.cstr();
+    xfs_message_symlink *msg = 
+      New (struct xfs_message_symlink);
     msg->header = hh->header;
     msg->parent_handle = hh->parent_handle;
     strcpy(msg->name, hh->name);
@@ -281,40 +282,26 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->attr = hh->attr;
     msg->cred = hh->cred;             
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_REMOVE: 
   case XFS_MSG_RMDIR: {
-    struct xfs_message_remove *hh = (struct xfs_message_remove*)msgstr.cstr();
-    ref<struct xfs_message_remove> msg = 
-      New refcounted<struct xfs_message_remove>;
+    struct xfs_message_remove *hh = (struct xfs_message_remove*) h; //h.cstr();
+    xfs_message_remove *msg = 
+      New (struct xfs_message_remove);
     msg->header = hh->header;
     msg->parent_handle = hh->parent_handle;
     strcpy(msg->name, hh->name);
     msg->cred = hh->cred;                
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
-#if 0
-  case XFS_MSG_RMDIR: {
-    struct xfs_message_rmdir *hh = (struct xfs_message_rmdir*)msgstr.cstr();
-    ref<struct xfs_message_rmdir> msg = 
-      New refcounted<struct xfs_message_rmdir>;
-    msg->header = hh->header;
-    msg->parent_handle = hh->parent_handle;
-    strcpy(msg->name, hh->name);
-    msg->cred = hh->cred;                
-
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
-    break;
-  }
-#endif
   case XFS_MSG_RENAME: {
-    struct xfs_message_rename *hh = (struct xfs_message_rename *)msgstr.cstr();
-    ref<struct xfs_message_rename> msg = 
-      New refcounted<struct xfs_message_rename>;
+    struct xfs_message_rename *hh = (struct xfs_message_rename *) h; //h.cstr();
+    xfs_message_rename *msg = 
+      New (struct xfs_message_rename);
     msg->header = hh->header;
     msg->old_parent_handle = hh->old_parent_handle;
     strcpy(msg->old_name, hh->old_name);
@@ -322,13 +309,13 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     strcpy(msg->new_name, hh->new_name);
     msg->cred = hh->cred;                
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh, &msg->cred);
     break;
   }
   case XFS_MSG_PIOCTL: {
-    struct xfs_message_pioctl *hh = (struct xfs_message_pioctl*)msgstr.cstr();
-    ref<struct xfs_message_pioctl> msg = 
-      New refcounted<struct xfs_message_pioctl>;
+    struct xfs_message_pioctl *hh = (struct xfs_message_pioctl*) h; //h.cstr();
+    xfs_message_pioctl *msg = 
+      New (struct xfs_message_pioctl);
     msg->header = hh->header;
     msg->opcode = hh->opcode;
     msg->pad1 = hh->pad1;    
@@ -338,7 +325,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     strcpy(msg->msg, hh->msg);
     msg->handle = hh->handle;    
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, hh);
     break;
   }
 #if 0 /* Other cases */
@@ -350,9 +337,12 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 #if DEBUG > 0
     warn << "Function not implemented !!!!!!!!! \n";
 #endif
+    break;
   }
 
   (*rcvfuncs[opcode])(xfsc);
+  //delete h;
+  delete msgstr;
 }
 
 int
