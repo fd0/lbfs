@@ -666,8 +666,10 @@ lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
     if (!res->resok->eof) {
       lbfs_getfp3args gfp;
       gfp.file = e->nh;
-      gfp.offset = ga->offset;
+      gfp.offset = ga->offset; 
       gfp.count = LBFS_MAXDATA;
+      if (res->resok->fprints.size() == 0) 
+	gfp.count *= 2;
 
       ref<lbfs_getfp3res > fpres = New refcounted < lbfs_getfp3res >;
       nfsc->call (lbfs_GETFP, &gfp, fpres,
