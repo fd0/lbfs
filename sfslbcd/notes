@@ -2,11 +2,7 @@
 0. Requirement
 
 This client can connect with sfsrwsd, sfszrwsd (distributed with
-lbfs), and sfslbsd. sfslbcd performs aggressive lookup and attribute
-caching. Both sfszrwsd and sfslbsd have been modified so they
-invalidate fh aggressively on rename and remove. sfslbcd works best
-with these modifications. Consequently, under some cases, using
-sfslbcd with the standard sfsrwsd may result in incorrect link counts.
+lbfs), and sfslbsd.
 
 
 1. LBFS Implementation
@@ -32,47 +28,48 @@ database with new chunk information.
 
 2.1 Consistency:
 
-close-to-open consistency is: on any close (CLOSE rpc), nfs client
+Close-to-open consistency is: on any close (CLOSE rpc), nfs client
 flushes all changes to server; on any open (ACCESS rpc), nfs client
 fetches latest attributes from server, and loads new data when the
 cache time is less than mtime.
 
-consistency
- 0) don't update cache if cached file is dirty or being flushed
- 1) if lease has not expired, and cache time matches mtime, use cache
- 2) if lease has expired, fetch attribute; if cache time matches
+Summary of consistency rules:
+
+ 0) Don't update cache if cached file is dirty or being flushed
+ 1) If lease has not expired, and cache time matches mtime, use cache
+ 2) If lease has expired, fetch attribute; if cache time matches
     mtime, use cache
- 3) if lease has expired, fetch attribute; if cache time does not
+ 3) If lease has expired, fetch attribute; if cache time does not
     match mtime, update cache
 
-what happens between open and close of a file is not covered by
-close-to-open consistency. e.g. what should happen on a synchronous
-write? what should happen if the caching client receives a COMMIT from
-the in-kernel client?
+What happens between open and close of a file is not covered by
+close-to-open consistency. For example, what should happen on a
+synchronous write? What should happen if the caching client receives a
+COMMIT from the in-kernel client?
 
-in our implementation, the following happens:
+In our implementation, the following happens:
  
-  - a synchronous write or COMMIT causes the cached content to be
+  - A synchronous write or COMMIT causes the cached content to be
     flushed to server within N seconds (currently N=2).
 
-  - on a CLOSE, the caching client always flushes cached content to
+  - On a CLOSE, the caching client always flushes cached content to
     server before replying.
 
-this semantics differ from expected semantics in two ways. one, a
+This semantics differ from expected semantics in two ways. One, a
 synchronous write or COMMIT does not cause the data to be stored
-permanently on a server immediately. two, content is not visible to
+permanently on a server immediately. Two, content is not visible to
 another client immediately after a synchronous write or COMMIT.
 
-this means if an application crashes within N seconds of sending a
-synchronous write or commit, content may be lost. to be safe, an
+This means if an application crashes within N seconds of sending a
+synchronous write or commit, content may be lost. To be safe, an
 application should close the file then re-open it.
 
-we may try to fix this problem in a later version of lbfs.
+We may try to fix this problem in a later version of lbfs.
 
 
 2.2 Operations on cached file:
 
-a cached file can be in one of the following four states
+A cached file can be in one of the following four states
 
  OPEN: file has not been fetched from server since last ACCESS RPC
  IDLE: file has been fetched from server at some point
@@ -80,10 +77,10 @@ DIRTY: dirty, not flushed backed to server yet
 FLUSH: in the middle of being flushed to server
 FETCH: in the middle of being fetched from server
 
-below is the state transition rule when different RPC occurs. X means
-exception. i.e. the cached file should not be in this state when this
-RPC occurs. (B) means the RPC will be blocked and executed after the
-cached file changes state again.
+Below is the state transition rule when different RPC occurs. X means
+exception. That is, the cached file should not be in this state when
+this RPC occurs. (B) means the RPC will be blocked and executed after
+the cached file changes state again.
 
        ACCESS  FETCH_DONE    READ     WRITE   SETATTR  CLOSE  FLUSH_DONE
 ------------------------------------------------------------------------
@@ -96,65 +93,53 @@ FLUSH   FLUSH      X        FLUSH      (B)      (B)      (B)    IDLE
 
 2.3 Implementation Details
 
-keeps a negative lookup cache per directory accessed. cache is updated
-on CREATE, REMOVE, MKDIR, etc. cache is invalidated when we receive an
-INVALIDATE from server on the directory or when directory mtime
-changed by another client.
+sfslbcd keeps a negative lookup cache per directory accessed. Cache is
+updated on CREATE, REMOVE, MKDIR, etc. Cache is invalidated when we
+receive an INVALIDATE from server on the directory or when directory
+mtime changed by another client.
 
-similarly, keeps a lookup cache. this lookup cache is more aggresive
-than the one in kernel because it knows if a directory is modified by
-another client or not.
+Similarly, it also keeps a lookup cache. This lookup cache is more
+aggresive than the one in kernel because it knows if a directory is
+modified by another client or not.
 
-fetch optimization: after each data block fetched from server, check
-if any one of the read or write RPC can be executed. a RPC can run if
+Fetch optimization: after each data block fetched from server, check
+if any one of the read or write RPC can be executed. A RPC can run if
 it operates on a range of the data already received from the server.
 
-read optimization: can fetch data out of order, in order to satisfy an
-out of order read request immediately.
-
-attributes cache is shared code between sfslbcd and sfsrwcd. for
+Attribute cache code is shared between sfslbcd and sfsrwcd. For
 sfslbcd we keep our own file cache, and each file cache entry has an
-attribute. attribute cache always reflects what the server knows about
+attribute. Attribute cache always reflects what the server knows about
 a file; whereas attributes from the file cache may reflect changes yet
 to be flushed to the server.
 
-when a file is dirty or being flushed, GETATTR uses attribute from
-file cache. in fact, we intercept ACCESS, GETATTR, SETATTR, and LOOKUP
+When a file is dirty or being flushed, GETATTR uses attribute from
+file cache. In fact, we intercept ACCESS, GETATTR, SETATTR, and LOOKUP
 replies and change the size attribute to that in the file cache.
 
-write: on each write, update the size in file cache. always return
-FILE_SYNC, because on CLOSE we commit everything on server.
+On WRITE: on each write, update the size in file cache. On CLOSE: send
+WRITE with UNSTABLE, then send COMMIT. On SETATTR: if size is changed,
+update size in file cache. Forwards setattr to server so other
+attributes are changed on server. We copy the attributes returned from
+server to the file cache, but w/o replacing the size and mtime fields.
 
-close: send WRITE with UNSTABLE, then send COMMIT.
-
-commit: since we return FILE_SYNC on each WRITE RPC, we should not see
-any COMMIT RPCs unless they are for dangling WRITEs. so we just pass
-them onto the server.
-
-setattr: if size is changed, update size in file cache. forwards
-setattr to server so other attributes are changed on server. we copy
-the attributes returned from server to the file cache, but w/o
-replacing the size and mtime fields.
-
-wcc: wcc checking is done whenever we modify a file on server, via
-WRITE, SETATTR, or COMMIT. the goal of doing wcc checking is to avoid
+WCC: wcc checking is done whenever we modify a file on server, via
+WRITE, SETATTR, or COMMIT. The goal of doing wcc checking is to avoid
 doing a file fetch on the next open if only one client is modifying
-the file. because changes in ctime will not trigger a cache update, we
+the file. Because changes in ctime will not trigger a cache update, we
 only check that the before and after size and mtime are the same, but
 not ctime.
 
-to make wcc work, "osize" field is kept for each cached object that
-reflects the size of the object on server. as the size of the object
+To make wcc work, "osize" field is kept for each cached object that
+reflects the size of the object on server. As the size of the object
 in cache changes, osize does not change. osize is updated when the
 cached object is updated, flushed, or when setattr is processed (since
 setattr is always forwarded to server)
 
-note, we cannot return correct wcc information to the in-kernel nfs
-client, because writes to the server are delayed. thus, on the first
+Note, we may not return correct wcc information to the in-kernel nfs
+client, because writes to the server are delayed. Thus, on the first
 open after a close that modified the content on the server, the
 in-kernel nfs client will ask the lbfs caching client for data, even
-though it is the only client that wrote to the file. the lbfs caching
+though it is the only client that wrote to the file. The lbfs caching
 client will return content from its cache, but it won't need to
 contact the server.
-
 

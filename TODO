@@ -1,0 +1,64 @@
+
+LBFS TODO list
+
+Last time LBFS code underwent a major overhaul is Nov 2002.
+Unfortunately, no one is actively keeping up with improvements.
+Changes to LBFS will still occur from time to time, but most likely
+limited to bug fixes, as one of the authors of the SOSP paper still
+use the system on a daily basis.
+
+Here is a list of things to be done. Some are bug fixes that need to
+happen. Some are just improvement ideas. Feel free to work on them.
+These are in no particular order.
+
+ - Write Linux and OpenBSD in-kernel NFS client patches. FreeBSD
+   kernel is patched to send CLOSE RPC. If you want to use LBFS on
+   Linux and OpenBSD, you will have to do the same for those two
+   systems.
+
+ - Known problem: ktrace output file does not close. ktrace passes
+   name of the trace file to kernel. Looking at the nfs trace and the
+   kernel source, the kernel only writes to the file, but doesn't seem
+   to call the close operation on the vnode. Consequently, after
+   running ktrace, the trace file is not closed until the file is read
+   again.
+
+ - Fix of a potential deadlock: instead of waiting for write to local
+   cached file to finish before sending nfs replies, write to a
+   temporary memory cache, then reply.
+
+ - Fix of a potential deadlock: we need an async db for the
+   client-side chunk db. Right now sfslbcd, without an async DB, is a
+   deadlock timebomb waiting to happen (it will only happen with
+   intensive workload, though).
+
+ - Re-consider how COMMIT and synchronous write should be treated.
+   Right now, after a sync write or COMMIT, there is a delay of 2
+   seconds before cached content are flushed to server. This is
+   obvious sub-optimal.
+
+ - Make sure multiple users can share data in the trash directory on
+   the server. All chunks in the server-side chunk db reference files
+   in the trash directory, so it would be good that this works.
+   Currently, I think each user's tmp/trash file may be only readable
+   by that user.
+
+ - Improve performance of server and client. For example, on a 10 Mb
+   link, writing w/o LBFS is actually much faster. I think the major
+   costs are DB accesses.  One improvement would be to use an O(1)
+   database with a NFS interface (i.e. the DB is just a very large NFS
+   file).
+
+ - Pre-flush data to server if file is large. Also, implement partial
+   flush.
+
+ - Automatically abort a MKTMPFILE/CONDWRITE/COMMITTMP transaction on
+   server after a timeout.
+
+ - Provide read-only access to files if connection to server fails.
+   Read-only volume is copy on write, manually synchronize with server
+   later.
+
+ - Testing, testing, more testing.
+
+
