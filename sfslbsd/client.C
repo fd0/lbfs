@@ -31,9 +31,13 @@
 #include "fingerprint.h"
 #include "lbfs.h"
 
-#define DEBUG 2
+#define SFS_TRASH_DIR_SIZE 10000 // number of files
 
+#define DEBUG 3
+
+#if DEBUG > 1
 struct timeval tv0, tv1;
+#endif
 
 ihash<const u_int64_t, client, &client::generation, &client::glink> clienttab;
 
@@ -43,7 +47,6 @@ client::fail ()
   nfssrv = NULL;
   nfscbc = NULL;
 }
-
 
 void
 client::nfs3reply (svccb *sbp, void *res, filesrv::reqstate rqs, clnt_stat err)
@@ -404,7 +407,8 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
     else
       nfs3reply (sbp, res, rqs, RPC_FAILED);
   }
-    
+
+#if DEBUG > 1
   gettimeofday(&tv1, NULL);
   unsigned a;
   if (tv1.tv_usec >= tv0.tv_usec)
@@ -414,6 +418,7 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   warn << "GETFP in " << a << " usecs\n";
   fflush(stdout);
   fflush(stderr);
+#endif
   delete chunker;
 }
 
@@ -430,6 +435,45 @@ client::getfp (svccb *sbp, filesrv::reqstate rqs)
      arg->offset, arg->count,
      wrap(mkref(this), &client::chunk_data, chunker),
      wrap(mkref(this), &client::getfp_cb, sbp, rqs, chunker));
+}
+
+void 
+client::removecb (svccb *sbp, rename3res *rnres, filesrv::reqstate rqs, 
+                  clnt_stat err)
+{
+  if (err || rnres->status) {
+    u_int32_t authno = sbp->getaui ();
+    void *res = nfs_program_3.tbl[NFSPROC3_REMOVE].alloc_res ();
+    fsrv->c->call (NFSPROC3_REMOVE, sbp->template getarg<void> (), res,
+		   wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
+		   authtab[authno]);
+    delete rnres;
+  }
+  else {
+    wccstat3 *wcc = New wccstat3;
+    *(wcc->wcc) = rnres->res->fromdir_wcc;
+    nfs3reply (sbp, wcc, rqs, RPC_SUCCESS);
+    delete rnres;
+  }
+}
+
+void
+client::remove (svccb *sbp, filesrv::reqstate rqs)
+{
+  u_int32_t authno = sbp->getaui ();
+  diropargs3 *arg = sbp->template getarg<diropargs3> ();
+  rename3args rnarg;
+  rnarg.from = *arg;
+  rnarg.to.dir = fsrv->sfs_trash_fhs[rqs.fsno];
+  int r = rand() % SFS_TRASH_DIR_SIZE;
+  str rstr = armor32((void*)&r, sizeof(int));
+  char tmpfile[7+rstr.len()+1];
+  sprintf(tmpfile, "oscar.%s", rstr.cstr());
+  rnarg.to.name = tmpfile;
+  rename3res *rnres = New rename3res;
+  fsrv->c->call (NFSPROC3_RENAME, &rnarg, rnres,
+	         wrap (mkref (this), &client::removecb, sbp, rnres, rqs),
+		 authtab[authno]);
 }
 
 void
@@ -465,12 +509,17 @@ client::nfs3dispatch (svccb *sbp)
   else if (sbp->proc () == lbfs_CONDWRITE)
     condwrite(sbp, rqs);
   else if (sbp->proc () == lbfs_GETFP) {
+#if DEBUG > 1
     gettimeofday(&tv0, NULL);
+#endif
     getfp(sbp, rqs);
   }
+  else if (sbp->proc () == NFSPROC3_REMOVE) 
+    remove(sbp, rqs); 
   else {
     if (sbp->proc () == NFSPROC3_LOOKUP) 
       warn ("server: %lu %lu\n", xc->bytes_sent, xc->bytes_recv);
+    
     void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
     if (sbp->proc () == NFSPROC3_RENAME)
       fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,

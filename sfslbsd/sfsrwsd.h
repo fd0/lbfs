@@ -252,6 +252,10 @@ class client : public virtual refcount, public sfsserv {
   void renamecb_2 (svccb *sbp, rename3res *rres, filesrv::reqstate rqs,
 		   lookup3res *ares, clnt_stat err);
 
+  void removecb (svccb *sbp, rename3res *rnres, filesrv::reqstate rqs, 
+                 clnt_stat err);
+  void remove (svccb *sbp, filesrv::reqstate rqs);
+
   void condwrite_write_cb (svccb *sbp, filesrv::reqstate rqs, size_t count,
                            write3res *, str err);
   void condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
