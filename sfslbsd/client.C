@@ -465,11 +465,20 @@ client::~client ()
   clienttab.remove (this);
 }
 
+#if 0
+static void
+xon_kludge (ref<axprt> xx)
+{
+  xhinfo::xon (xx);
+}
+#endif
+
 void
 client::sfs_getfsinfo (svccb *sbp)
 {
   if (fsrv) {
     sbp->replyref (fsrv->fsinfo);
+#if 0
     ref<axprt> xx = axprt_compress::alloc(x);
     sfssrv = asrv::alloc (xx, sfs_program_1, 
 	                  wrap (implicit_cast<sfsserv*>(this), 
@@ -477,6 +486,8 @@ client::sfs_getfsinfo (svccb *sbp)
     nfssrv = asrv::alloc (xx, lbfs_program_3, 
 	                  wrap (mkref (this), &client::nfs3dispatch));
     nfscbc = aclnt::alloc (xx, lbfscb_program_3);
+    delaycb (0, wrap (&xon_kludge, xx)); // XXX
+#endif
   }
   else
     sbp->reject (PROC_UNAVAIL);
