@@ -103,7 +103,13 @@ xfs_message_init (void)
   
   assert (sizeof(rcvfuncs_name) / sizeof(*rcvfuncs_name) == XFS_MSG_COUNT);
 }
-
+#if 0
+template<class T> inline T *
+msgcast (ptr<xfs_msg_header> h)
+{
+  return reinterpret_cast<T *> (h.get ());
+}
+#endif
 void
 xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 {
@@ -119,13 +125,17 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 #endif
 
   ++recv_stat[opcode];
-  char *msgstr = New char [size];
-  memcpy (msgstr, (const char *)h, size);
-  ptr<xfscall> xfsc;
 
+  ref<xfs_message_header> hh (refcounted<xfs_message_header, vsize>::alloc (size));
+  memcpy ((void*)hh, h, size);
+
+  ptr<xfscall> xfsc;
+#if 0
   switch (opcode) {
   case XFS_MSG_GETROOT: {
-    struct xfs_message_getroot *hh = (struct xfs_message_getroot *) msgstr;
+    //xfs_message_getroot *zz = msgcast<xfs_message_getroot> (hh);
+    
+    //struct xfs_message_getroot *hh = (struct xfs_message_getroot *) msgstr;
     xfsc = New refcounted<xfscall> (opcode, fd, hh, &hh->cred);
     break;
   }
@@ -222,9 +232,21 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     assert (0);
     break;
   }
-
+#endif
+  switch (opcode) {
+  case XFS_MSG_INACTIVENODE:
+  case XFS_MSG_PIOCTL:
+    xfsc = New refcounted<xfscall> (opcode, fd, hh);
+    break;
+#if 0 /* Other cases */
+  case XFS_MSG_UPDATEFID:
+  case XFS_MSG_ADVLOCK:
+  case XFS_MSG_GC_NODES:
+#endif /* Other cases */
+  default:
+    xfsc = New refcounted<xfscall> (opcode, fd, hh /*, &hh->cred*/);
+  }  
   (*rcvfuncs[opcode])(xfsc);
-  //delete msgstr;
 }
 
 int

@@ -9,14 +9,14 @@
 AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
 AUTH *auth_default = 
   authunix_create ("localhost", (uid_t) 14228, (gid_t) 100, 0, NULL);
-#define LBFS 0
 
 struct attr_obj {
   attr_cb_t cb;
   int fd;
   ref<aclnt> c;
 
-  const struct xfs_message_putattr *h;
+  ref<xfs_message_header> hh;
+  xfs_message_putattr *h;
   sfs_aid sa;
   const nfs_fh3 fh;
   uint32 seqnum; 
@@ -35,18 +35,33 @@ struct attr_obj {
       msg.header.opcode = XFS_MSG_INSTALLATTR;
       h0 = (struct xfs_message_header *) &msg;
       h0_len = sizeof (msg);
+      
+      cache_entry *ce;
+      if (h->header.opcode == XFS_MSG_PUTATTR) {
+	if (wres->wcc->after.present)
+	  ce = update_cache (fh, *wres->wcc->after.attributes);
+	else 
+	  if (wres->wcc->before.present) {
+	    ce = nfsindex[fh];
+	    ce->nfs_attr.size = (*wres->wcc->before.attributes).size;
+	    ce->nfs_attr.mtime = (*wres->wcc->before.attributes).mtime;
+	    ce->nfs_attr.ctime = (*wres->wcc->before.attributes).ctime;
+	  } else {
+	    warn << "attr_obj: No attr present!!\n"; 
+	    abort ();
+	  }
+      } else {
+	ce = update_cache (fh, *gres->attributes);
+      }
 
-      ex_fattr3 attr = (h->header.opcode == XFS_MSG_PUTATTR) ? 
-	*wres->wcc->after.attributes : *gres->attributes;
       bool update_dir_expire = false;
-      cache_entry *e = update_cache (fh, attr);
 
-      if (e->nfs_attr.type == NF3DIR) {
-	nfstime3 maxtime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
-	if (!greater(maxtime, e->ltime))
+      if (ce->nfs_attr.type == NF3DIR) {
+	nfstime3 maxtime = max(ce->nfs_attr.mtime, ce->nfs_attr.ctime);
+	if (!greater(maxtime, ce->ltime))
 	  update_dir_expire = true;
       }
-      e->set_exp (rqt, update_dir_expire);
+      ce->set_exp (rqt, update_dir_expire);
       if (h->header.opcode == XFS_MSG_PUTATTR)
 	if (saa.new_attributes.size.set) {
 #if DEBUG > 0
@@ -54,9 +69,9 @@ struct attr_obj {
 	       << (uint32) *(saa.new_attributes.size.val) << "\n";
 #endif
 	  // can't depend on client set time to expire cache data
-	  truncate(e->cache_name, *(saa.new_attributes.size.val));
+	  truncate(ce->cache_name, *(saa.new_attributes.size.val));
 	}
-      nfsobj2xfsnode (cred, e, &msg.node);
+      nfsobj2xfsnode (cred, ce, &msg.node);
       
       xfs_send_message_wakeup_multiple (fd, seqnum,
 					0, h0, h0_len, NULL, 0);
@@ -101,15 +116,11 @@ struct attr_obj {
 	     lbfs_authof (sa));
   }
   
-  ~attr_obj ()
-  {
-    if (h) delete h;
-  }
-
-  attr_obj (int fd1, const xfs_message_putattr *h1, sfs_aid sa1,
+  attr_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1,
 	    const nfs_fh3 &fh1, ref<aclnt> c1, attr_cb_t cb1) : 
-    cb(cb1), fd(fd1), c(c1), h(h1), sa(sa1), fh(fh1) 
+    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), fh(fh1)
   {
+    h = msgcast<xfs_message_putattr> (hh);
     switch (h->header.opcode) {
     case XFS_MSG_PUTATTR:
       setattr ();
@@ -124,7 +135,7 @@ struct attr_obj {
 };
 
 void 
-lbfs_attr (int fd, const xfs_message_putattr *h, sfs_aid sa, const nfs_fh3 &fh, 
+lbfs_attr (int fd, ref<xfs_message_header> h, sfs_aid sa, const nfs_fh3 &fh, 
 	      ref<aclnt> c, attr_cb_t cb) 
 {
   vNew attr_obj (fd, h, sa, fh, c, cb);
@@ -135,7 +146,8 @@ struct getroot_obj {
   ref<aclnt> sc;
   ref<aclnt> nc;
   
-  const struct xfs_message_getroot *h;
+  ref<xfs_message_header> hh;
+  xfs_message_getroot *h;
   sfs_aid sa;
   bool gotnfs_fsi;
   bool gotroot_attr;
@@ -191,8 +203,8 @@ struct getroot_obj {
     nfs_fsi = New refcounted<ex_fsinfo3res>;
     nc->call (lbfs_NFSPROC3_FSINFO, &sfs_fsi->nfs->v3->root, nfs_fsi,
 	      wrap (this, &getroot_obj::gotnfs_fsinfo), lbfs_authof (sa));
-    const struct xfs_message_putattr *h1 = (xfs_message_putattr *) h;
-    lbfs_attr (fd, h1, sa, sfs_fsi->nfs->v3->root, 
+    //const struct xfs_message_putattr *h1 = (xfs_message_putattr *) h;
+    lbfs_attr (fd, hh, sa, sfs_fsi->nfs->v3->root, 
 	       nc, wrap (this, &getroot_obj::gotattr));
   }
 
@@ -203,22 +215,18 @@ struct getroot_obj {
 		wrap (this, &getroot_obj::getnfs_fsinfo), lbfs_authof (sa));
   }
 
-  ~getroot_obj ()
-  {
-    if (h) delete h;
-  }
-
-  getroot_obj (int fd1, xfs_message_getroot *h1, sfs_aid sa1,  
+  getroot_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1,  
 	       ref<aclnt> sc1, ref<aclnt> nc1) : 
-    fd(fd1), sc(sc1), nc(nc1), h(h1), sa(sa1), gotnfs_fsi(false), 
+    fd(fd1), sc(sc1), nc(nc1), hh(h1), sa(sa1), gotnfs_fsi(false), 
     gotroot_attr(false) 
   {
+    h = msgcast<xfs_message_getroot> (hh);
     getsfs_fsinfo ();
   }
 };
 
 void 
-lbfs_getroot (int fd1, xfs_message_getroot *h1, sfs_aid sa1, 
+lbfs_getroot (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, 
 	      ref<aclnt> sc1, ref<aclnt> nc1) 
 {
   vNew getroot_obj (fd1, h1, sa1, sc1, nc1);
@@ -231,7 +239,8 @@ struct lookup_obj {
   int fd;
   ref<aclnt> c;
 
-  const struct xfs_message_getnode *h;
+  ref<xfs_message_header> hh;
+  xfs_message_getnode *h;
   sfs_aid sa;
   const nfs_fh3 parent_fh;
   const char *name;
@@ -261,22 +270,18 @@ struct lookup_obj {
 	        wrap (this, &lookup_obj::found, timenow), lbfs_authof (sa));
   }
 
-  ~lookup_obj ()
-  {
-    if (h) delete h;
-  }
-
-  lookup_obj (int fd1, const struct xfs_message_getnode *h1, sfs_aid sa1, 
+  lookup_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, 
 	      const nfs_fh3 &parent_fh1, const char *name1, 
 	      ref<aclnt> c1, cb_t cb1) : cb(cb1), fd(fd1), c(c1), 
-		h(h1), sa(sa1), parent_fh(parent_fh1), name(name1)
+		hh(h1), sa(sa1), parent_fh(parent_fh1), name(name1)
   {
+    h = msgcast<xfs_message_getnode> (hh);
     lookup ();
   }
   
 };
 
-void lbfs_lookup (int fd, const struct xfs_message_getnode *h, sfs_aid sa,
+void lbfs_lookup (int fd, ref<xfs_message_header> h, sfs_aid sa,
 		  const nfs_fh3 &parent_fh, const char *name, 
 		  ref<aclnt> c, lookup_obj::cb_t cb) 
 {
@@ -287,7 +292,8 @@ struct getnode_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_getnode *h;
+  ref<xfs_message_header> hh;
+  xfs_message_getnode *h;
   sfs_aid sa;
   
   void installnode (ptr<ex_lookup3res> lres, time_t rqt, clnt_stat err) 
@@ -329,14 +335,10 @@ struct getnode_obj {
     delete this;
   }
 
-  ~getnode_obj ()
-  {
-    if (h) delete h;
-  }
-
-  getnode_obj (int fd1, xfs_message_getnode *h1, sfs_aid sa1, ref<aclnt> c1) :
-    fd(fd1), c(c1), h(h1), sa(sa1)
+  getnode_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
+    fd(fd1), c(c1), hh(h1), sa(sa1)
   {  
+    h = msgcast<xfs_message_getnode> (hh);
     cache_entry *e = xfsindex[h->parent_handle];
     if (!e) {
 #if DEBUG > 0
@@ -346,13 +348,13 @@ struct getnode_obj {
       xfs_reply_err(fd, h->header.sequence_num, ENOENT);
       delete this;
     } else 
-      lbfs_lookup (fd, h, sa, e->nh, h->name, c, 
+      lbfs_lookup (fd, hh, sa, e->nh, h->name, c, 
 		   wrap (this, &getnode_obj::installnode));
   }
 };
 
 void 
-lbfs_getnode (int fd, xfs_message_getnode *h, sfs_aid sa, ref<aclnt> c)
+lbfs_getnode (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
 {  
   vNew getnode_obj (fd, h, sa, c);
 }
@@ -364,7 +366,8 @@ struct readlink_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_open *h;
+  ref<xfs_message_header> hh;
+  xfs_message_open *h;
   sfs_aid sa;
   cache_entry *e;
   ptr<ex_readlink3res> rlres;
@@ -403,10 +406,11 @@ struct readlink_obj {
     delete this;    
   }
 
-  readlink_obj (int fd1, const xfs_message_open *h1, cache_entry *e1, sfs_aid sa1, 
+  readlink_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
 		ref<aclnt> c1, readlink_obj::cb_t cb1) : 
-    cb(cb1), fd(fd1), c(c1), h(h1), sa(sa1), e(e1)
+    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1)
   {
+    h = msgcast<xfs_message_open> (hh);
     rlres = New refcounted <ex_readlink3res>;
     c->call (lbfs_NFSPROC3_READLINK, &e->nh, rlres,
 	     wrap (this, &readlink_obj::install_link, timenow), lbfs_authof (sa));
@@ -414,15 +418,16 @@ struct readlink_obj {
 };
 
 void 
-lbfs_readlink (int fd, const xfs_message_open *h, cache_entry *e, sfs_aid sa, 
+lbfs_readlink (int fd, ref<xfs_message_header> h, cache_entry *e, sfs_aid sa, 
 	       ref<aclnt> c, readlink_obj::cb_t cb) 
 {
   vNew readlink_obj (fd, h, e, sa, c, cb);
 }
 
 void 
-lbfs_readexist (int fd, const xfs_message_getdata *h, cache_entry *e) 
+lbfs_readexist (int fd, ref<xfs_message_header> hh, cache_entry *e) 
 {
+  xfs_message_getdata *h = msgcast<xfs_message_getdata> (hh);
   struct xfs_message_installdata msg;
 
   nfsobj2xfsnode (h->cred, e, &msg.node);
@@ -450,7 +455,8 @@ struct readdir_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_open *h;
+  ref<xfs_message_header> hh;
+  xfs_message_open *h;
   sfs_aid sa;
   cache_entry *e;
   ptr<ex_readdir3res> rdres;
@@ -548,16 +554,17 @@ struct readdir_obj {
     if (greater (maxtime, e->ltime)) 
       readdir ();
     else {
-      xfs_message_getdata *h1 = (xfs_message_getdata *) h;
-      lbfs_readexist (fd, h1, e);
+      //xfs_message_getdata *h1 = (xfs_message_getdata *) h;
+      lbfs_readexist (fd, hh, e);
       delete this;
     }
   }
 
-  readdir_obj (int fd1, const xfs_message_open *h1, cache_entry *e1, sfs_aid sa1, 
+  readdir_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
      	       ref<aclnt> c1, readdir_obj::cb_t cb1) :
-    cb(cb1), fd(fd1), c(c1), h(h1), sa(sa1), e(e1)    
+    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1)    
   {
+    h = msgcast<xfs_message_open> (hh);
     uint32 owriters = e->writers;
     if ((h->tokens & XFS_OPEN_MASK) & (XFS_OPEN_NW|XFS_OPEN_EW)) {
       e->writers = 1;
@@ -566,8 +573,8 @@ struct readdir_obj {
       readdir ();
     } else {
       if (owriters > 0) {
-	xfs_message_getdata *h1 = (xfs_message_getdata *) h;
-	lbfs_readexist (fd, h1, e);
+	//xfs_message_getdata *h1 = (xfs_message_getdata *) h;
+	lbfs_readexist (fd, hh, e);
 	delete this; return;
       } else {
 #if DEBUG > 0
@@ -575,8 +582,8 @@ struct readdir_obj {
 	     << (uint32) timenow << " ltime " << e->ltime.seconds << "\n";
 #endif
 	if (e->nfs_attr.expire < (uint32) timenow) {
-	  const struct xfs_message_putattr *h1 = (xfs_message_putattr *) h;
-	  lbfs_attr (fd, h1, sa, e->nh, c, 
+	  //const struct xfs_message_putattr *h1 = (xfs_message_putattr *) h;
+	  lbfs_attr (fd, hh, sa, e->nh, c, 
 		     wrap (this, &readdir_obj::get_updated_copy));
 	} else get_updated_copy (NULL, 0, clnt_stat (0));
       }
@@ -585,7 +592,7 @@ struct readdir_obj {
 };
 
 void 
-lbfs_readdir (int fd, const xfs_message_open *h, cache_entry *e, sfs_aid sa, 
+lbfs_readdir (int fd, ref<xfs_message_header> h, cache_entry *e, sfs_aid sa, 
 	      ref<aclnt> c, readdir_obj::cb_t cb)
 {
   vNew readdir_obj (fd, h, e, sa, c, cb);
@@ -597,7 +604,8 @@ struct getfp_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_open *h;
+  ref<xfs_message_header> hh;
+  xfs_message_open *h;
   sfs_aid sa;
   cache_entry *e;
   lbfs_getfp3args gfa;
@@ -778,7 +786,7 @@ struct getfp_obj {
 #if DEBUG > 0
 	    warn << "reading chunks from " << e1->cache_name << "\n";
 #endif
-	    chfd = open (e1->cache_name, O_RDONLY, 0666);
+	    chfd = open (e1->cache_name, O_RDWR, 0666);
 	    if (chfd < 0) {
 #if DEBUG > 0
 	      warn << "compose_file: error: " << strerror (errno) 
@@ -879,11 +887,12 @@ struct getfp_obj {
     (*cb) ();
   }
 
-  getfp_obj (int fd1, const xfs_message_open *h1, cache_entry *e1, sfs_aid sa1, 
+  getfp_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
 	     ref<aclnt> c1, getfp_obj::cb_t cb1) :
-    cb(cb1), fd(fd1), c(c1), h(h1), sa(sa1), e(e1), offset(0), blocks_written(0), 
+    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1), offset(0), blocks_written(0), 
     total_blocks(0), eof(false), retries(0)    
   {
+    h = msgcast<xfs_message_open> (hh);
     str fhstr = armor32(e->nh.data.base(), e->nh.data.size());
     int r = rnd.getword();
     str rstr = armor32((void*)&r, sizeof(int));
@@ -910,7 +919,7 @@ struct getfp_obj {
 };
 
 void
-lbfs_getfp (int fd, const xfs_message_open *h, cache_entry *e, sfs_aid sa, 
+lbfs_getfp (int fd, ref<xfs_message_header> h, cache_entry *e, sfs_aid sa, 
 	    ref<aclnt> c, getfp_obj::cb_t cb)
 {
   vNew getfp_obj (fd, h, e, sa, c, cb);
@@ -922,7 +931,8 @@ struct read_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_open *h;
+  ref<xfs_message_header> hh;
+  xfs_message_open *h;
   sfs_aid sa;
   cache_entry *e;
   read3args ra;
@@ -931,14 +941,14 @@ struct read_obj {
   struct xfs_message_header *h0;
   size_t h0_len;
     
-  void compose_file (uint64 offset, ex_read3res *res)
+  void compose_file (uint64 offset, ref<ex_read3res> res)
   {
     if (lseek (out_fd, offset, SEEK_SET) < 0) {
       xfs_reply_err(fd, h->header.sequence_num, errno);
       delete this; return;
     }
     int err = write (out_fd, res->resok->data.base (), res->resok->count);
-    if ((uint)err != res->resok->count) {
+    if (err < 0 || (uint)err != res->resok->count) {
       if (err >= 0)
 	warn << "short write..wierd\n";
       xfs_reply_err(fd, h->header.sequence_num, errno);
@@ -946,7 +956,7 @@ struct read_obj {
     }
   }
 
-  void gotdata (uint64 offset, ex_read3res *res, time_t rqt, clnt_stat err) 
+  void gotdata (uint64 offset, ref<ex_read3res> res, time_t rqt, clnt_stat err) 
   {
     if (!err && res->status == NFS3_OK) {
       assert (res->resok->file_attributes.present);
@@ -986,10 +996,11 @@ struct read_obj {
     (*cb) ();
   }
 
-  read_obj (int fd1, const xfs_message_open *h1, cache_entry *e1, sfs_aid sa1, 
-	    ref<aclnt> c1, read_obj::cb_t cb1) : cb(cb1), fd(fd1), c(c1), h(h1), 
+  read_obj (int fd1, ref< xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
+	    ref<aclnt> c1, read_obj::cb_t cb1) : cb(cb1), fd(fd1), c(c1), hh(h1), 
 	      sa(sa1), e(e1)
   {
+    h = msgcast<xfs_message_open> (hh);
     out_fd = assign_cachefile (fd, h->header.sequence_num, e, 
 			       msg.cache_name, &msg.cache_handle, 
 			       O_CREAT | O_WRONLY | O_TRUNC);
@@ -1006,7 +1017,7 @@ struct read_obj {
 };
 
 void 
-lbfs_read (int fd, const xfs_message_open *h, cache_entry *e, sfs_aid sa, 
+lbfs_read (int fd, ref<xfs_message_header> h, cache_entry *e, sfs_aid sa, 
 	    ref<aclnt> c, read_obj::cb_t cb)
 {
   vNew read_obj (fd, h, e, sa, c, cb);
@@ -1018,7 +1029,8 @@ struct readfile_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_open *h;
+  ref<xfs_message_header> hh;
+  xfs_message_open *h;
   sfs_aid sa;
   cache_entry *e;
 
@@ -1040,19 +1052,20 @@ struct readfile_obj {
     nfstime3 maxtime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
     if (greater (maxtime, e->ltime)) 
       if (LBFS)
-	lbfs_getfp (fd, h, e, sa, c, wrap (this, &readfile_obj::done));
-      else lbfs_read (fd, h, e, sa, c, cb);
+	lbfs_getfp (fd, hh, e, sa, c, wrap (this, &readfile_obj::done));
+      else lbfs_read (fd, hh, e, sa, c, cb);
     else {
-      xfs_message_getdata *h1 = (xfs_message_getdata *) h;
-      lbfs_readexist (fd, h1, e);
+      //xfs_message_getdata *h1 = (xfs_message_getdata *) h;
+      lbfs_readexist (fd, hh, e);
       delete this; return;
     }
   }
   
-  readfile_obj (int fd1, const xfs_message_open *h1, cache_entry *e1, sfs_aid sa1, 
+  readfile_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
 		ref<aclnt> c1, readfile_obj::cb_t cb1) :
-    cb(cb1), fd(fd1), c(c1), h(h1), sa(sa1), e(e1)    
+    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1)    
   {
+    h = msgcast<xfs_message_open> (hh);
     uint32 owriters = e->writers;
     if ((h->tokens & XFS_OPEN_MASK) & (XFS_OPEN_NW|XFS_OPEN_EW)) {
       e->writers = 1;
@@ -1063,17 +1076,17 @@ struct readfile_obj {
     
     if (!e->incache)
       if (LBFS)
-	lbfs_getfp (fd, h, e, sa, c, wrap (this, &readfile_obj::done));
-      else lbfs_read (fd, h, e, sa, c, cb);
+	lbfs_getfp (fd, hh, e, sa, c, wrap (this, &readfile_obj::done));
+      else lbfs_read (fd, hh, e, sa, c, cb);
     else {
       if (owriters > 0) {
-	xfs_message_getdata *h1 = (xfs_message_getdata *) h;
-	lbfs_readexist (fd, h1, e);
+	//xfs_message_getdata *h1 = (xfs_message_getdata *) h;
+	lbfs_readexist (fd, hh, e);
 	delete this; return;
       } else 
 	if (e->nfs_attr.expire < (uint32) timenow) {
-	  const struct xfs_message_putattr *h1 = (xfs_message_putattr *) h;
-	  lbfs_attr (fd, h1, sa, e->nh, c,
+	  //const struct xfs_message_putattr *h1 = (xfs_message_putattr *) h;
+	  lbfs_attr (fd, hh, sa, e->nh, c,
 		     wrap (this, &readfile_obj::get_updated_copy));
 	} else get_updated_copy (NULL, 0, clnt_stat (0));
     }
@@ -1081,7 +1094,7 @@ struct readfile_obj {
 };
 
 void 
-lbfs_readfile (int fd, const xfs_message_open *h, cache_entry *e, sfs_aid sa, 
+lbfs_readfile (int fd, ref<xfs_message_header> h, cache_entry *e, sfs_aid sa, 
 	      ref<aclnt> c, readfile_obj::cb_t cb) 
 {
   vNew readfile_obj (fd, h, e, sa, c, cb);
@@ -1091,7 +1104,8 @@ struct open_obj {
   int fd;
   ref<aclnt> c;
 
-  const struct xfs_message_open *h;
+  ref<xfs_message_header> hh;
+  xfs_message_open *h;
   sfs_aid sa;
   cache_entry *e;
 
@@ -1101,9 +1115,10 @@ struct open_obj {
     delete this;
   }
 
-  open_obj (int fd1, const xfs_message_open *h1, sfs_aid sa1, ref<aclnt> c1) :
-    fd(fd1), c(c1), h(h1), sa(sa1)
+  open_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
+    fd(fd1), c(c1), hh(h1), sa(sa1)
   {
+    h = msgcast<xfs_message_open> (hh);
     e = xfsindex[h->handle];
     if (!e) {
 #if DEBUG > 0
@@ -1115,13 +1130,13 @@ struct open_obj {
     } else {
       switch (e->nfs_attr.type) {
       case NF3DIR:
-	lbfs_readdir (fd, h, e, sa, c, wrap (this, &open_obj::done));
+	lbfs_readdir (fd, h1, e, sa, c, wrap (this, &open_obj::done));
 	break;
       case NF3LNK:
-	lbfs_readlink (fd, h, e, sa, c, wrap (this, &open_obj::done)); 
+	lbfs_readlink (fd, h1, e, sa, c, wrap (this, &open_obj::done)); 
 	break;
       case NF3REG:
-	lbfs_readfile (fd, h, e, sa, c, wrap (this, &open_obj::done)); 
+	lbfs_readfile (fd, h1, e, sa, c, wrap (this, &open_obj::done)); 
 	break;
       default:
 #if DEBUG > 0
@@ -1135,7 +1150,7 @@ struct open_obj {
 };
 
 void 
-lbfs_open (int fd, const xfs_message_open *h, sfs_aid sa, ref<aclnt> c) 
+lbfs_open (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c) 
 {
   vNew open_obj (fd, h, sa, c);
 }
@@ -1144,7 +1159,8 @@ struct create_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_create *h;
+  ref<xfs_message_header> hh;
+  xfs_message_create *h;
   sfs_aid sa;
   cache_entry *e;
   ptr<ex_diropres3> res;
@@ -1258,16 +1274,11 @@ struct create_obj {
 		wrap (this, &create_obj::install, timenow), lbfs_authof (sa));
   }
 
-  ~create_obj ()
-  {
-    if (h) delete h;
-  }
-
-  create_obj (int fd1, const xfs_message_create *h1, sfs_aid sa1, 
+  create_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, 
 	      ref<aclnt> c1) :
-    fd(fd1), c(c1), h(h1), sa(sa1)
+    fd(fd1), c(c1), hh(h1), sa(sa1)
   {
-
+    h = msgcast<xfs_message_create> (hh);
     e = xfsindex[h->parent_handle];
     if (!e) {
 #if DEBUG > 0
@@ -1289,7 +1300,7 @@ struct create_obj {
 };
 
 void 
-lbfs_create (int fd, const xfs_message_create *h, sfs_aid sa, ref<aclnt> c)
+lbfs_create (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
 {
   vNew create_obj (fd, h, sa, c);
 }
@@ -1298,7 +1309,8 @@ struct link_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_link *h;
+  ref<xfs_message_header> hh;
+  xfs_message_link *h;
   sfs_aid sa;
   cache_entry *e1, *e2;
   ptr<ex_link3res> res;
@@ -1350,14 +1362,10 @@ struct link_obj {
     delete this;
   }
 
-  ~link_obj ()
+  link_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, 
+	      ref<aclnt> c1) : fd(fd1), c(c1), hh(h1), sa(sa1) 
   {
-    if (h) delete h;
-  }
-
-  link_obj (int fd1, const xfs_message_link *h1, sfs_aid sa1, 
-	      ref<aclnt> c1) : fd(fd1), c(c1), h(h1), sa(sa1) 
-  {
+    h = msgcast<xfs_message_link> (hh);
     e1 = xfsindex[h->from_handle];
     if (!e1) {
 #if DEBUG > 0
@@ -1388,7 +1396,7 @@ struct link_obj {
 };
 
 void 
-lbfs_link (int fd, const xfs_message_link *h, sfs_aid sa, ref<aclnt> c)
+lbfs_link (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
 {
   vNew link_obj (fd, h, sa, c);
 }
@@ -1397,7 +1405,8 @@ struct symlink_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_symlink *h;
+  ref<xfs_message_header> hh;
+  xfs_message_symlink *h;
   sfs_aid sa;
   cache_entry *e;
   ptr<ex_diropres3> res;
@@ -1448,14 +1457,10 @@ struct symlink_obj {
     delete this;
   }
 
-  ~symlink_obj ()
+  symlink_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, 
+	       ref<aclnt> c1) : fd(fd1), c(c1), hh(h1), sa(sa1) 
   {
-    if (h) delete h;
-  }
-
-  symlink_obj (int fd1, const xfs_message_symlink *h1, sfs_aid sa1, 
-	       ref<aclnt> c1) : fd(fd1), c(c1), h(h1), sa(sa1) 
-  {
+    h = msgcast<xfs_message_symlink> (hh);
     e = xfsindex[h->parent_handle];
     if (!e) {
 #if DEBUG > 0
@@ -1478,7 +1483,7 @@ struct symlink_obj {
 };
 
 void 
-lbfs_symlink (int fd, const xfs_message_symlink *h, sfs_aid sa, ref<aclnt> c)
+lbfs_symlink (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
 {
   vNew symlink_obj (fd, h, sa, c);
 }
@@ -1487,7 +1492,8 @@ struct remove_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_remove *h;
+  ref<xfs_message_header> hh;
+  xfs_message_remove *h;
   sfs_aid sa;
   time_t rqt1;
   cache_entry *e1, *e2;
@@ -1510,9 +1516,9 @@ struct remove_obj {
       
       int pfd1 = assign_cachefile (fd, h->header.sequence_num, e1, 
 					msg1.cache_name, &msg1.cache_handle,
-					O_CREAT | O_RDONLY);
+					O_CREAT | O_RDWR);
       int pfd2 = open (msg1.cache_name, O_WRONLY, 0666);
-#if 1
+#if 0
       if (dir_remove_name (pfd1, h->name)) {
 #if DEBUG > 0
 	warn << "Error: " << strerror (errno) << "\n";
@@ -1589,14 +1595,10 @@ struct remove_obj {
     }
   }
 
-  ~remove_obj () 
+  remove_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
+    fd(fd1), c(c1), hh(h1), sa(sa1) 
   {
-    if (h) delete h;
-  }
-
-  remove_obj (int fd1, const xfs_message_remove *h1, sfs_aid sa1, ref<aclnt> c1) :
-    fd(fd1), c(c1), h(h1), sa(sa1) 
-  {
+    h = msgcast<xfs_message_remove> (hh);
     e1 = xfsindex[h->parent_handle];
     if (!e1) {
 #if DEBUG > 0
@@ -1616,7 +1618,7 @@ struct remove_obj {
 };
 
 void
-lbfs_remove (int fd, const xfs_message_remove *h, sfs_aid sa, ref<aclnt> c)
+lbfs_remove (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
 {
   vNew remove_obj (fd, h, sa, c);
 }
@@ -1625,7 +1627,8 @@ struct rename_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_rename *h;
+  ref<xfs_message_header> hh;
+  xfs_message_rename *h;
   sfs_aid sa;
   time_t rqt1, rqt2;
   cache_entry *e1, *e2, *e3;
@@ -1770,14 +1773,10 @@ struct rename_obj {
     }
   }
 
-  ~rename_obj ()
+  rename_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
+    fd(fd1), c(c1), hh(h1), sa(sa1) 
   {
-    if (h) delete h;
-  }
-
-  rename_obj (int fd1, const xfs_message_rename *h1, sfs_aid sa1, ref<aclnt> c1) :
-    fd(fd1), c(c1), h(h1), sa(sa1) 
-  {
+    h = msgcast<xfs_message_rename> (hh);
     e1 =  xfsindex[h->old_parent_handle];
     if (!e1) {
 #if DEBUG > 0
@@ -1799,7 +1798,7 @@ struct rename_obj {
 };
 
 void
-lbfs_rename (int fd, const xfs_message_rename *h, sfs_aid sa, ref<aclnt> c)
+lbfs_rename (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
 {
   vNew rename_obj (fd, h, sa, c);
 }
@@ -1808,7 +1807,8 @@ struct putdata_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_putdata *h;
+  ref<xfs_message_header> hh;
+  xfs_message_putdata *h;
   sfs_aid sa;
   cache_entry *e;
   nfs_fh3 tmpfh;
@@ -1895,12 +1895,12 @@ struct putdata_obj {
   {
     int err, ost;
     char iobuf[NFS_MAXDATA];
-   uint64 offst = chunk->location().pos ();
+    uint64 offst = chunk->location().pos ();
     uint32 count = chunk->location().count ();
 
     assert (!committed);
 
-    int rfd = open (e->cache_name, O_RDONLY, 0666);
+    int rfd = open (e->cache_name, O_RDWR, 0666);
     if (rfd < 0) {
       xfs_reply_err(fd, h->header.sequence_num, EIO);
       delete this; return;
@@ -1985,7 +1985,7 @@ struct putdata_obj {
     cw.count = chunk->location().count ();
     cw.fingerprint = chunk->fingerprint();
 
-    int rfd = open (e->cache_name, O_RDONLY, 0666);
+    int rfd = open (e->cache_name, O_RDWR, 0666);
     if (rfd < 0) {
 #if DEBUG > 0
       warn << "sendcondwrite: " << e->cache_name << ".." << strerror (errno) << "\n";
@@ -2021,7 +2021,7 @@ struct putdata_obj {
 
   void condwrite_chunk ()
   {
-    int data_fd = open (e->cache_name, O_RDONLY, 0666);
+    int data_fd = open (e->cache_name, O_RDWR, 0666);
     if (data_fd < 0) {
 #if DEBUG > 0
       warn << "putdata_obj::condwrite_chunk: " << strerror (errno) << "\n";
@@ -2098,14 +2098,14 @@ struct putdata_obj {
   ~putdata_obj () 
   {
     delete chunker;
-    if (h) delete h;
   }
 
-  putdata_obj (int fd1, const xfs_message_putdata *h1, sfs_aid sa1, ref<aclnt> c1) :
-    fd(fd1), c(c1), h(h1), sa(sa1), blocks_written(0), total_blocks(0), 
+  putdata_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
+    fd(fd1), c(c1), hh(h1), sa(sa1), blocks_written(0), total_blocks(0), 
     eof(false), retries(0), committed(false), cur_pos(0), 
     OUTSTANDING_CONDWRITES(4), outstanding_condwrites(0)
   {
+    h = msgcast<xfs_message_putdata> (hh);
     chunker = New Chunker;
     e = xfsindex[h->handle];
     if (!e) {
@@ -2133,15 +2133,16 @@ struct write_obj {
   int fd;
   ref<aclnt> c;
   
-  const struct xfs_message_putdata *h;
+  ref<xfs_message_header> hh;
+  xfs_message_putdata *h;
   sfs_aid sa;
   cache_entry *e;
   write3args wa;
   int data_fd;
 
-  void send_data (uint offset, ex_write3res *res, time_t rqt, clnt_stat err) 
+  void send_data (uint offset, ptr<ex_write3res> res, time_t rqt, clnt_stat err) 
   {
-    if (!err && (!res || res->status == NFS3_OK)) {    
+    if (!res || (!err && res->status == NFS3_OK)) {    
       if (lseek (data_fd, offset, SEEK_SET) < 0) {
 	xfs_reply_err(fd, h->header.sequence_num, errno);
 	delete this; return;      
@@ -2164,9 +2165,12 @@ struct write_obj {
 		 wrap (this, &write_obj::send_data, offset+wa.count, wres, timenow), 
 		 lbfs_authof (sa));
       } else {
-	e->nfs_attr = *(res->resok->file_wcc.after.attributes);
-	e->set_exp (rqt, e->nfs_attr.type == NF3DIR);
-	e->ltime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
+	assert (error == 0);
+	if (res) {
+	  e->nfs_attr = *(res->resok->file_wcc.after.attributes);
+	  e->set_exp (rqt, e->nfs_attr.type == NF3DIR);
+	  e->ltime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
+	}
 	xfs_send_message_wakeup (fd, h->header.sequence_num, 0); 
 	delete this;
       }
@@ -2181,9 +2185,10 @@ struct write_obj {
     if (data_fd) close (data_fd);
   }
 
-  write_obj (int fd1, const xfs_message_putdata *h1, sfs_aid sa1, ref<aclnt> c1) :
-    fd(fd1), c(c1), h(h1), sa(sa1)
+  write_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
+    fd(fd1), c(c1), hh(h1), sa(sa1)
   {
+    h = msgcast<xfs_message_putdata> (hh);
     e = xfsindex[h->handle];
     if (!e) {
 #if DEBUG > 0
@@ -2193,7 +2198,7 @@ struct write_obj {
       delete this; return;
     }
 
-    data_fd = open (e->cache_name, O_RDONLY, 0666);
+    data_fd = open (e->cache_name, O_RDWR, 0666);
     if (data_fd < 0) {
       xfs_reply_err (fd, h->header.sequence_num, errno);
       delete this; return;
@@ -2208,7 +2213,7 @@ struct write_obj {
 };
 
 void
-lbfs_putdata (int fd, const xfs_message_putdata *h, sfs_aid sa, ref<aclnt> c)
+lbfs_putdata (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
 {
   if (LBFS)
     vNew putdata_obj (fd, h, sa, c);

@@ -47,15 +47,15 @@ xfs_getroot (ref<xfscall> xfsc)
 #if DEBUG > 0
   warn << "Received xfs_getroot\n";
 #endif
-  
-  lbfs_getroot (xfsc->fd, ((xfs_message_getroot *) xfsc->argp), 
-		xfsc->getaid (), sfsc, nfsc);
+  xfs_message_getroot *h = msgcast<xfs_message_getroot> (xfsc->argp);
+  lbfs_getroot (xfsc->fd, xfsc->argp, 
+		xfsc->getaid (&h->cred), sfsc, nfsc);
 }
 
 void 
 xfs_getnode (ref<xfscall> xfsc) 
 {
-  xfs_message_getnode *h = (xfs_message_getnode *) xfsc->argp;
+  xfs_message_getnode *h = msgcast<xfs_message_getnode> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_getnode\n";
   warn << h->header.sequence_num << ":" <<" xfs_parent_handle ("
@@ -65,13 +65,13 @@ xfs_getnode (ref<xfscall> xfsc)
     << (int) h->parent_handle.d << ")\n";
 #endif
 
-  lbfs_getnode (xfsc->fd, h, xfsc->getaid (), nfsc);
+  lbfs_getnode (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
 
 void 
 xfs_getattr (ref<xfscall> xfsc) 
 {
-  xfs_message_getattr *h = (xfs_message_getattr *) xfsc->argp;
+  xfs_message_getattr *h = msgcast<xfs_message_getattr> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_getattr\n";
   warn << h->header.sequence_num << ":" <<" xfs_handle ("
@@ -84,13 +84,13 @@ xfs_getattr (ref<xfscall> xfsc)
   cache_entry *e = xfsindex[h->handle];
   if (!e)
     xfs_reply_err (xfsc->fd, h->header.sequence_num, ENOENT);
-  else lbfs_attr (xfsc->fd, (xfs_message_putattr *)h, xfsc->getaid (), e->nh, nfsc, NULL);
+  else lbfs_attr (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), e->nh, nfsc, NULL);
 }
 
 void 
 xfs_getdata (ref<xfscall> xfsc) 
 {
-  xfs_message_getdata *h = (xfs_message_getdata *) xfsc->argp;
+  xfs_message_getdata *h = msgcast<xfs_message_getdata> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_getdata\n";
   warn << h->header.sequence_num << ":" <<" xfs_handle ("
@@ -107,14 +107,14 @@ xfs_getdata (ref<xfscall> xfsc)
   }
   assert (e->nfs_attr.type != NF3DIR);
   if (e->incache)
-    lbfs_readexist (xfsc->fd, h, e);
-  else lbfs_open (xfsc->fd, (xfs_message_open *)h, xfsc->getaid (), nfsc);
+    lbfs_readexist (xfsc->fd, xfsc->argp, e);
+  else lbfs_open (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
 
 void 
 xfs_inactivenode (ref<xfscall> xfsc) 
 {
-  xfs_message_inactivenode *h = (xfs_message_inactivenode *) xfsc->argp;
+  xfs_message_inactivenode *h = msgcast<xfs_message_inactivenode> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_inactivenode\n";
   warn << h->header.sequence_num << ":" <<" xfs_handle ("
@@ -133,7 +133,7 @@ xfs_inactivenode (ref<xfscall> xfsc)
 void 
 xfs_open (ref<xfscall> xfsc) 
 {
-  xfs_message_open *h = (xfs_message_open *) xfsc->argp;
+  xfs_message_open *h = msgcast<xfs_message_open> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_open\n";
   warn << h->header.sequence_num << ":" <<" xfs_handle ("
@@ -143,13 +143,13 @@ xfs_open (ref<xfscall> xfsc)
     << (int) h->handle.d << ")\n";
 #endif
   
-  lbfs_open (xfsc->fd, h, xfsc->getaid (), nfsc);
+  lbfs_open (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
 
 void 
 xfs_putdata (ref<xfscall> xfsc) 
 {
-  xfs_message_putdata *h = (xfs_message_putdata *) xfsc->argp;
+  xfs_message_putdata *h = msgcast<xfs_message_putdata> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_putdata\n";
   warn << h->header.sequence_num << ":" <<" xfs_handle ("
@@ -160,13 +160,13 @@ xfs_putdata (ref<xfscall> xfsc)
   warn << "flag = " << h->flag << "\n";
 #endif
   
-  lbfs_putdata (xfsc->fd, h, xfsc->getaid (), nfsc);  
+  lbfs_putdata (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);  
 }
 
 void 
 xfs_putattr (ref<xfscall> xfsc) 
 {
-  xfs_message_putattr *h = (xfs_message_putattr *) xfsc->argp;
+  xfs_message_putattr *h = msgcast<xfs_message_putattr> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_putattr\n";
   warn << h->header.sequence_num << ":" <<" xfs_handle ("
@@ -179,13 +179,13 @@ xfs_putattr (ref<xfscall> xfsc)
   cache_entry *e = xfsindex[h->handle];
   if (!e)
     xfs_reply_err (xfsc->fd, h->header.sequence_num, ENOENT);
-  else lbfs_attr (xfsc->fd, (xfs_message_putattr *)h, xfsc->getaid (), e->nh, nfsc, NULL);
+  else lbfs_attr (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), e->nh, nfsc, NULL);
 }
 
 void 
 xfs_create (ref<xfscall> xfsc) 
 {
-  xfs_message_create *h = (xfs_message_create *) xfsc->argp;
+  xfs_message_create *h = msgcast<xfs_message_create> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_create\n";
   warn << h->header.sequence_num << ":" <<" parent_handle ("
@@ -196,13 +196,13 @@ xfs_create (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif
 
-  lbfs_create (xfsc->fd, h, xfsc->getaid(), nfsc);
+  lbfs_create (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
 
 void 
 xfs_mkdir (ref<xfscall> xfsc) 
 {
-  xfs_message_create *h = (xfs_message_create *) xfsc->argp;
+  xfs_message_create *h = msgcast<xfs_message_create> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_mkdir\n";
   warn << h->header.sequence_num << ":" <<" xfs_handle ("
@@ -213,13 +213,13 @@ xfs_mkdir (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif
 
-  lbfs_create (xfsc->fd, h, xfsc->getaid (), nfsc);
+  lbfs_create (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
 
 void 
 xfs_link (ref<xfscall> xfsc) 
 {
-  xfs_message_link *h = (xfs_message_link *) xfsc->argp;
+  xfs_message_link *h = msgcast<xfs_message_link> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_link (hard)\n";
   warn << h->header.sequence_num << ":" <<" parent_handle ("
@@ -235,13 +235,13 @@ xfs_link (ref<xfscall> xfsc)
        << (int) h->from_handle.d << ")\n";
 #endif  
   
-  lbfs_link (xfsc->fd, h, xfsc->getaid (), nfsc);
+  lbfs_link (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
 
 void 
 xfs_symlink (ref<xfscall> xfsc) 
 {
-  xfs_message_symlink *h = (xfs_message_symlink *) xfsc->argp;
+  xfs_message_symlink *h = msgcast<xfs_message_symlink> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_symlink \n";
   warn << h->header.sequence_num << ":" <<" parent_handle ("
@@ -252,13 +252,13 @@ xfs_symlink (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif  
  
-  lbfs_symlink (xfsc->fd, h, xfsc->getaid (), nfsc);
+  lbfs_symlink (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
 
 void 
 xfs_remove (ref<xfscall> xfsc) 
 {
-  xfs_message_remove *h = (xfs_message_remove *) xfsc->argp;
+  xfs_message_remove *h = msgcast<xfs_message_remove> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_remove\n";
   warn << h->header.sequence_num << ":" <<" xfs_parenthandle ("
@@ -269,13 +269,13 @@ xfs_remove (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif
 
-  lbfs_remove (xfsc->fd, h, xfsc->getaid (), nfsc);
+  lbfs_remove (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
 
 void 
 xfs_rmdir (ref<xfscall> xfsc) 
 {
-  xfs_message_remove *h = (xfs_message_remove *) xfsc->argp;
+  xfs_message_remove *h = msgcast<xfs_message_remove> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_rmdir\n";
   warn << h->header.sequence_num << ":" <<" xfs_parenthandle ("
@@ -286,13 +286,13 @@ xfs_rmdir (ref<xfscall> xfsc)
   warn << "file name: " << h->name << "\n";
 #endif
 
-  lbfs_remove (xfsc->fd, h, xfsc->getaid (), nfsc);
+  lbfs_remove (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
 
 void 
 xfs_rename (ref<xfscall> xfsc) 
 {
-  xfs_message_rename *h = (xfs_message_rename *) xfsc->argp;
+  xfs_message_rename *h = msgcast<xfs_message_rename> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_rename\n";
   warn << h->header.sequence_num << ":" <<" xfs_old_parenthandle ("
@@ -309,13 +309,13 @@ xfs_rename (ref<xfscall> xfsc)
   warn << "new name: " << h->new_name << "\n";
 #endif
 
-  lbfs_rename (xfsc->fd, h, xfsc->getaid (), nfsc);
+  lbfs_rename (xfsc->fd, xfsc->argp, xfsc->getaid (&h->cred), nfsc);
 }
 
 void 
 xfs_pioctl (ref<xfscall> xfsc) 
 {
-  xfs_message_pioctl *h = (xfs_message_pioctl *) xfsc->argp;
+  xfs_message_pioctl *h = msgcast<xfs_message_pioctl> (xfsc->argp);
 #if DEBUG > 0
   warn << "Received xfs_pioctl!! Return EINVAL no matter what!!!\n";
   warn << "pioctl: opcode = " << h->opcode << "\n";

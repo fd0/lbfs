@@ -162,10 +162,16 @@ sfsConnect (str hostname, sfs_hash hid, str path, int fd)
 
   tcp_nodelay (fd);
   xc = axprt_crypt::alloc (fd);
-  x = axprt_compress::alloc (xc);
-  sfsc = aclnt::alloc (x, sfs_program_1);
-  nfsc = aclnt::alloc (x, lbfs_program_3);
-  nfscbs = asrv::alloc (x, ex_nfscb_program_3, wrap (&cbdispatch));
+  if (LBFS) {
+    x = axprt_compress::alloc (xc);
+    sfsc = aclnt::alloc (x, sfs_program_1);
+    nfsc = aclnt::alloc (x, lbfs_program_3);
+    nfscbs = asrv::alloc (x, ex_nfscb_program_3, wrap (&cbdispatch));
+  } else {
+    sfsc = aclnt::alloc (xc, sfs_program_1);
+    nfsc = aclnt::alloc (xc, lbfs_program_3);
+    nfscbs = asrv::alloc (xc, ex_nfscb_program_3, wrap (&cbdispatch));
+  }
   sfs_connectarg arg;
 #if 0
   arg.set_civers (5);
