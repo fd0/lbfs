@@ -4,6 +4,7 @@
 
 #include "arpc.h"
 #include "nfs3_prot.h"
+#include "lbfs_prot.h"
 #include "sfsrwsd.h"
 
 
@@ -12,9 +13,9 @@
 // structures, and MKTMPFILE uses CREATE res structures.
 
 #define LBFS_PROC_RES_TRANS(p) \
-  (p == lbfs_NFSPROC3_CONDWRITE ? NFSPROC3_WRITE : \
-     (p == lbfs_NFSPROC3_MKTMPFILE ? NFSPROC3_CREATE : \
-       (p == lbfs_NFSPROC3_COMMITTMP ? NFSPROC3_COMMIT : p)))
+  (p == lbfs_CONDWRITE ? NFSPROC3_WRITE : \
+     (p == lbfs_MKTMPFILE ? NFSPROC3_CREATE : \
+       (p == lbfs_COMMITTMP ? NFSPROC3_COMMIT : p)))
 
 extern void lbfs_nfs3exp_err (svccb *sbp, nfsstat3 status);
 extern void lbfs_exp_enable(u_int32_t, void *);
