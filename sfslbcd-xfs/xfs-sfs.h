@@ -22,8 +22,10 @@
 #ifndef _XFS_SFS_H_
 #define _XFS_SFS_H_ 1
 
+#include "sfsmisc.h"
 #include "axprt_crypt.h"
 #include "axprt_compress.h"
+#include <xfs/xfs_message.h>
 #include "lbfsdb.h"
 extern fp_db lbfsdb;
 
@@ -35,6 +37,7 @@ extern ptr<asrv> nfscbs;
 extern ptr<axprt_compress> x;
 extern ptr<axprt_crypt> xc;
 
-
+sfs_aid xfscred2aid (const xfs_cred *xc);
+AUTH *lbfs_authof (sfs_aid sa);
 int sfsInit(const char* hostpath);
 #endif

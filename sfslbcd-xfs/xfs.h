@@ -25,8 +25,10 @@
 
 #include <stdarg.h>
 #include <xfs/xfs_message.h>
+#include "sfsmisc.h"
 #include "arpc.h"
 #include "lbfs_prot.h"
+#include "xfs-sfs.h"
 
 /* xfs.C */
 void xfs_message_init (void);
@@ -38,6 +40,7 @@ int  xfs_send_message_wakeup_vmultiple (int fd,	u_int seqnum, int error,
 					va_list args);
 struct xfscall {
 
+  xfs_cred *cred;
   u_int32_t opcode;
   int inst;
   int fd;
@@ -45,8 +48,8 @@ struct xfscall {
   void *const argp;
   void *resp[5];
 
-  xfscall (u_int32_t oc, int file_des, void *const ap) : 
-    opcode(oc), inst(-1), fd(file_des), argp(ap) { }
+  xfscall (u_int32_t oc, int file_des, void *const ap, xfs_cred *xc = NULL) : 
+    cred(xc), opcode(oc), inst(-1), fd(file_des), argp(ap) { }
   ~xfscall () {
 #if 0
     if (argp) 
@@ -56,6 +59,7 @@ struct xfscall {
 	delete resp[i];
 #endif
   }
+  sfs_aid getaid () const { return xfscred2aid (cred); }
   void *getvoidarg () { return argp; }
   void *getvoidres (int i) { return resp[i]; }
 };
@@ -89,7 +93,8 @@ void cbdispatch(svccb *sbp);
 /* server.C */
 
 /* helper.C */
-void lbfs_getroot (int, xfs_message_getroot *, ref<aclnt> sc1, ref<aclnt> nc1);
+void lbfs_getroot (int, xfs_message_getroot *, sfs_aid, 
+		   ref<aclnt> sc1, ref<aclnt> nc1);
 void lbfs_getnode (int, xfs_message_getnode *, ref<aclnt>);
 void lbfs_getattr (int, xfs_message_getattr *, const nfs_fh3 &, ref<aclnt>, 
 		   callback<void, const ex_getattr3res *, clnt_stat>);

@@ -1,3 +1,4 @@
+#include "sfsclient.h"
 #include "xfs.h"
 #include "xfs-sfs.h"
 #include "xfs-nfs.h"
@@ -84,6 +85,7 @@ struct getroot_obj {
   ref<aclnt> nc;
   
   struct xfs_message_getroot *h;
+  sfs_aid sa;
   bool gotnfs_fsi;
   bool gotroot_attr;
   time_t rqtime;
@@ -137,7 +139,7 @@ struct getroot_obj {
     x->compress();
     nfs_fsi = New refcounted<ex_fsinfo3res>;
     nc->call (lbfs_NFSPROC3_FSINFO, &sfs_fsi->nfs->v3->root, nfs_fsi,
-	      wrap (this, &getroot_obj::gotnfs_fsinfo), auth_default);
+	      wrap (this, &getroot_obj::gotnfs_fsinfo), lbfs_authof (sa));
     lbfs_getattr (fd, (xfs_message_getattr *) h, sfs_fsi->nfs->v3->root, 
 		  nc, wrap (this, &getroot_obj::gotattr));
   }
@@ -146,13 +148,12 @@ struct getroot_obj {
   {
     sfs_fsi = New refcounted<sfs_fsinfo>;
     sfsc->call (SFSPROC_GETFSINFO, NULL, sfs_fsi,
-		wrap (this, &getroot_obj::getnfs_fsinfo), 
-		auth_default);
+		wrap (this, &getroot_obj::getnfs_fsinfo), lbfs_authof (sa));
   }
 
-  getroot_obj (int fd1, xfs_message_getroot *h1, 
+  getroot_obj (int fd1, xfs_message_getroot *h1, sfs_aid sa1,  
 	       ref<aclnt> sc1, ref<aclnt> nc1) : 
-    fd(fd1), sc(sc1), nc(nc1), h(h1), gotnfs_fsi(false), 
+    fd(fd1), sc(sc1), nc(nc1), h(h1), sa(sa1), gotnfs_fsi(false), 
     gotroot_attr(false) 
   {
     getsfs_fsinfo ();
@@ -160,10 +161,10 @@ struct getroot_obj {
 };
 
 void 
-lbfs_getroot (int fd1, xfs_message_getroot *h1, ref<aclnt> sc1, 
-	      ref<aclnt> nc1) 
+lbfs_getroot (int fd1, xfs_message_getroot *h1, sfs_aid sa1, 
+	      ref<aclnt> sc1, ref<aclnt> nc1) 
 {
-  vNew getroot_obj (fd1, h1, sc1, nc1);
+  vNew getroot_obj (fd1, h1, sa1, sc1, nc1);
 }
 
 struct lookup_obj {

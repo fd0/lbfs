@@ -47,7 +47,8 @@ xfs_getroot (ref<xfscall> xfsc)
   warn << "Received XFS_getroot\n";
 #endif
   
-  lbfs_getroot (xfsc->fd, (xfs_message_getroot *) xfsc->argp, sfsc, nfsc);
+  lbfs_getroot (xfsc->fd, (xfs_message_getroot *) xfsc->argp, 
+		xfsc->getaid (), sfsc, nfsc);
 
 }
 

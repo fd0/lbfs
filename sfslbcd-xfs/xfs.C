@@ -130,7 +130,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->header = hh->header;
     msg->cred = hh->cred;
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_GETNODE: {
@@ -143,7 +143,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->parent_handle = hh->parent_handle;
     strcpy(msg->name, hh->name);
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_GETATTR: {
@@ -154,7 +154,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->header = hh->header;
     msg->cred = hh->cred;    
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_INACTIVENODE: {
@@ -181,7 +181,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->tokens = hh->tokens;
     msg->pad1 = hh->pad1;
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_OPEN: {
@@ -195,7 +195,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->tokens = hh->tokens;
     msg->pad1 = hh->pad1;
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_PUTDATA: {
@@ -210,7 +210,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->flag = hh->flag;
     msg->pad1 = hh->pad1;    
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_PUTATTR: {
@@ -223,7 +223,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->attr = hh->attr;
     msg->cred = hh->cred;
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_CREATE: {
@@ -239,7 +239,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->pad1 = hh->pad1;    
     msg->cred = hh->cred;    
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_MKDIR: {
@@ -253,7 +253,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->attr = hh->attr;
     msg->cred = hh->cred;         
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_LINK: {
@@ -266,7 +266,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->from_handle = hh->from_handle;
     msg->cred = hh->cred;             
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_SYMLINK: {
@@ -281,7 +281,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->attr = hh->attr;
     msg->cred = hh->cred;             
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_REMOVE: {
@@ -293,7 +293,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     strcpy(msg->name, hh->name);
     msg->cred = hh->cred;                
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_RMDIR: {
@@ -305,7 +305,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     strcpy(msg->name, hh->name);
     msg->cred = hh->cred;                
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_RENAME: {
@@ -319,7 +319,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     strcpy(msg->new_name, hh->new_name);
     msg->cred = hh->cred;                
 
-    xfsc = New refcounted<xfscall> (opcode, fd, msg);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg, &msg->cred);
     break;
   }
   case XFS_MSG_PIOCTL: {

@@ -38,6 +38,22 @@ vec<sfs_extension> sfs_extensions;
 sfs_connectres conres;
 fp_db lbfsdb;
 
+sfs_aid 
+xfscred2aid (const xfs_cred *xc) 
+{
+  if (!xc)
+    return sfsaid_nobody;
+  else
+    return xc->uid;
+}
+
+AUTH *
+lbfs_authof (sfs_aid sa) 
+{
+  /* This is very crude. Need better authentication. */
+  return authunix_create ("localhost", (uid_t) sa, (gid_t) 100, 0, NULL);
+}
+
 bool
 cd_parsepath (str path, str *host, sfs_hash *hostid, u_int16_t *portp)
 {
@@ -55,13 +71,14 @@ cd_parsepath (str path, str *host, sfs_hash *hostid, u_int16_t *portp)
 }
 
 void 
-fail (int err) {
+fail (int err) 
+{
   errno = err;
 }
 
 void 
-gotconres (int fd, str hostname, sfs_hash hostid, clnt_stat err) {
-
+gotconres (int fd, str hostname, sfs_hash hostid, clnt_stat err) 
+{
   if (err) {
     warn << sfs_path << ": " << err << "\n";
     fail (EIO);
@@ -117,7 +134,8 @@ gotconres (int fd, str hostname, sfs_hash hostid, clnt_stat err) {
 }
 
 void 
-sfsConnect (str hostname, sfs_hash hid, int fd) {
+sfsConnect (str hostname, sfs_hash hid, int fd) 
+{
   if (fd < 0) {
     warn << strerror(errno) << "..can't connect\n";
     return;
@@ -161,8 +179,8 @@ sfsConnect (str hostname, sfs_hash hid, int fd) {
 }
 
 int
-sfsInit (const char* path) {
-
+sfsInit (const char* path) 
+{
   str hostname;
   sfs_hash hid;
   u_int16_t port;
