@@ -14,7 +14,6 @@ AUTH *auth_default =
 int lbfs (getenv("LBFS") ? atoi (getenv ("LBFS")) : 2);
 int lbcd_trace (getenv("LBCD_TRACE") ? atoi (getenv ("LBCD_TRACE")) : 0);
 unsigned FILE_DES = 0;
-int lbfs_prot = 2;
 
 extern bool lbfsdb_is_dirty;
 
@@ -84,16 +83,6 @@ struct attr_obj {
 	  update_dir_expire = true;
       }
       ce->set_exp (rqt, update_dir_expire);
-#if 0
-      if (h->header.opcode == XFS_MSG_PUTATTR)
-	if (saa.new_attributes.size.set) {
-	  if (lbcd_trace > 1)
-	    warn << "setting size to " 
-		 << (uint32) *(saa.new_attributes.size.val) << "\n";
-	  // can't depend on client set time to expire cache data
-	  truncate(ce->cache_name, *(saa.new_attributes.size.val));
-	}
-#endif
       nfsobj2xfsnode (cred, ce, &msg.node);
       
       xfs_send_message_wakeup_multiple (fd, seqnum,
@@ -158,8 +147,8 @@ struct attr_obj {
 };
 
 void 
-lbfs_attr (int fd, ref<xfs_message_header> h, sfs_aid sa, const nfs_fh3 &fh, 
-	      ref<aclnt> c, attr_cb_t cb) 
+lbfs_attr (int fd, ref<xfs_message_header> h, sfs_aid sa,
+           const nfs_fh3 &fh, ref<aclnt> c, attr_cb_t cb) 
 {
   vNew attr_obj (fd, h, sa, fh, c, cb);
 }
@@ -356,8 +345,8 @@ struct getnode_obj {
     delete this;
   }
 
-  getnode_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
-    fd(fd1), c(c1), hh(h1), sa(sa1)
+  getnode_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1)
+    : fd(fd1), c(c1), hh(h1), sa(sa1)
   {  
     h = msgcast<xfs_message_getnode> (hh);
     cache_entry *e = xfsindex[h->parent_handle];
@@ -430,14 +419,15 @@ struct readlink_obj {
     (*cb) ();
   }
 
-  readlink_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
-		ref<aclnt> c1, readlink_obj::cb_t cb1) : 
-    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1)
+  readlink_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1,
+                sfs_aid sa1, ref<aclnt> c1, readlink_obj::cb_t cb1)
+    : cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1)
   {
     h = msgcast<xfs_message_open> (hh);
     rlres = New refcounted <ex_readlink3res>;
     c->call (lbfs_NFSPROC3_READLINK, &e->nh, rlres,
-	     wrap (this, &readlink_obj::install_link, timenow), lbfs_authof (sa));
+	     wrap (this, &readlink_obj::install_link, timenow), 
+	     lbfs_authof (sa));
   }
 };
 
@@ -489,15 +479,12 @@ struct readdir_obj {
 		      clnt_stat err)
   {
     if (nfsdir2xfsfile (rdres, &args) < 0) {
-      //if (conv_dir (args.fd, rdres)) {
       xfs_reply_err(fd, h->header.sequence_num, ENOENT);
       return;
     }
-#if 1
     if (args.last)
       flushbuf (&args);
     free (args.buf);
-#endif
     if (!rdres->resok->reply.eof) {
       readdir3args rda;
       rda.dir = e->nh; 
@@ -1288,7 +1275,8 @@ struct create_obj {
 
       assert (res->resok->obj.present && res->resok->obj_attributes.present);
       cache_entry *e1 = update_cache (*res->resok->obj.handle, 
-				      *res->resok->obj_attributes.attributes, h->name);
+				      *res->resok->obj_attributes.attributes,
+				      h->name);
       e1->set_exp (rqt);
       xfs_cred cred = h->cred;
       if (e1->nfs_attr.type == NF3DIR) {
@@ -1304,16 +1292,7 @@ struct create_obj {
       int parent_fd = assign_cachefile (fd, h->header.sequence_num, e, 
 					msg1.cache_name, &msg1.cache_handle,
 					O_CREAT | O_WRONLY | O_APPEND);
-#if 0
-      if (nfsdirent2xfsfile (parent_fd, h->name, e1->nfs_attr.fileid)) {
-	if (lbcd_trace > 1)
-	  warn << "Error: can't write to parent dir file\n";
-	//messages.C: benjie's rant.
-	e->incache = false;	
-      }
-#else
       e->incache = false;
-#endif
       close (parent_fd);
       assert (res->resok->dir_wcc.after.present);
       e->nfs_attr = *(res->resok->dir_wcc.after.attributes);
@@ -1446,16 +1425,7 @@ struct link_obj {
       int parent_fd = assign_cachefile (fd, h->header.sequence_num, e2, 
 					msg1.cache_name, &msg1.cache_handle,
 					O_CREAT | O_WRONLY | O_APPEND);
-#if 0
-      if (nfsdirent2xfsfile (parent_fd, h->name, e1->nfs_attr.fileid)) {
-	if (lbcd_trace > 1)
-	  warn << "Error: can't write to parent dir file\n";
-	//messages.C: benjie's rant.
-	e2->incache = false;	
-      }
-#else
       e2->incache = false;
-#endif
       close(parent_fd);
       //e1->incache = false; // sad mtime update problem with openbsd nfsd
       msg1.header.opcode = XFS_MSG_INSTALLDATA;
@@ -1472,7 +1442,9 @@ struct link_obj {
     
       xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 					h0, h0_len, h1, h1_len, NULL, 0);
-    } else xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
+    } 
+    else
+      xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
     delete this;
   }
 
@@ -1540,21 +1512,13 @@ struct symlink_obj {
 
       assert (res->resok->obj.present && res->resok->obj_attributes.present);
       cache_entry *e2 = update_cache (*(res->resok->obj.handle), 
-				      *res->resok->obj_attributes.attributes, h->name);
+				      *res->resok->obj_attributes.attributes, 
+				      h->name);
 
       int parent_fd = assign_cachefile (fd, h->header.sequence_num, e, 
 					msg1.cache_name, &msg1.cache_handle,
 					O_CREAT | O_WRONLY | O_APPEND);
-#if 0
-      if (nfsdirent2xfsfile (parent_fd, h->name, e2->nfs_attr.fileid)) {
-	if (lbcd_trace > 1)
-	  warn << "Error: can't write to parent dir file\n";
-	//messages.C: benjie's rant.
-	e->incache = false;	
-      }
-#else
       e->incache = false;
-#endif
       close (parent_fd);
       //e->incache = false; // sad mtime update problem with openbsd nfsd
       msg1.flag = 0;
@@ -1640,16 +1604,7 @@ struct remove_obj {
 					msg1.cache_name, &msg1.cache_handle,
 					O_CREAT | O_RDWR);
       int pfd2 = open (msg1.cache_name, O_WRONLY, 0666);
-#if 0
-      //if (dir_remove_name (pfd1, h->name)) {
-      if (xfsfile_rm_dirent (pfd1, pfd2, h->name)) {
-	if (lbcd_trace > 1)
-	  warn << "Error: " << strerror (errno) << "\n";
-	e1->incache = false; 
-      }
-#else
       e1->incache = false;
-#endif
       close (pfd1);
       close (pfd2);
 
@@ -1664,7 +1619,8 @@ struct remove_obj {
       h0 = (struct xfs_message_header *) &msg1;
       h0_len = sizeof (msg1);
 
-      assert (lres->resok->obj_attributes.present || lres->resok->dir_attributes.present);
+      assert (lres->resok->obj_attributes.present ||
+	      lres->resok->dir_attributes.present);
       ex_post_op_attr a = lres->resok->obj_attributes.present ? 
 	lres->resok->obj_attributes : lres->resok->dir_attributes;
       if ((a.attributes->type == NF3DIR && a.attributes->nlink > 2) ||
@@ -1691,7 +1647,9 @@ struct remove_obj {
 	xfs_send_message_wakeup_multiple (fd, h->header.sequence_num,
 					  0, h0, h0_len, NULL, 0);
       
-    } else xfs_reply_err (fd, h->header.sequence_num, err ? err : wres->status);
+    } 
+    else
+      xfs_reply_err (fd, h->header.sequence_num, err ? err : wres->status);
 
     delete this;
   }
@@ -1761,23 +1719,9 @@ struct rename_obj {
     nfstime3 cache_time = e3->ltime;
     attr2.expire += rqt2;
     e3->nfs_attr = attr2;
-    if (!greater(attr2.mtime, attr1.mtime) && !greater(attr1.mtime, cache_time))
+    if (!greater(attr2.mtime, attr1.mtime) &&
+	!greater(attr1.mtime, cache_time))
       e3->ltime = attr2.mtime;
-#if 0
-    if (greater (attr1.mtime, cache_time) || greater (attr1.ctime, cache_time)) {
-      attr2.expire += rqt1;
-      e3->nfs_attr = attr2;
-    }
-    else if (greater (attr2.mtime, attr1.mtime)) {
-      attr2.expire += rqt2;
-      e3->nfs_attr = attr2;
-    }
-    else {
-      e3->ltime = max(attr2.mtime, attr2.ctime);
-      attr2.expire += rqt2;
-      e3->nfs_attr = attr2;
-    }
-#endif
   }
 
   void do_install (time_t rqt, clnt_stat err) 
@@ -1813,18 +1757,9 @@ struct rename_obj {
       h1 = (struct xfs_message_header *) &msg1;
       h1_len = sizeof (msg1);
       
-      int parent_fd = assign_cachefile (fd, h->header.sequence_num, e2, msg2.cache_name,
-					&msg2.cache_handle);
-#if 0
-      if (nfsdirent2xfsfile (parent_fd, h->new_name, e3->nfs_attr.fileid)) {
-	if (lbcd_trace > 1)
-	  warn << "Error: can't write to parent dir file\n";
-	//messages.C: benjie's rant.
-	e2->incache = false;	
-      }
-#else
+      int parent_fd = assign_cachefile (fd, h->header.sequence_num, e2,
+	                                msg2.cache_name, &msg2.cache_handle);
       e2->incache = false;
-#endif
       close (parent_fd);
 
       assert (rnres->res->todir_wcc.after.present);
@@ -1838,8 +1773,8 @@ struct rename_obj {
 
       if (!xfs_handle_eq (&h->old_parent_handle,
 			  &h->new_parent_handle)) {
-	parent_fd = assign_cachefile (fd, h->header.sequence_num, e1, msg3.cache_name,
-				&msg3.cache_handle);
+	parent_fd = assign_cachefile(fd, h->header.sequence_num, e1,
+	                             msg3.cache_name, &msg3.cache_handle);
 	close (parent_fd);
 
 	assert (rnres->res->fromdir_wcc.after.present);
@@ -1866,7 +1801,8 @@ struct rename_obj {
     if (!err && rnres->status == NFS3_OK) {
       gares = New refcounted <ex_getattr3res>;
       c->call (lbfs_NFSPROC3_GETATTR, &lres->resok->object, gares,
-		  wrap (this, &rename_obj::do_install, timenow), lbfs_authof (sa));
+	       wrap (this, &rename_obj::do_install, timenow),
+	       lbfs_authof (sa));
     } else {
       xfs_reply_err (fd, h->header.sequence_num, err ? err : rnres->status);
       delete this;
@@ -1972,7 +1908,8 @@ struct putdata_obj {
 	total_bytes_sent += bytes_sent;
 	total_write_filesize += e->nfs_attr.size;
 	warn << "Total bytes sent      = " << total_bytes_sent << " bytes\n";
-	warn << "Total write file size = " << total_write_filesize << " bytes\n";
+	warn << "Total write file size = "
+	     << total_write_filesize << " bytes\n";
       }
      } else
       xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
@@ -1992,7 +1929,8 @@ struct putdata_obj {
 
     ref<ex_commit3res> cres = New refcounted <ex_commit3res>;
     c->call (lbfs_COMMITTMP, &ct, cres,
-	     wrap (this, &putdata_obj::do_committmp, cres, timenow), lbfs_authof (sa));
+	     wrap (this, &putdata_obj::do_committmp, cres, timenow),
+	     lbfs_authof (sa));
   }
 
   void do_sendwrite (chunk *chunk, ref<ex_write3res> res, clnt_stat err)
@@ -2004,12 +1942,6 @@ struct putdata_obj {
 	     << chunk->location().pos() << ", "
 	     << res->resok->count << " total needed "
 	     << chunk->location().count() << "\n"; 
-
-      chunk->got_bytes(res->resok->count);
-      assert(chunk->bytes() <= chunk->location().count());
-      if (lbfs_prot == 1)
-	if (chunk->bytes() == chunk->location().count()) 
-	  blocks_written++;
       if (lbcd_trace > 1)
 	warn << h->header.sequence_num << " nfs3_write: @"
 	     << chunk->location().pos() << " +"
@@ -2017,9 +1949,6 @@ struct putdata_obj {
 	     << blocks_written << " blocks written " 
 	     << total_blocks << " needed, eof? "
 	     << eof << "\n";
-      if (lbfs_prot == 1)
-	if (blocks_written == total_blocks && eof)
-	  sendcommittmp ();
     } else {
       if (err && retries < 1) {
 	sendwrite (chunk);
@@ -2062,38 +1991,22 @@ struct putdata_obj {
       offst += err;
       write3args wa;
       lbfs_tmpwrite3args twa;
-      if (lbfs_prot == 1) {
-	wa.data.setsize(err);
-	memcpy(wa.data.base(), iobuf, err);
-	wa.file = tmpfh;
-	wa.offset = ost;
-	wa.stable = UNSTABLE;
-	wa.count = err;
-	bytes_sent += wa.count;
-      } else {
-	twa.data.setsize(err);
-	memcpy(twa.data.base(), iobuf, err);
-	twa.commit_to = e->nh;
-	twa.fd = tmpfd;
-	twa.offset = ost;
-	twa.stable = UNSTABLE;
-	twa.count = err;
-	bytes_sent += twa.count;
-      }
+      twa.data.setsize(err);
+      memcpy(twa.data.base(), iobuf, err);
+      twa.commit_to = e->nh;
+      twa.fd = tmpfd;
+      twa.offset = ost;
+      twa.stable = UNSTABLE;
+      twa.count = err;
+      bytes_sent += twa.count;
       writes_sent++;
       ref<ex_write3res> res = New refcounted <ex_write3res>;
       outstanding_condwrites++;
-      if (lbfs_prot == 1)
-	c->call (lbfs_NFSPROC3_WRITE, &wa, res,
-		 wrap (this, &putdata_obj::do_sendwrite, chunk, res),
-		 lbfs_authof (sa));
-      else
-	c->call (lbfs_TMPWRITE, &twa, res,
-		 wrap (this, &putdata_obj::do_sendwrite, chunk, res),
-		 lbfs_authof (sa));
+      c->call (lbfs_TMPWRITE, &twa, res,
+	       wrap (this, &putdata_obj::do_sendwrite, chunk, res),
+	       lbfs_authof (sa));
     }
-    if (lbfs_prot > 1)
-      blocks_written++;
+    blocks_written++;
     if (blocks_written == total_blocks && eof)
       sendcommittmp ();
     close (rfd);
@@ -2109,7 +2022,6 @@ struct putdata_obj {
 	sendwrite (chunk);
 	return;
       }
-      chunk->got_bytes(chunk->location().count());
       blocks_written++;
       if (lbcd_trace > 1)
 	warn << h->header.sequence_num << " condwrite: @"
@@ -2152,7 +2064,8 @@ struct putdata_obj {
     int rfd = open (e->cache_name, O_RDWR, 0666);
     if (rfd < 0) {
       if (lbcd_trace > 1)
-	warn << "sendcondwrite: " << e->cache_name << ".." << strerror (errno) << "\n";
+	warn << "sendcondwrite: " << e->cache_name << ".." 
+	     << strerror (errno) << "\n";
       sendwrite(chunk);
       return;
     }
@@ -2178,7 +2091,8 @@ struct putdata_obj {
     condwrites_sent++;
     ref<ex_write3res> res = New refcounted <ex_write3res>;
     c->call (lbfs_CONDWRITE, &cw, res,
-	     wrap (this, &putdata_obj::do_sendcondwrite, chunk, res), lbfs_authof (sa));    
+	     wrap (this, &putdata_obj::do_sendcondwrite, chunk, res), 
+	     lbfs_authof (sa));    
   }
 
   void condwrite_chunk ()
@@ -2254,13 +2168,9 @@ struct putdata_obj {
   
   void mktmpfile (clnt_stat err)
   {
-    if (!err && mtres->status == NFS3_OK) {
+    if (!err && mtres->status == NFS3_OK)
       assert (mtres->resok->obj.present);
-      if (lbfs_prot == 1) {
-	tmpfh = *mtres->resok->obj.handle;
-	condwrite_chunk ();
-      }
-    } else {
+    else {
       xfs_reply_err (fd, h->header.sequence_num, err ? err : mtres->status);
       delete this;
     }
@@ -2290,20 +2200,16 @@ struct putdata_obj {
 
     lbfs_mktmpfile3args mt;
     mt.commit_to = e->nh;
-    if (lbfs_prot == 2) {
-      tmpfd = FILE_DES++;
-      mt.fd = tmpfd;
-    }
+    tmpfd = FILE_DES++;
+    mt.fd = tmpfd;
     xfsattr2nfsattr (h->header.opcode, h->attr, &mt.obj_attributes);
     
     mtres = New refcounted <ex_diropres3>;
     
     c->call (lbfs_MKTMPFILE, &mt, mtres,
 	     wrap (this, &putdata_obj::mktmpfile), lbfs_authof (sa));
-    //benjie's rant
     e->writers = 0;
-    if (lbfs_prot == 2)
-      condwrite_chunk ();
+    condwrite_chunk ();
   }
 };
 
