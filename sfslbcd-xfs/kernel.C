@@ -22,7 +22,7 @@
 #include <xfs/xfs_message.h>
 #include "kernel.h"
 #include "async.h"
-#include "xfs.h"
+#include "sfslbcd.h"
 
 /*
  * The fd we use to talk with the kernel on.

@@ -25,7 +25,7 @@
 #include "crypt.h"
 #include "lbfs_prot.h"
 #include "xfs-sfs.h"
-#include "xfs.h"
+#include "sfslbcd.h"
 
 char *sfs_path = new char[1000];
 int server_fd = -1;

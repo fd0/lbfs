@@ -20,7 +20,7 @@
  */
 
 #include "xfs-nfs.h"
-#include "xfs.h"
+#include "sfslbcd.h"
 
 u_char 
 nfs_rights2xfs_rights (u_int32_t access, ftype3 ftype, u_int32_t mode) 
