@@ -1160,6 +1160,7 @@ if test -f ${with_sfs}/Makefile -a -f ${with_sfs}/autoconf.h; then
     LIBSFSCRYPT=${with_sfs}/crypt/libsfscrypt.la
     LIBSFSMISC=${with_sfs}/sfsmisc/libsfsmisc.la
     LIBSVC=${with_sfs}/svc/libsvc.la
+    MALLOCK=${with_sfs}/sfsmisc/mallock.o
     RPCC=${with_sfs}/rpcc/rpcc
 elif test -f ${with_sfs}/include/sfs/autoconf.h \
 	-a -f ${with_sfs}/lib/sfs/libasync.la; then
@@ -1176,9 +1177,22 @@ elif test -f ${with_sfs}/include/sfs/autoconf.h \
     LIBSFSCRYPT=${sfslibdir}/libsfscrypt.la
     LIBSFSMISC=${sfslibdir}/libsfsmisc.la
     LIBSVC=${sfslibdir}/libsvc.la
+    MALLOCK=${with_sfs}/sfsmisc/mallock.o
     RPCC=${with_sfs}/bin/rpcc
 else
     AC_MSG_ERROR("Can\'t find SFS libraries")
+fi
+
+if test "$enable_static" = yes -a -z "${NOPAGING+set}"; then
+    case "$host_os" in
+        openbsd*)
+            test "$ac_cv_prog_gcc" = yes && NOPAGING="-Wl,-Bstatic,-N"
+            MALLOCK=            # mallock.o panics the OpenBSD kernel
+        ;;
+        freebsd*)
+            test "$ac_cv_prog_gcc" = yes && NOPAGING="-Wl,-Bstatic"
+        ;;
+    esac
 fi
 
 sfslibdir='$(libdir)/sfs'
@@ -1192,6 +1206,8 @@ AC_SUBST(LIBSFSCRYPT)
 AC_SUBST(LIBSFSMISC)
 AC_SUBST(LIBSVC)
 AC_SUBST(RPCC)
+AC_SUBST(MALLOCK)
+AC_SUBST(NOPAGING)
 
 SFS_GMP
 SFS_DMALLOC
