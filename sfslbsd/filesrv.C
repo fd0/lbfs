@@ -452,7 +452,7 @@ end:
     fpdb.sync();
     db_is_dirty = false;
   }
-  warn << sfs_trash.size() << " volumn(s)\n";
+  warn << sfs_trash.size() << " volume(s)\n";
   for(size_t i=0; i<sfs_trash.size(); i++)
     warn << "volume " << i << " has " 
          << sfs_trash[i].nactive << " active tmp files\n";
