@@ -105,9 +105,9 @@ read_directory(const char *dpath, DIR *dirp = 0L)
       _requests++;
       _totalfns++;
       
-      char *dpath2 = new char[PATH_MAX];
+      char *dpath2 = New char[PATH_MAX];
       strncpy(dpath2, dpath, PATH_MAX);
-      char *fname = new char[PATH_MAX];
+      char *fname = New char[PATH_MAX];
       strncpy(fname, de->d_name, PATH_MAX);
 
       lookupfh3(_c, _rootfh, newpath, wrap(gotattr, dpath2, fname, dirp));

@@ -58,7 +58,7 @@ Chunker::Chunker(unsigned s, vec<lbfs_chunk *> *v, bool hash)
   _w.reset();
   _hbuf_cursor = 0;
   if (_hash) {
-    _hbuf = new unsigned char[32768];
+    _hbuf = New unsigned char[32768];
     _hbuf_size = 32768;
   }
   else {
@@ -85,7 +85,7 @@ Chunker::handle_hash(const unsigned char *data, size_t size)
 {
   if (size > 0) {
     while (_hbuf_cursor+size > _hbuf_size) {
-      unsigned char *nb = new unsigned char[_hbuf_size*2];
+      unsigned char *nb = New unsigned char[_hbuf_size*2];
       memmove(nb, _hbuf, _hbuf_cursor);
       _hbuf_size *= 2;
       delete[] _hbuf;
@@ -99,9 +99,9 @@ Chunker::handle_hash(const unsigned char *data, size_t size)
 void
 Chunker::stop()
 {
-  lbfs_chunk *c = new lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
+  lbfs_chunk *c = New lbfs_chunk(_last_pos, _cur_pos-_last_pos, _fp);
   if (_hash) { 
-    sfs_hash *h = new sfs_hash; 
+    sfs_hash *h = New sfs_hash; 
     sha1_hash(h->base(), _hbuf, _hbuf_cursor); 
     _hbuf_cursor = 0; 
     hv.push_back(h); 
@@ -119,13 +119,13 @@ Chunker::chunk(const unsigned char *data, size_t size)
     size_t cs = _cur_pos - _last_pos;
     if (((f_break % _chunk_size) == BREAKMARK_VALUE && cs >= MIN_CHUNK_SIZE) ||
 	cs >= MAX_CHUNK_SIZE) {
-      lbfs_chunk *c = new lbfs_chunk(_last_pos, cs, _fp);
+      lbfs_chunk *c = New lbfs_chunk(_last_pos, cs, _fp);
       _w.reset();
       _fp = 0;
       if (_hash) {
 	if (i-start_i > 0) 
 	  handle_hash(data+start_i, i-start_i);
-        sfs_hash *h = new sfs_hash;
+        sfs_hash *h = New sfs_hash;
 	sha1_hash(h->base(), _hbuf, _hbuf_cursor);
 	_hbuf_cursor = 0;
 	hv.push_back(h);

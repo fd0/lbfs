@@ -42,7 +42,7 @@ lbfs_search_reusable_chunks(vec<lbfs_chunk *> &new_chunks,
     lbfs_db::chunk_iterator *iter = 0;
     if (_db.get_chunk_iterator(new_chunks[i]->fingerprint, &iter) == 0) {
       if (iter) {
-        lbfs_chunk_loc *c = new lbfs_chunk_loc();
+        lbfs_chunk_loc *c = New lbfs_chunk_loc();
         if (iter->get(c) == 0)
           reusable_chunks[i] = c;
         else {
@@ -110,7 +110,7 @@ getnfsc(ptr<aclnt> nc, clnt_stat stat)
 	     _file, reusable_chunks[i]->pos(), reusable_chunks[i]->count());
       nfs_fh3 fh;
       reusable_chunks[i]->get_fh(fh);
-      unsigned char *buf = new unsigned char[reusable_chunks[i]->count()];
+      unsigned char *buf = New unsigned char[reusable_chunks[i]->count()];
       nfs3_read(_c, fh, 
 	        wrap(gotdata0, buf, reusable_chunks[i]->pos()),
 	        wrap(gotdata, new_chunks[i]->fingerprint, buf),

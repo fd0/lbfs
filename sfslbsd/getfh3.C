@@ -397,7 +397,7 @@ struct copy_obj {
         arg.data.set
 	  (rres->resok->data.base()+rres->resok->count, arg.count, 
 	   freemode::NOFREE);
-        write3res *wres2 = new write3res;
+        write3res *wres2 = New write3res;
         c->call (NFSPROC3_WRITE, &arg, wres2,
 	         wrap(this, &copy_obj::gotwrite, 
 		      arg.offset, arg.count, rres, wres2), auth_root);
@@ -441,7 +441,7 @@ struct copy_obj {
       arg.data.set(res->resok->data.base(), count, freemode::NOFREE);
       read_cb(reinterpret_cast<unsigned char *>(res->resok->data.base()), 
 	      count, pos);
-      write3res *wres = new write3res;
+      write3res *wres = New write3res;
       c->call (NFSPROC3_WRITE, &arg, wres,
 	       wrap(this, &copy_obj::gotwrite, 
 		    arg.offset, arg.count, res, wres), auth_root);
@@ -452,7 +452,7 @@ struct copy_obj {
  
   void do_read(u_int64_t pos, u_int32_t count)
   {
-    read3res *rres = new read3res;
+    read3res *rres = New read3res;
     read3args arg;
     arg.file = src;
     arg.offset = pos;
@@ -560,7 +560,7 @@ struct write_obj {
       arg.count = cnt;
       arg.stable = stable;
       arg.data.set(reinterpret_cast<char*>(data+count), cnt, freemode::NOFREE);
-      write3res *res = new write3res;
+      write3res *res = New write3res;
       c->call (NFSPROC3_WRITE, &arg, res,
 	       wrap (this, &write_obj::done_write, res), auth_root);
       pos += cnt;

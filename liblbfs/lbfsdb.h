@@ -69,7 +69,7 @@ public:
 
   int get_fh(nfs_fh3 &f) const {
     if (_fhsize > 0) {
-      char *data = new char[_fhsize];
+      char *data = New char[_fhsize];
       memmove(&data[0], _fh, _fhsize);
       f.data.set(data, _fhsize, freemode::DELETE);
       return 0;

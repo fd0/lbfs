@@ -48,7 +48,7 @@ axprt_compress::sendv(const iovec *iov, int iovcnt, const sockaddr *sa)
     zp->next_in  = (Bytef *) iov[i].iov_base;
     zp->avail_in = iov[i].iov_len;
     out_iov[i].iov_len  = iov[i].iov_len;
-    out_iov[i].iov_base = new char[out_iov[i].iov_len];
+    out_iov[i].iov_base = New char[out_iov[i].iov_len];
     zp->next_out  = (Bytef *) out_iov[i].iov_base;
     zp->avail_out = out_iov[i].iov_len;
     

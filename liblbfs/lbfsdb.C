@@ -54,7 +54,7 @@ lbfs_db::get_chunk_iterator(u_int64_t fingerprint,
     DBT data;
     memset(&data, 0, sizeof(data));
     if (cursor->c_get(cursor, &key, &data, DB_SET) == 0) {
-      *iterp = new chunk_iterator(cursor);
+      *iterp = New chunk_iterator(cursor);
       return 0;
     }
   } 

@@ -137,7 +137,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     if (!iter->next(&c)) { 
       nfs_fh3 fh; 
       c.get_fh(fh); 
-      unsigned char *buf = new unsigned char[c.count()];
+      unsigned char *buf = New unsigned char[c.count()];
       nfs3_read
 	(fsrv->c, fh, 
 	 wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos()), 
@@ -195,7 +195,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
       if (!iter->get(&c)) { 
 	nfs_fh3 fh; 
 	c.get_fh(fh);
-	unsigned char *buf = new unsigned char[c.count()];
+	unsigned char *buf = New unsigned char[c.count()];
 	nfs3_read
 	  (fsrv->c, fh,
 	   wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos()), 
@@ -228,7 +228,7 @@ client::mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, char *path,
 	break;
       default:
 	fhtab.tab.insert
-	  (new tmpfh_record(*(cres->resok->obj.handle),path,strlen(path)));
+	  (New tmpfh_record(*(cres->resok->obj.handle),path,strlen(path)));
 	delete[] path;
 	nfs3reply (sbp, _cres, rqs, RPC_SUCCESS);
     }
@@ -243,7 +243,7 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   str fhstr = armor32(mta->commit_to.data.base(), mta->commit_to.data.size());
   int r = rand();
   str rstr = armor32((void*)&r, sizeof(int));
-  char *tmpfile = new char[5+fhstr.len()+1+rstr.len()+1];
+  char *tmpfile = New char[5+fhstr.len()+1+rstr.len()+1];
   sprintf(tmpfile, "sfs.%s.%s", fhstr.cstr(), rstr.cstr());
   warn << "MKTMPFILE: " << tmpfile << "\n";
   
@@ -320,8 +320,8 @@ void
 client::committmp (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_committmp3args *cta = sbp->template getarg<lbfs_committmp3args> ();
-  vec<lbfs_chunk *> *v = new vec<lbfs_chunk*>;
-  Chunker *chunker = new Chunker(CHUNK_SIZES(0), v);
+  vec<lbfs_chunk *> *v = New vec<lbfs_chunk*>;
+  Chunker *chunker = New Chunker(CHUNK_SIZES(0), v);
   nfs3_copy (fsrv->c, cta->commit_from, cta->commit_to,
              wrap(mkref(this), &client::chunk_data, chunker),
              wrap(mkref(this), &client::committmp_cb, sbp, rqs, chunker));
@@ -370,8 +370,8 @@ void
 client::getfp (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_getfp3args *arg = sbp->template getarg<lbfs_getfp3args> ();
-  vec<lbfs_chunk *> *v = new vec<lbfs_chunk*>;
-  Chunker *chunker = new Chunker(CHUNK_SIZES(0), v, true);
+  vec<lbfs_chunk *> *v = New vec<lbfs_chunk*>;
+  Chunker *chunker = New Chunker(CHUNK_SIZES(0), v, true);
   nfs3_read 
     (fsrv->c, arg->file, 
      wrap(mkref(this), &client::chunk_data, chunker),
