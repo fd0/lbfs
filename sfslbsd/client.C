@@ -334,9 +334,10 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
   chunker->stop();
   vec<lbfs_chunk *> *cv = chunker->cvp;
   lbfs_getfp3res *res = New lbfs_getfp3res;
-  if (!err) {
+  if (!err && cv->size() > 0) {
     unsigned i = 0;
     unsigned n = cv->size() < 1024 ? cv->size() : 1024;
+    size_t off = (*cv)[0]->loc.pos();
     res->resok->fprints.setsize(n);
     for (; i<n; i++) {
       struct lbfs_fp3 x;
@@ -344,8 +345,9 @@ client::getfp_cb (svccb *sbp, filesrv::reqstate rqs, Chunker *chunker,
       x.fingerprint = (*cv)[i]->fingerprint;
       x.hash = *(chunker->hv[i]);
       res->resok->fprints[i] = x;
-      warn << "GETFP: returning " << (*cv)[i]->fingerprint 
+      warn << "GETFP: " << off << " " << (*cv)[i]->fingerprint 
 	   << " " << armor32(x.hash.base(), sha1::hashsize) << "\n";
+      off += x.count;
     }
     if (i < cv->size())
       res->resok->eof=false;
