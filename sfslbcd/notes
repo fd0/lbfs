@@ -22,6 +22,8 @@ access
  - after each block received from server, check if any one of the RPC
    can be executed. that is, if the RPC operates on a range of data
    already received from the server
+ - can fetch data out of order, in order to satisfy an out of order
+   read request immediately
  - when cached file is updated, unqueue and execute each RPC
 
 attributes in attribute cache and file cache
