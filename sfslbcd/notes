@@ -1,4 +1,18 @@
 
+LBFS Implementation
+
+LBFS related code are in read.C and write.C.
+
+Each cached file entry contains the name of the cached file (e->fn),
+and name of a "previous" cached file (e->prevfn). The cached file
+changes name everytime LBFS need to fetch content of the file from
+server. e->prevfn is only used while LBFS is fetching content from the
+server: it points to the last file fetched from server. After a fetch
+is completed, e->prevfn is set to e->fn. We need e->prevfn so we can
+still use chunks from the previous version of a file.
+
+*************
+
 Caching Client Implementation
 
 consistency:
