@@ -54,9 +54,3 @@ lbfs_db::add_chunk(u_int64_t f, lbfs_chunk_loc *c)
   return _fp_dbp.put(NULL, &key, &data, 0);
 }
 
-int
-lbfs_db::gc()
-{
-  return 0;
-}
-

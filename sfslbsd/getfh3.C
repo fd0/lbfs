@@ -173,3 +173,4 @@ lookupfh3 (ref<aclnt> c, const nfs_fh3 &start, str path, lookup3obj::cb_t cb)
 {
   vNew lookup3obj (c, start, path, cb);
 }
+

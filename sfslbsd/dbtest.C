@@ -1,0 +1,115 @@
+
+#include <sys/types.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#include "chunking.h"
+#include "lbfsdb.h"
+#include "sfsrwsd.h"
+#include "lbfs.h"
+  
+AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
+
+lbfs_db _db;
+static int _requests = 0;
+static char *_host;
+static char *_file;
+ptr<aclnt> _c;
+
+int
+lbfs_search_reusable_chunks(vec<lbfs_chunk *> &new_chunks,
+                            vec<lbfs_chunk_loc *> &reusable_chunks)
+{
+  if (new_chunks.size() == 0)
+    return -1;
+
+  reusable_chunks.setsize(new_chunks.size());
+  for (unsigned i = 0; i < new_chunks.size(); i++) {
+    lbfs_db::chunk_iterator *iter = 0;
+    if (_db.get_chunk_iterator(new_chunks[i]->fingerprint, &iter) == 0) {
+      if (iter) {
+        lbfs_chunk_loc *c = new lbfs_chunk_loc();
+        if (iter->get(c) == 0)
+          reusable_chunks[i] = c;
+        else {
+	  reusable_chunks[i] = 0L;
+	  delete c;
+	}
+        delete iter;
+      }
+    }
+    else 
+      reusable_chunks[i] = 0L;
+  }
+  return 0;
+}
+
+
+void 
+gotdata(u_int64_t fp, unsigned char *data, int count, str err)
+{
+  if (!err) {
+    vec<lbfs_chunk *> chunks;
+    chunk_data(CHUNK_SIZES(0), data, count, &chunks);
+    for (unsigned i=0; i<chunks.size(); i++) {
+      printf("0x%016qx %d 0x%016qx\n", fp, i, chunks[i]->fingerprint);
+      delete chunks[i];
+    }
+    delete data;
+  }
+
+  if (_requests > 0) _requests--;
+  if (_requests == 0)
+    exit(0);
+}
+
+
+void 
+getnfsc(ptr<aclnt> nc, clnt_stat stat)
+{
+  if (!nc) {
+    warn << _host << ": NFS3: " << stat << "\n";
+    exit(-1);
+  }
+  _c = nc;
+
+  vec<lbfs_chunk *> new_chunks;
+  if (chunk_file(_file, CHUNK_SIZES(0), &new_chunks) < 0) {
+    printf("cannot open %s for chunking\n", _file);
+    exit(-1);
+  }
+
+  vec<lbfs_chunk_loc *> reusable_chunks;
+  _db.open();
+  lbfs_search_reusable_chunks(new_chunks, reusable_chunks);
+ 
+  for (unsigned i=0; i<new_chunks.size(); i++) {
+    if (reusable_chunks[i]) {
+      printf("%s: reuse %ld %d\n",
+	     _file, reusable_chunks[i]->pos(), reusable_chunks[i]->count());
+      nfs_fh3 fh;
+      reusable_chunks[i]->get_fh(fh);
+      readfh3(_c, fh, wrap(gotdata, new_chunks[i]->fingerprint), 
+	      reusable_chunks[i]->pos(), reusable_chunks[i]->count());
+      _requests++;
+    }
+    delete new_chunks[i];
+    delete reusable_chunks[i];
+  }
+}
+
+int 
+main(int argc, char *argv[])
+{
+  if (argc != 3) {
+    printf("usage: %s host file\n", argv[0]);
+    return -1;
+  }
+  _host = argv[1];
+  _file = argv[2];
+  aclntudp_create (_host, 0, nfs_program_3, wrap(getnfsc));
+  amain();
+}
+
+

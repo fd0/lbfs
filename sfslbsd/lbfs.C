@@ -1,40 +1,69 @@
 
-#include <sys/types.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-
-#include "chunking.h"
+#include "sfsrwsd.h"
 #include "lbfsdb.h"
 
-int
-lbfs_search_reusable_chunks(vec<lbfs_chunk *> &new_chunks,
-                            vec<lbfs_chunk_loc *> &reusable_chunks)
-{
-  if (new_chunks.size() == 0)
-    return -1;
+struct read3obj {
+  typedef callback<void, unsigned char *, int, str>::ref cb_t;
+  cb_t cb;
+  ref<aclnt> c;
 
-  lbfs_db db;
-  db.open();
+  nfs_fh3 fh;
+  off_t pos; 
+  uint32 count;
+  uint32 want;
+  unsigned char *buf;
+    
+  read3res res;
 
-  reusable_chunks.setsize(new_chunks.size());
-  for (unsigned i = 0; i < new_chunks.size(); i++) {
-    lbfs_db::chunk_iterator *iter = 0;
-    if (db.get_chunk_iterator(new_chunks[i]->fingerprint, &iter) == 0) {
-      if (iter) {
-        struct lbfs_chunk_loc *c = new struct lbfs_chunk_loc;
-        if (iter->get(c) == 0)
-          reusable_chunks[i] = c;
-        else {
-	  reusable_chunks[i] = 0L;
-	  delete c;
-	}
-        delete iter;
-      }
+  void gotdata3 (clnt_stat stat) {
+    
+    if (stat || res.status) {
+      (*cb) (buf, count, stat2str (res.status, stat));
+      delete this;
     }
-    else 
-      reusable_chunks[i] = 0L;
+    else {
+      memmove(buf+count, res.resok->data.base(), res.resok->count);
+      count += res.resok->count;
+      if (want > res.resok->count) {
+	want -= res.resok->count;
+	pos += res.resok->count;
+      }
+      else
+	want = 0;
+
+      if (want == 0 || res.resok->eof) {
+        (*cb) (buf, count, NULL);
+        delete this;
+      }
+      else
+	do_read();
+    }
   }
-  return 0;
+  
+  void do_read() {
+    read3args arg;
+    arg.file = fh;
+    arg.offset = pos;
+    arg.count = want;
+    c->call (NFSPROC3_READ, &arg, &res,
+	     wrap (this, &read3obj::gotdata3), auth_root);
+  }
+  
+  read3obj (ref<aclnt> c, nfs_fh3 &f, off_t p, uint32 cnt, cb_t cb) 
+    : cb (cb), c (c), fh(f)
+  {
+    count = 0;
+    pos = p;
+    want = cnt;
+    buf = new unsigned char [cnt];
+    do_read();
+  }
+};
+
+void
+readfh3 (ref<aclnt> c, nfs_fh3 &fh, read3obj::cb_t cb, off_t pos, uint32 count)
+{
+  vNew read3obj (c, fh, pos, count, cb);
 }
+
 

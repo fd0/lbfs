@@ -37,8 +37,7 @@ mapfile (const u_char **bufp, size_t *sizep, const char *path)
 }
 
 int
-chunk_data(const char *path, unsigned chunk_size, 
-           const unsigned char *data, size_t size, 
+chunk_data(unsigned chunk_size, const unsigned char *data, size_t size, 
 	   vec<lbfs_chunk *> *cvp)
 {
   u_int64_t poly = FINGERPRINT_PT;
@@ -73,7 +72,7 @@ chunk_file(const char *path, unsigned chunk_size, vec<lbfs_chunk *> *cvp)
   size_t fl;
   if (mapfile (&fp, &fl, path) != 0)
     return -1;
-  int ret = chunk_data(path, chunk_size, fp, fl, cvp);
+  int ret = chunk_data(chunk_size, fp, fl, cvp);
   munmap(static_cast<void*>(const_cast<u_char*>(fp)), fl);
   return ret;
 }

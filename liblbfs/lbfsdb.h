@@ -5,6 +5,7 @@
 #include "async.h"
 #include "nfs3_prot.h"
 #include "db_cxx.h"
+#include "rpctypes.h"
 
 // we keep P(t), x, and K the same for whole file system, so two equivalent
 // files would have the same breakmarks. for string A, fingerprint of A is
@@ -28,35 +29,67 @@
      (i == 3 ? 524288 : 0))))
 
 #define FP_DB "fp.db"
+#define FH_DB "fh.db"
 
-struct lbfs_chunk_loc {
-  nfs_fh3 fh;		// 8 bytes
-  nfstime3 mtime;	// 8 bytes
-  off_t pos;		// 8 bytes
-  ssize_t size; 	// 4 bytes
-  unsigned unused;	// 4 bytes	
+class lbfs_chunk_loc {
+
+private:
+  unsigned char _fh[NFS3_FHSIZE];
+  unsigned _fhsize;
+  nfstime3 _mtime;
+  off_t _pos;
+  size_t _count;
+ 
+public:
+  lbfs_chunk_loc() {
+    _fhsize = 0;
+  }
   
-  lbfs_chunk_loc &operator= (const lbfs_chunk_loc &l) {
-    memmove(&fh, &l.fh, sizeof(fh));
-    mtime = l.mtime;
-    pos = l.pos;
-    size = l.size;
+  lbfs_chunk_loc(off_t p, size_t c) {
+    _fhsize = 0;
+    _pos = p;
+    _count = c;
+  }
+
+  lbfs_chunk_loc& operator= (const lbfs_chunk_loc &l) {
+    _fhsize = l._fhsize;
+    if (_fhsize > 0) memmove(_fh, l._fh, _fhsize);
+    _mtime = l._mtime;
+    _pos = l._pos;
+    _count = l._count;
     return *this;
   }
+  
+  void set_fh(const nfs_fh3 &f) {
+    memmove(_fh, f.data.base(), f.data.size());
+    _fhsize = f.data.size();
+  }
+
+  int get_fh(nfs_fh3 &f) const {
+    if (_fhsize > 0) {
+      char *data = new char[_fhsize];
+      memmove(&data[0], _fh, _fhsize);
+      f.data.set(data, _fhsize, freemode::DELETE);
+      return 0;
+    }
+    else
+      return -1;
+  }
+
+  off_t pos() const 		{ return _pos; }
+  void set_pos(off_t p) 	{ _pos = p; }
+  
+  size_t count() const 		{ return _count; }
+  void set_count(size_t c) 	{ _count = c; }
+
+  nfstime3 mtime() const 	{ return _mtime; }
+  void set_mtime(const nfstime3 &t) 	{ _mtime = t; }
 };
 
-
-
 struct lbfs_chunk {
+  lbfs_chunk_loc loc;
   u_int64_t fingerprint;
-  struct lbfs_chunk_loc loc;
- 
-  lbfs_chunk() {}
-  lbfs_chunk(off_t p, ssize_t s, u_int64_t fp) {
-    loc.pos = p;
-    loc.size = s;
-    fingerprint = fp;
-  }
+  lbfs_chunk(off_t p, size_t s, u_int64_t fp) : loc(p, s), fingerprint(fp) {}
 };
 
 class lbfs_db {
@@ -87,17 +120,13 @@ public:
   // open db, returns db3 errnos
   int open(); 
 
-  // creates an iterator and copies a ptr to it into the memory referenced by
-  // iterp (callee responsible for freeing iterp). additionally, iterator is
-  // moved under the data for the given key, if any.
+  // creates a chunk iterator and copies a ptr to it into the memory
+  // referenced by iterp (callee responsible for freeing iterp). additionally,
+  // iterator is moved under the data for the given key, if any.
   int get_chunk_iterator(u_int64_t fingerprint, chunk_iterator **iterp);
 
-  // returns db3 errnos
+  // add a chunk to the database, returns db3 errnos
   int add_chunk(u_int64_t fingerprint, lbfs_chunk_loc *c);
-
-  // XXX - garbage collect in db
-  int gc();
-
 };
 
 inline
