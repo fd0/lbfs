@@ -82,15 +82,19 @@ reply_err (int fd, u_int seqnum, int err)
   struct xfs_message_header *h0 = NULL;
   size_t h0_len = 0;
 
+#if DEBUG > 0
   if (err == EIO)
     warn << "sending xfs EIO\n";
+#endif
   xfs_send_message_wakeup_multiple (fd, seqnum, err, h0, h0_len, NULL, 0);
 }
 
 int
 xfs_message_wakeup (int fd, ref<struct xfs_message_wakeup> h, u_int size)
 {
+#if DEBUG > 0
   warn << "Got xfs_message_wakeup from XFS !!!\n";
+#endif
   return 0;
 }
 
@@ -99,13 +103,17 @@ xfs_expire_node_cb (int fd, struct xfs_msg_node node, xfs_handle handle)
 {
   cache_entry *e = xfsindex[handle];
   if (e) {
+#if DEBUG > 0
     warn << "xfs_expire_node_cb " << e->nfs_attr.expire 
          << " now " << (uint32)timenow << "\n";
+#endif
   }
   if (e && e->incache && e->nfs_attr.expire <= (uint32)timenow) {
+#if DEBUG > 0
     warn << "expire handle (" 
          << (int) handle.a << "," << (int) handle.b << ","
          << (int) handle.c << "," << (int) handle.d << ")\n";
+#endif
     
     struct xfs_message_installdata msg;
     msg.header.opcode = XFS_MSG_INSTALLDATA;
@@ -114,7 +122,9 @@ xfs_expire_node_cb (int fd, struct xfs_msg_node node, xfs_handle handle)
     strcpy (msg.cache_name, e->cache_name);
     fhandle_t cfh;
     if (getfh (msg.cache_name, &cfh)) {
+#if DEBUG > 0
       warn << "getfh failed, can't invalidate\n";
+#endif
       return;
     }
     memmove (&msg.cache_handle, &cfh, sizeof (cfh));
@@ -138,7 +148,9 @@ getrootattr (int fd, ref<struct xfs_message_getroot> h, ref<sfs_fsinfo> fsi,
 
   assert (!err && res->status == NFS3_OK);
 
+#if DEBUG > 0
   warn << "uid = " << getuid () << "\n";
+#endif
 
   nfsobj2xfsnode 
     (h->cred, fsi->nfs->v3->root, *res->attributes, rqtime, &msg.node);
@@ -180,7 +192,9 @@ sfs_getfsinfo (int fd, ref<struct xfs_message_getroot> h, ref<sfs_fsinfo> fsi, c
 int 
 xfs_message_getroot (int fd, ref<struct xfs_message_getroot> h, u_int size)
 {
+#if DEBUG > 0
   warn << "get root!!\n";
+#endif
 
   ref<sfs_fsinfo> fsi = New refcounted<sfs_fsinfo>;
   sfsc->call (SFSPROC_GETFSINFO, NULL, fsi,
@@ -200,12 +214,16 @@ nfs3_lookup (int fd, ref<struct xfs_message_getnode> h, uint32 seqnum,
 
   if (err || lres->status != NFS3_OK) {
     if (err) {
+#if DEBUG > 0
       warn << h->header.sequence_num << ":" << err << ":nfs3_lookup\n";
+#endif
       reply_err(fd, seqnum, EIO);
     }
     else {
+#if DEBUG > 0
       warn << h->header.sequence_num << ":" 
 	   << strerror(lres->status) << ":nfs3_lookup\n";
+#endif
       reply_err(fd, seqnum, lres->status);
     }
     return;
@@ -216,7 +234,9 @@ nfs3_lookup (int fd, ref<struct xfs_message_getnode> h, uint32 seqnum,
     else if (lres->resok->dir_attributes.present)
       a = lres->resok->dir_attributes;
     else {
+#if DEBUG > 0
       warn << h->header.sequence_num << ":" <<"lookup: error no attr present\n";
+#endif
       reply_err(fd, seqnum, ENOSYS);
       return;
     }
@@ -238,17 +258,21 @@ nfs3_lookup (int fd, ref<struct xfs_message_getnode> h, uint32 seqnum,
 int 
 xfs_message_getnode (int fd, ref<struct xfs_message_getnode> h, u_int size)
 {
+#if DEBUG > 0
   warn << h->header.sequence_num << ":" <<"get node !! msg.parent_handle ("
     << (int) h->parent_handle.a << ","
     << (int) h->parent_handle.b << ","
     << (int) h->parent_handle.c << ","
     << (int) h->parent_handle.d << ")\n";
   warn << h->header.sequence_num << ":" <<"file name = " << h->name << "\n";
+#endif
 
   cache_entry *e = xfsindex[h->parent_handle];
   if (!e) {
+#if DEBUG > 0
     warn << h->header.sequence_num 
          << ":" << "xfs_message_getnode: Can't find parent_handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -256,8 +280,10 @@ xfs_message_getnode (int fd, ref<struct xfs_message_getnode> h, u_int size)
   diropargs3 doa;
   doa.dir = e->nh;
   doa.name = h->name;
+#if DEBUG > 0
   warn << h->header.sequence_num 
        << ":" << "requesting file name " << doa.name << "\n";
+#endif
   ref<ex_lookup3res> res = New refcounted<ex_lookup3res>;
 
   nfsc->call (lbfs_NFSPROC3_LOOKUP, &doa, res,
@@ -287,11 +313,13 @@ write_dirfile (int fd, ref<struct xfs_message_open> h, //cache_entry *e,
 
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
+#if DEBUG > 0
     warn << "write_dirfile: Can't find handle ("        
 	 << h->handle.a << ","
 	 << h->handle.b << ","
 	 << h->handle.c << ","
 	 << h->handle.d << ")\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return;
   }
@@ -349,14 +377,18 @@ nfs3_readdir (int fd, ref<struct xfs_message_open> h, cache_entry *e,
     args.fd = open (msg.cache_name, O_CREAT | O_RDWR | O_TRUNC, 0666);
 
     if (args.fd < 0) {
+#if DEBUG > 0
       warn << "readdir failed\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
 
     fhandle_t cfh;
     if (getfh (msg.cache_name, &cfh)) {
+#if DEBUG > 0
       warn << "getfh failed\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
@@ -366,11 +398,15 @@ nfs3_readdir (int fd, ref<struct xfs_message_open> h, cache_entry *e,
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << "nfs3_readdir: " << err << "\n";
+#endif
       reply_err (fd, h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << "nfs3_readdir: " << strerror (errno) << "(" << errno << ")\n";
+#endif
       reply_err (fd, h->header.sequence_num, res->status);
     }
   }
@@ -380,27 +416,36 @@ void
 write_file (ref<getfp_args> ga, uint64 offset, uint32 count,
 	    ref<ex_read3res > res)
 {
-
+#if DEBUG > 0
   warn << "filename = " << ga->out_fname << " offset = " << offset << "\n";
+#endif
   int out_fd = open (ga->out_fname, O_CREAT | O_WRONLY, 0666);
   if (out_fd < 0) {
+#if DEBUG > 0
     warn << "write_file1: " << ga->out_fname << " " << strerror (errno) << "\n";
+#endif
     return;
   }
 
   int err;
   if ((err = lseek (out_fd, offset, SEEK_SET)) < 0) {
+#if DEBUG > 0
     warn << "write_file2: " << ga->out_fname << " " << strerror (errno) << "\n";
+#endif
     return;
   }
 
   if ((err = write (out_fd, res->resok->data.base (), 
 	            res->resok->data.size ())) < 0) {
+#if DEBUG > 0
     warn << "write_file3: " << ga->out_fname << " " << strerror (errno) << "\n";
+#endif
     return;
   }
   else if (err != (int) res->resok->data.size ()) {
+#if DEBUG > 0
     warn << "write error or short write!!\n";
+#endif
     return;
   }
   close (out_fd);
@@ -424,7 +469,9 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
 
       cache_entry *e = xfsindex[ga->h->handle];
       if (!e) {
+#if DEBUG > 0
 	warn << "nfs3_read: Can't find node handle\n";
+#endif
         reply_err (ga->fd, ga->h->header.sequence_num, ENOENT);
 	return;
       }
@@ -445,11 +492,15 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
       vec <lbfs_chunk *>cvp;
       if (chunk_file(CHUNK_SIZES (0), cvp, (char const *) ga->msg.cache_name) 
 	  < 0) {
+#if DEBUG > 0
 	warn << strerror (errno) << "(" << errno << "): nfs3_read(chunkfile)\n";
+#endif
 	return;
       }
       for (uint i = 0; i < cvp.size (); i++) {
+#if DEBUG > 0
 	warn << "adding fp = " << cvp[i]->fingerprint << " to lbfsdb\n";
+#endif
 	cvp[i]->loc.set_fh (e->nh);
 	lbfsdb.add_entry (cvp[i]->fingerprint, &(cvp[i]->loc));
         delete cvp[i];
@@ -459,7 +510,9 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << "nfs3_read: " << err << "\n";
+#endif
       if (ga->retries < 1) {
         normal_read (ga, offset, count);
 	ga->retries++;
@@ -468,7 +521,9 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count,
 	reply_err (ga->fd, ga->h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << "nfs3_read: " << strerror (res->status) << "\n";
+#endif
       reply_err (ga->fd, ga->h->header.sequence_num, res->status);
     }
   }
@@ -479,7 +534,9 @@ normal_read (ref<getfp_args> ga, uint64 offset, uint32 count)
 {
   cache_entry *e = xfsindex[ga->h->handle];
   if (!e) {
+#if DEBUG > 0
     warn << "normal_read: Can't find node handle\n";
+#endif
     reply_err (ga->fd, ga->h->header.sequence_num, ENOENT);
     return;
   }
@@ -488,7 +545,9 @@ normal_read (ref<getfp_args> ga, uint64 offset, uint32 count)
   ra.file = e->nh;
   ra.offset = offset;
   ra.count = count < NFS_MAXDATA ? count : NFS_MAXDATA;
+#if DEBUG > 0
   warn << "client normal read @" << offset << " +" << ra.count << "\n";
+#endif
 
   ref<ex_read3res > rres = New refcounted < ex_read3res >;
   nfsc->call (lbfs_NFSPROC3_READ, &ra, rres,
@@ -513,56 +572,74 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
     // find matching fp in the database if found, write that chunk to the
     // file, otherwise, send for a normal read of that chunk
     if (!lbfsdb.get_iterator (res->resok->fprints[i].fingerprint, &ci)) {
+#if DEBUG > 0
       if (!ci)
 	warn << "ci is NULL\n";
+#endif
       if (ci && !(ci->get (&c))) {
 	do {
 	  found = true;
 	  c.get_fh (fh);
 
 	  if (c.count () != res->resok->fprints[i].count) {
+#if DEBUG > 0
 	    warn << "chunk size != size from server..\n";
+#endif
 	    found = false;
 	  }
 	  else {
 	    //read chunk c.pos() to c.count() from fh into buf 
 	    e = nfsindex[fh];
 	    if (!e) {
+#if DEBUG > 0
 	      warn << "compose_file: null fh or Can't find node handle\n";
+#endif
 	      found = false;
 	      goto chunk_not_found;
 	    }
+#if DEBUG > 0
 	    warn << "reading chunks from " << e->cache_name << "\n";
+#endif
 	    chfd = open (e->cache_name, O_RDONLY, 0666);
 	    if (chfd < 0) {
+#if DEBUG > 0
 	      warn << "compose_file: error: " << strerror (errno) 
 		   << "(" << errno << ")\n";
+#endif
 	      found = false;
 	      goto chunk_not_found;
 	    }
 	    if (lseek (chfd, c.pos (), SEEK_SET) < 0) {
+#if DEBUG > 0
 	      warn << "compose_file: error: " << strerror (errno) 
 		   << "(" << errno << ")\n";
+#endif
 	      found = false;
 	      goto chunk_not_found;
 	    }
 	    if ((err = read (chfd, buf, c.count ())) > -1) {
 	      if ((uint32) err != c.count ()) {
+#if DEBUG > 0
 		warn << "compose_file: error: " << err << " != " 
 		     << c.count () << "\n";
+#endif
 	        found = false;
 	        goto chunk_not_found;
 	      }
 	      if (compare_sha1_hash (buf, c.count (),
 				     res->resok->fprints[i].hash)) {
+#if DEBUG > 0
 		warn << "compose_file: sha1 hash mismatch\n";
+#endif
 		found = false;
 	        goto chunk_not_found;
 	      }
 	    }
 	    else {
+#if DEBUG > 0
 	      warn << "compose_file: error: " << strerror (errno) 
 		   << "(" << errno << ")\n";
+#endif
 	      found = false;
 	      goto chunk_not_found;
 	    }
@@ -570,32 +647,42 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
 	  }
 
 	  if (found) {
+#if DEBUG > 0
 	    warn << "FOUND!! compose_file: fp = " 
 	         << res->resok->fprints[i].fingerprint << " in client DB\n";
+#endif
 	    out_fd = open (ga->out_fname, O_CREAT | O_WRONLY, 0666);
 	    if (out_fd < 0) {
+#if DEBUG > 0
 	      warn << "compose_file: " << strerror (errno) << "\n";
+#endif
               reply_err (ga->fd, ga->h->header.sequence_num, EIO);
 	      return;
 	    }
 
 	    if (lseek (out_fd, offset, SEEK_SET) < 0) {
+#if DEBUG > 0
 	      warn << "compose_file: error: " << strerror (errno) 
 		   << "(" << errno << ")\n";
+#endif
               reply_err (ga->fd, ga->h->header.sequence_num, EIO);
 	      return;
 	    }
 	    if ((err = write (out_fd, buf, c.count ())) > -1) {
 	      if ((uint32) err != c.count ()) {
+#if DEBUG > 0
 		warn << "compose_file: error: " << err << " != " 
 		     << c.count () << "\n";
+#endif
                 reply_err (ga->fd, ga->h->header.sequence_num, EIO);
 		return;
 	      }
 	    }
 	    else {
+#if DEBUG > 0
 	      warn << "compose_file: error: " << strerror (errno) 
 		   << "(" << errno << ")\n";
+#endif
               reply_err (ga->fd, ga->h->header.sequence_num, EIO);
 	      return;
 	    }
@@ -608,8 +695,10 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res> res)
     }
 chunk_not_found:
     if (!found) {
+#if DEBUG > 0
       warn << "compose_file: fp = " << res->resok->fprints[i].fingerprint 
 	   << " not in DB\n";
+#endif
       normal_read (ga, offset, res->resok->fprints[i].count);
     }
     offset += res->resok->fprints[i].count;
@@ -619,7 +708,9 @@ chunk_not_found:
   if (ga->blocks_written == ga->total_blocks && ga->eof) {
     e = xfsindex[ga->h->handle];
     if (!e) {
+#if DEBUG > 0
       warn << "compose_file: Can't find node handle\n";
+#endif
       reply_err (ga->fd, ga->h->header.sequence_num, ENOENT);
       return;      
     }
@@ -645,11 +736,13 @@ lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
   if (!err && res->status == NFS3_OK) {
     cache_entry *e = xfsindex[ga->h->handle];
     if (!e) {
+#if DEBUG > 0
       warn << "lbfs_getfp: Can't find node handle (" 
 	   << ga->h->handle.a << ","
 	   << ga->h->handle.b << ","
 	   << ga->h->handle.c << ","
 	   << ga->h->handle.d << ")\n";
+#endif
       reply_err (ga->fd, ga->h->header.sequence_num, ENOENT);
       return;
     }
@@ -677,7 +770,9 @@ lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
     }
   }
   else {
+#if DEBUG > 0
     warn << "lbfs_getfp: " << strerror (res->status) << "\n";
+#endif
     reply_err (ga->fd, ga->h->header.sequence_num, res->status);
   }
 }
@@ -696,7 +791,9 @@ nfs3_read_exist (int fd, ref<struct xfs_message_getdata> h, cache_entry *e)
   strcpy (msg.cache_name, e->cache_name);
   fhandle_t cfh;
   if (getfh (msg.cache_name, &cfh)) {
+#if DEBUG > 0
     warn << "getfh failed\n";
+#endif
     reply_err (fd, h->header.sequence_num, EIO);
     return;
   }
@@ -734,7 +831,9 @@ getfp (int fd, ref<struct xfs_message_open> h, cache_entry *e)
   strcpy (msg.cache_name, newcache);
   int cfd = open (msg.cache_name, O_CREAT | O_WRONLY | O_TRUNC, 0666);
   if (cfd < 0) {
+#if DEBUG > 0
     warn << "xfs_message_getdata: " << strerror (errno) << "\n";
+#endif
     reply_err (fd, h->header.sequence_num, EIO);
     return;
   }
@@ -742,7 +841,9 @@ getfp (int fd, ref<struct xfs_message_open> h, cache_entry *e)
 
   fhandle_t cfh;
   if (getfh (msg.cache_name, &cfh)) {
+#if DEBUG > 0
     warn << "getfh failed\n";
+#endif
     reply_err (fd, h->header.sequence_num, EIO);
     return;
   }
@@ -781,7 +882,9 @@ comp_time (int fd, ref<struct xfs_message_open> h, bool dirfile,
 {
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
+#if DEBUG > 0
     warn << "comp_time: Can't find node handle\n";
+#endif
     reply_err (fd, h->header.sequence_num, ENOENT);
     return;
   }
@@ -791,23 +894,34 @@ comp_time (int fd, ref<struct xfs_message_open> h, bool dirfile,
       ex_fattr3 attr = *(res->attributes);
       attr.expire += rqtime;
       e->nfs_attr = attr;
+#if DEBUG > 0
       warn << "got attribute, ltime " << e->ltime.seconds << " "
 	   << e->ltime.nseconds << "\n";
+#endif
     } else {
-      if (err) 
+      if (err) {
+#if DEBUG > 0
 	warn << "comp_time: " << err << "\n";
+#endif
+      }
       else {
+#if DEBUG > 0
 	warn << "comp_time: " << strerror(res->status) << "\n";
+#endif
       }
     }
   }
 
   nfstime3 maxtime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
+#if DEBUG > 0
   warn << "got attribute, maxtime " << maxtime.seconds  
        << " " << maxtime.nseconds << "\n";
+#endif
   if (greater (maxtime, e->ltime)) {
     if (dirfile) {
+#if DEBUG > 0
       warn << "calling NFS readdir\n";
+#endif
       readdir3args rda;
       rda.dir = e->nh;
       rda.cookie = 0;
@@ -852,14 +966,18 @@ nfs3_readlink (int fd, ref<struct xfs_message_open> h, cache_entry *e,
 
     int lfd = open (msg.cache_name, O_CREAT | O_WRONLY | O_TRUNC, 0666);
     if (lfd < 0) {
+#if DEBUG > 0
       warn << "readlink failed\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
 
     fhandle_t cfh;
     if (getfh (msg.cache_name, &cfh)) {
+#if DEBUG > 0
       warn << "getfh failed\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
@@ -876,10 +994,15 @@ nfs3_readlink (int fd, ref<struct xfs_message_open> h, cache_entry *e,
     xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				      h0, h0_len, NULL, 0);
   } else {
-    if (err) 
+    if (err) {
+#if DEBUG > 0
       warn << "nfs3_readlink: " << err << "\n";
+#endif
+    }
     else {
+#if DEBUG > 0
       warn << "nfs3_readlink: " << strerror(res->status) << "\n";
+#endif
     }
   }
 }
@@ -887,15 +1010,19 @@ nfs3_readlink (int fd, ref<struct xfs_message_open> h, cache_entry *e,
 int 
 xfs_message_getdata (int fd, ref<struct xfs_message_getdata> h, u_int size)
 {
+#if DEBUG > 0
   warn << "XXXX getdata!! msg.handle ("
     << (int) h->handle.a << ","
     << (int) h->handle.b << ","
     << (int) h->handle.c << ","
     << (int) h->handle.d << ")\n";
+#endif
 
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_message_getdata: Can't find node handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -917,30 +1044,40 @@ int
 xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
 {
 
+#if DEBUG > 0
   warn << "XXXX open!! " << h->tokens << " msg.handle ("
     << (int) h->handle.a << ","
     << (int) h->handle.b << ","
     << (int) h->handle.c << ","
     << (int) h->handle.d << ")\n";
+#endif
 
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_message_open: Can't find node handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
     
+#if DEBUG > 0
   if (e->nfs_attr.type == NF3DIR)
     warn << "xfs_message_open on directory: " << e->writers << "\n";
+#endif
   
   uint32 owriters = e->writers;
   if (h->tokens & (XFS_OPEN_NW|XFS_OPEN_EW)) {
     e->writers = 1;
+#if DEBUG > 0
     warn << "open for write: " << e->writers << " writers\n";
+#endif
   }
 
   if (e->nfs_attr.type == NF3LNK) {
+#if DEBUG > 0
     warn << "reading a symlink!!\n";
+#endif
     nfs_fh3 fh = e->nh;
     ref<ex_readlink3res > rlres = New refcounted < ex_readlink3res >;
     nfsc->call (lbfs_NFSPROC3_READLINK, &fh, rlres,
@@ -950,7 +1087,9 @@ xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
 
   if (!e->incache) {
     if (e->nfs_attr.type == NF3DIR) {
+#if DEBUG > 0
       warn << "calling NFS readdir\n";
+#endif
       readdir3args rda;
       rda.dir = e->nh;
       rda.cookie = 0;
@@ -966,8 +1105,10 @@ xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
 	getfp (fd, h, e);
   }
   else {
+#if DEBUG > 0
     if (e->nfs_attr.type == NF3DIR) 
       warn << "directory in cache, writers " << e->writers << "\n";
+#endif
 
     // don't read if there are other writers on the cache
     if (owriters > 0) {
@@ -977,12 +1118,16 @@ xfs_message_open (int fd, ref<struct xfs_message_open> h, u_int size)
       nfs3_read_exist (fd, hga, e);
     }
 
+#if DEBUG > 0
     else if (e->nfs_attr.type == NF3DIR) 
       warn << "directory in cache, exp " << e->nfs_attr.expire << " " 
 	   << (uint32) timenow << " ltime " << e->ltime.seconds << "\n";
+#endif
     else if (e->nfs_attr.expire < (uint32) timenow) {
+#if DEBUG > 0
       if (e->nfs_attr.type == NF3DIR) 
 	warn << "GETATTR called\n";
+#endif
       nfs_fh3 fh = e->nh;
       ptr < ex_getattr3res > res = New refcounted < ex_getattr3res >;
       nfsc->call (lbfs_NFSPROC3_GETATTR, &fh, res,
@@ -1020,27 +1165,33 @@ nfs3_getattr (int fd, ref<struct xfs_message_getattr> h, cache_entry *e,
   xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
 				    h0, h0_len, NULL, 0);
   } else {
+#if DEBUG > 0
     if (err) 
       warn << "nfs3_getattr: " << err << "\n";
     else {
       warn << "nfs3_getattr: " << strerror(res->status) << "\n";
     }
+#endif
   }
 }
 
 int 
 xfs_message_getattr (int fd, ref<struct xfs_message_getattr> h, u_int size)
 {
+#if DEBUG > 0
   warn << "get attr !!\n";
   warn << "msg.handle ("
     << (int) h->handle.a << ","
     << (int) h->handle.b << ","
     << (int) h->handle.c << ","
     << (int) h->handle.d << ")\n";
+#endif
 
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_getattr: Can't find node handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -1061,16 +1212,20 @@ committmp (ref<condwrite3args > cwa, ref<ex_commit3res > res,
 
     cache_entry *e = xfsindex[cwa->h->handle];
     if (!e) {
+#if DEBUG > 0
       warn << "committmp: Can't find node handle(" 
 	   << cwa->h->handle.a << ","
 	   << cwa->h->handle.b << ","
 	   << cwa->h->handle.c << ","
 	   << cwa->h->handle.d << ")\n";
+#endif
 
       reply_err(cwa->fd, cwa->h->header.sequence_num, ENOENT);
       return;
     }
+#if DEBUG > 0
     warn << "committmp wake xfs!\n";
+#endif
     ex_fattr3 attr = *(res->resok->file_wcc.after.attributes);
     attr.expire += rqtime;
     e->nfs_attr = attr;
@@ -1079,11 +1234,15 @@ committmp (ref<condwrite3args > cwa, ref<ex_commit3res > res,
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << "nfs3_committmp: " << err << "\n";
+#endif
       reply_err (cwa->fd, cwa->h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << "nfs3_committmp: " << strerror (res->status) << "\n";
+#endif
       reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
     }
   }
@@ -1097,17 +1256,21 @@ sendcommittmp (ref<condwrite3args > cwa)
   
   cache_entry *e = xfsindex[cwa->h->handle];  
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_getattr: Can't find node handle\n";
+#endif
     reply_err(cwa->fd, cwa->h->header.sequence_num, ENOENT);
     return;
   }
   ct.commit_to = e->nh;
 
   cwa->commited = true;
+#if DEBUG > 0
   warn << "YYYY " << cwa->h->header.sequence_num << " COMMITTMP: "
        << cwa->blocks_written << " blocks written " 
        << cwa->total_blocks << " needed, eof? "
        << cwa->eof << "\n";
+#endif
   ref<ex_commit3res > cres = New refcounted < ex_commit3res >;
   nfsc->call (lbfs_COMMITTMP, &ct, cres,
 	      wrap (&committmp, cwa, cres, timenow));
@@ -1119,27 +1282,33 @@ nfs3_write (ref<condwrite3args > cwa, lbfs_chunk *chunk,
 {
   if (outstanding_condwrites > 0) outstanding_condwrites--;
   if (!err && res->status == NFS3_OK) {
+#if DEBUG > 0
     warn << cwa->h->header.sequence_num << " nfs3_write: @"
          << chunk->loc.pos() << ", "
          << res->resok->count << " total needed "
 	 << chunk->loc.count() << " had "
 	 << chunk->aux_count << "\n";
+#endif
     chunk->aux_count += res->resok->count;
     assert(chunk->aux_count <= chunk->loc.count());
     if (chunk->aux_count == chunk->loc.count()) 
       cwa->blocks_written++;
+#if DEBUG > 0
     warn << cwa->h->header.sequence_num << " nfs3_write: @"
          << chunk->loc.pos() << " +"
 	 << chunk->loc.count() << " "
          << cwa->blocks_written << " blocks written " 
 	 << cwa->total_blocks << " needed, eof? "
 	 << cwa->eof << "\n";
+#endif
     if (cwa->blocks_written == cwa->total_blocks && cwa->eof)
       sendcommittmp (cwa);
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << cwa->h->header.sequence_num << " nfs3_write: " << err << "\n";
+#endif
       if (cwa->retries < 1) {
         sendwrite(cwa, chunk);
         cwa->retries++;
@@ -1148,11 +1317,13 @@ nfs3_write (ref<condwrite3args > cwa, lbfs_chunk *chunk,
 	reply_err (cwa->fd, cwa->h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << "nfs3_write: error: " << strerror (res->status) << "\n";
       warn << "-> " << cwa->h->header.sequence_num << " nfs3_write: "
            << cwa->blocks_written << " blocks written " 
 	   << cwa->total_blocks << " needed, eof? "
 	   << cwa->eof << "\n";
+#endif
       reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
     }
   }
@@ -1169,13 +1340,17 @@ sendwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
   uint32 count = chunk->loc.count ();
 
   if (cwa->commited) {
+#if DEBUG > 0
     warn << "weird: already commited, should not be sending more data!\n";
+#endif
     assert(0);
   }
 
   int rfd = open (cwa->fname, O_RDONLY, 0666);
   if (rfd < 0) {
+#if DEBUG > 0
     warn << "sendwrite: " << strerror (errno) << "\n";
+#endif
     reply_err(cwa->fd, cwa->h->header.sequence_num, EIO);
     return;
   }
@@ -1187,7 +1362,9 @@ sendwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
     else
       err = read (rfd, iobuf, NFS_MAXDATA);
     if (err < 0) {
+#if DEBUG > 0
       warn << "sendwrite: error: " << strerror (errno) << "(" << errno << ")\n";
+#endif
       reply_err(cwa->fd, cwa->h->header.sequence_num, EIO);
       return;
     }
@@ -1216,33 +1393,41 @@ lbfs_sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk,
   if (outstanding_condwrites > 0) outstanding_condwrites--;
   if (!err && res->status == NFS3_OK) {
     if (res->resok->count != chunk->loc.count ()) {
+#if DEBUG > 0
       warn << "lbfs_sendcondwrite: did not write the whole chunk...\n";
+#endif
       sendwrite (cwa, chunk);
       return;
     }
     chunk->aux_count += chunk->loc.count();
     cwa->blocks_written++;
+#if DEBUG > 0
     warn << cwa->h->header.sequence_num << " condwrite: @"
          << chunk->loc.pos() << " +"
 	 << chunk->loc.count() << " "
          << cwa->blocks_written << " blocks written " 
 	 << cwa->total_blocks << " needed, eof? "
 	 << cwa->eof << "\n";
+#endif
     if (cwa->blocks_written == cwa->total_blocks && cwa->eof)
       sendcommittmp (cwa);
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << "lbfs_sendcondwrite: " << err << "\n";
       warn << "-> " << cwa->h->header.sequence_num << " condwrite: "
            << cwa->blocks_written << " blocks written " 
 	   << cwa->total_blocks << " needed, eof? "
 	   << cwa->eof << "\n";
+#endif
       sendwrite (cwa, chunk);
     }
     else {
       if (res->status != NFS3ERR_FPRINTNOTFOUND) {
+#if DEBUG > 0
 	warn << "lbfs_sendcondwrite: " << strerror (res->status) << "\n";
+#endif
         reply_err (cwa->fd, cwa->h->header.sequence_num, res->status);
       }
       else 
@@ -1257,7 +1442,9 @@ void
 sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
 {
   if (cwa->commited) {
+#if DEBUG > 0
     warn << "weird: already commited, should not be sending more data!\n";
+#endif
     assert(0);
   }
 
@@ -1269,7 +1456,9 @@ sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
 
   int rfd = open (cwa->fname, O_RDONLY, 0666);
   if (rfd < 0) {
+#if DEBUG > 0
     warn << "sendcondwrite: " << cwa->fname << ".." << strerror (errno) << "\n";
+#endif
     sendwrite(cwa, chunk);
     return;
   }
@@ -1280,8 +1469,10 @@ sendcondwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
   while (total_read < cw.count) {
     int err = read (rfd, &buf[total_read], cw.count);
     if (err < 0) {
+#if DEBUG > 0
       warn << "lbfs_condwrite: error: " << strerror (errno) 
            << "(" << errno << ")\n"; 
+#endif
       sendwrite(cwa, chunk);
       return;
     }
@@ -1302,19 +1493,25 @@ lbfs_mktmpfile (int fd, ref<struct xfs_message_putdata> h,
 		ref<ex_diropres3 > res, clnt_stat err)
 {
   if (err) {
+#if DEBUG > 0
     warn << "lbfs_mktmpfile: " << err << "\n";
+#endif
     reply_err(fd, h->header.sequence_num, EIO);
     return;
   }
   else {
     if (res->status != NFS3_OK) {
+#if DEBUG > 0
       warn << "lbfs_mktmpfile: error: " << strerror (res->status) 
 	   << "(" << res->status << ")\n";
+#endif
       reply_err (fd, h->header.sequence_num, res->status);
       return;
     }
     else if (!res->resok->obj.present) {
+#if DEBUG > 0
       warn << "tmpfile handle not present\n";
+#endif
       reply_err (fd, h->header.sequence_num, EIO);
       return;
     }
@@ -1322,12 +1519,16 @@ lbfs_mktmpfile (int fd, ref<struct xfs_message_putdata> h,
   
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_getattr: Can't find node handle\n";
+#endif
     reply_err (fd, h->header.sequence_num, ENOENT);
     return;
   }
 
+#if DEBUG > 0
   warn << "can do condwrite\n";
+#endif
   ref<condwrite3args > cwa = 
     New refcounted < condwrite3args > (fd, h, *res->resok->obj.handle);
   strcpy (cwa->fname, e->cache_name);
@@ -1340,14 +1541,18 @@ void condwrite_chunk(ref<condwrite3args> cwa)
 {
   int data_fd = open (cwa->fname, O_RDONLY, 0666);
   if (data_fd < 0) {
+#if DEBUG > 0
     warn << "condwrite_chunk: " << strerror (errno) << "\n";
+#endif
     reply_err (cwa->fd, cwa->h->header.sequence_num, EIO);
     return;
   }
   uint index, v_size;
   index = v_size = cwa->chunker->chunk_vector().size();
   if (lseek (data_fd, cwa->cur_pos, SEEK_SET) < 0) {
+#if DEBUG > 0
     warn << "condwrite_chunk: " << strerror (errno) << "\n";
+#endif
     reply_err (cwa->fd, cwa->h->header.sequence_num, EIO);
     return;
   }
@@ -1360,7 +1565,9 @@ void condwrite_chunk(ref<condwrite3args> cwa)
       v_size = cwa->chunker->chunk_vector().size();
       cwa->total_blocks = v_size;
       for (; index < v_size; index++) {
-        warn << "chindex = " << index << " size = " << v_size << "\n";
+#if DEBUG > 0
+	warn << "chindex = " << index << " size = " << v_size << "\n";
+#endif
 	cwa->chunker->chunk_vector()[index]->aux_count = 0;
 	outstanding_condwrites++;
         sendcondwrite(cwa, cwa->chunker->chunk_vector()[index]);
@@ -1370,7 +1577,9 @@ void condwrite_chunk(ref<condwrite3args> cwa)
   }
   close(data_fd);
   if (count < 0) {
+#if DEBUG > 0
     warn << "condwrite_chunk: " << strerror (errno) << "\n";
+#endif
     reply_err (cwa->fd, cwa->h->header.sequence_num, EIO);
     return;
   }
@@ -1379,14 +1588,18 @@ void condwrite_chunk(ref<condwrite3args> cwa)
     v_size = cwa->chunker->chunk_vector().size();
     cwa->total_blocks = cwa->chunker->chunk_vector().size();
     for (; index < v_size; index++) {
+#if DEBUG > 0
       warn << "chindex = " << index << " size = " <<  cwa->total_blocks<< "\n";
+#endif
       cwa->chunker->chunk_vector()[index]->aux_count = 0;
       sendcondwrite(cwa, cwa->chunker->chunk_vector()[index]);
     }
     cwa->eof = true;
   }
+#if DEBUG > 0
   warn << "total_blocks = "  << cwa->total_blocks << " " 
        << count << " eof " << cwa->eof << "\n";
+#endif
   if (cwa->eof && cwa->total_blocks == 0)
     sendcommittmp(cwa);
 }
@@ -1395,16 +1608,20 @@ int
 xfs_message_putdata (int fd, ref<struct xfs_message_putdata> h, u_int size)
 {
 
+#if DEBUG > 0
   warn << "XXXX putdata!! msg.handle ("
     << (int) h->handle.a << ","
     << (int) h->handle.b << ","
     << (int) h->handle.c << ","
     << (int) h->handle.d << ")\n";
   warn << "putdata " << h->flag << "\n";
+#endif
 
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_putdata: Can't find node handle\n";
+#endif
     reply_err (fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -1430,7 +1647,9 @@ xfs_message_putdata (int fd, ref<struct xfs_message_putdata> h, u_int size)
 #if 0
   if (!(h->flag&XFS_FSYNC) && e->writers>0) {
     e->writers--;
+#if DEBUG > 0
     warn << "close for write: " << e->writers << " writers\n";
+#endif
   }
 #endif
   return 0;
@@ -1441,11 +1660,13 @@ xfs_message_inactivenode (int fd, ref<struct xfs_message_inactivenode> h,
                           u_int size)
 {
 
+#if DEBUG > 0
   warn << "inactivenode !!(" 
        << h->handle.a << ","
        << h->handle.b << ","
        << h->handle.c << ","
        << h->handle.d << ")\n";
+#endif
   if (h->flag == XFS_DELETE || h->flag == XFS_NOREFS) {
     cache_entry *e = xfsindex[h->handle];
     if (e) {
@@ -1472,7 +1693,9 @@ nfs3_setattr (int fd, ref<struct xfs_message_putattr> h, ref<ex_wccstat3 > res,
 
     cache_entry *e = xfsindex[h->handle];
     if (!e) {
+#if DEBUG > 0
       warn << "nfs3_setattr: Can't find node handle\n";
+#endif
       reply_err(fd, h->header.sequence_num, ENOENT);
       return;
     }
@@ -1488,11 +1711,15 @@ nfs3_setattr (int fd, ref<struct xfs_message_putattr> h, ref<ex_wccstat3 > res,
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << err << ": nfs3_setattr\n";
+#endif
       reply_err (fd, h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << strerror (res->status) << ": nfs3_setattr\n";
+#endif
       reply_err (fd, h->header.sequence_num, res->status);
     }
   }
@@ -1502,11 +1729,15 @@ int
 xfs_message_putattr (int fd, ref<struct xfs_message_putattr> h, u_int size)
 {
 
+#if DEBUG > 0
   warn << "putattr !!\n";
+#endif
 
   cache_entry *e = xfsindex[h->handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_message_putattr: Can't find node handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -1520,8 +1751,10 @@ xfs_message_putattr (int fd, ref<struct xfs_message_putattr> h, u_int size)
     sa.guard.ctime->seconds = h->attr.xa_ctime;
 #endif
   if (sa.new_attributes.size.set) {
+#if DEBUG > 0
     warn << "setting size to " 
          << (uint32) *(sa.new_attributes.size.val) << "\n";
+#endif
     // can't depend on client set time to expire cache data
     if (*(sa.new_attributes.size.val) == 0) 
       e->ltime.seconds = 0;
@@ -1557,7 +1790,9 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
 
     cache_entry *e1 = nfsindex[*(res->resok->obj.handle)];
     if (!e1) {
+#if DEBUG > 0
       warn << "nfs3_create: Can't find node handle\n";
+#endif
       reply_err(fd, h->header.sequence_num, ENOENT);
       return;
     }
@@ -1566,7 +1801,9 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
     int new_fd = open (msg3.cache_name, O_CREAT | O_RDWR | O_TRUNC, 0666);
     
     if (new_fd < 0) {
+#if DEBUG > 0
       warn << "nfs3_create: " << strerror (errno) << "\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
@@ -1574,7 +1811,9 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
 
     fhandle_t new_fh;
     if (getfh (msg3.cache_name, &new_fh)) {
+#if DEBUG > 0
       warn << "getfh failed\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
@@ -1584,7 +1823,9 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
     // entry?)
     cache_entry *e2 = xfsindex[h->parent_handle];
     if (!e2) {
+#if DEBUG > 0
       warn << "nfs3_create: Can't find parent handle\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
@@ -1634,11 +1875,15 @@ nfs3_create (int fd, ref<struct xfs_message_create> h, ref<ex_diropres3 > res,
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << err << ": nfs3_create\n";
+#endif
       reply_err (fd, h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << strerror (res->status) << ": nfs3_create\n";
+#endif
       reply_err (fd, h->header.sequence_num, res->status);
     }
   }
@@ -1648,11 +1893,15 @@ int
 xfs_message_create (int fd, ref<struct xfs_message_create> h, u_int size)
 {
 
+#if DEBUG > 0
   warn << "create !!\n";
+#endif
 
   cache_entry *e = xfsindex[h->parent_handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_message_create: Can't find parent_handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -1663,8 +1912,11 @@ xfs_message_create (int fd, ref<struct xfs_message_create> h, u_int size)
   ca.how.set_mode (GUARDED);
   if (ca.how.mode == UNCHECKED || ca.how.mode == GUARDED)
     xfsattr2nfsattr (h->header.opcode, h->attr, &(*ca.how.obj_attributes));
-  else
+  else {
+#if DEBUG > 0
     warn << "xfs_message_create: create mode not UNCHECKED or GUARDED\n";
+#endif
+  }
 
   ref<ex_diropres3 > res = New refcounted < ex_diropres3 >;
   nfsc->call (lbfs_NFSPROC3_CREATE, &ca, res,
@@ -1697,7 +1949,9 @@ nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
 
     cache_entry *e1 = nfsindex[*(res->resok->obj.handle)];
     if (!e1) {
+#if DEBUG > 0
       warn << "nfs3_mkdir: Can't find node handle\n";
+#endif
       reply_err(fd, h->header.sequence_num, ENOENT);
       return;
     }
@@ -1706,7 +1960,9 @@ nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
     int new_fd = open (msg3.cache_name, O_CREAT, 0666);
 
     if (new_fd < 0) {
+#if DEBUG > 0
       warn << "nfs3_mkdir: " << errno << " " << strerror (errno) << "\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
@@ -1714,7 +1970,9 @@ nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
 
     fhandle_t new_fh;
     if (getfh (msg3.cache_name, &new_fh)) {
+#if DEBUG > 0
       warn << "getfh failed\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
@@ -1722,7 +1980,9 @@ nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
 
     cache_entry *e2 = xfsindex[h->parent_handle];
     if (!e2) {
+#if DEBUG > 0
       warn << "nfs3_mkdir: Can't find parent handle\n";
+#endif
       reply_err(fd, h->header.sequence_num, ENOENT);
       return;
     }
@@ -1730,7 +1990,9 @@ nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
     strcpy (msg1.cache_name, e2->cache_name);
     fhandle_t parent_fh;
     if (getfh (msg1.cache_name, &parent_fh)) {
+#if DEBUG > 0
       warn << "getfh failed\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
@@ -1767,11 +2029,15 @@ nfs3_mkdir (int fd, ref<struct xfs_message_mkdir> h, ref<ex_diropres3 > res,
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << err << ": nfs3_mkdir\n";
+#endif
       reply_err (fd, h->header.sequence_num, ENOENT);
     }
     else {
+#if DEBUG > 0
       warn << strerror (res->status) << ": nfs3_mkdir\n";
+#endif
       reply_err (fd, h->header.sequence_num, res->status);
     }
   }
@@ -1781,11 +2047,15 @@ int
 xfs_message_mkdir (int fd, ref<struct xfs_message_mkdir> h, u_int size)
 {
 
+#if DEBUG > 0
   warn << "mkdir !!\n";
+#endif
 
   cache_entry *e = xfsindex[h->parent_handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_message_mkdir: Can't find parent_handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -1820,7 +2090,9 @@ nfs3_link (int fd, ref<struct xfs_message_link> h, ref<ex_link3res > res,
     //in the future implement local content change too..
     cache_entry *e1 = xfsindex[h->parent_handle];
     if (!e1) {
+#if DEBUG > 0
       warn << "xfs_message_link: Can't find parent_handle\n";
+#endif
       reply_err(fd, h->header.sequence_num, ENOENT);
       return;
     }
@@ -1828,7 +2100,9 @@ nfs3_link (int fd, ref<struct xfs_message_link> h, ref<ex_link3res > res,
     
     fhandle_t parent_fh;
     if (getfh (msg1.cache_name, &parent_fh)) {
+#if DEBUG > 0
       warn << "getfh failed\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
@@ -1846,7 +2120,9 @@ nfs3_link (int fd, ref<struct xfs_message_link> h, ref<ex_link3res > res,
     
     cache_entry *e2 = xfsindex[h->from_handle];
     if (!e2) {
+#if DEBUG > 0
       warn << "xfs_message_link: Can't find from_handle\n";
+#endif
       reply_err(fd, h->header.sequence_num, ENOENT);
       return;
     }
@@ -1869,11 +2145,15 @@ nfs3_link (int fd, ref<struct xfs_message_link> h, ref<ex_link3res > res,
 
   } else {
     if (err) {
+#if DEBUG > 0
       warn << err << ": nfs3_link\n";
+#endif
       reply_err (fd, h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << strerror (res->status) << ": nfs3_link\n";
+#endif
       reply_err (fd, h->header.sequence_num, res->status);
     }
   }
@@ -1883,11 +2163,15 @@ int
 xfs_message_link (int fd, ref<struct xfs_message_link> h, u_int size)
 {
 
+#if DEBUG > 0
   warn << "(hard) link !!\n";
+#endif
 
   cache_entry *e1 = xfsindex[h->from_handle];
   if (!e1) {
+#if DEBUG > 0
     warn << "xfs_message_link: Can't find from_handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -1896,7 +2180,9 @@ xfs_message_link (int fd, ref<struct xfs_message_link> h, u_int size)
 
   cache_entry *e2 = xfsindex[h->parent_handle];
   if (!e2) {
+#if DEBUG > 0
     warn << "xfs_message_link: Can't find parent_handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -1931,7 +2217,9 @@ nfs3_symlink (int fd, ref<struct xfs_message_symlink> h, cache_entry *e,
 
     cache_entry *e = xfsindex[h->parent_handle];
     if (!e) {
+#if DEBUG > 0
       warn << "nfs3_symlink: Can't find parent handle\n";
+#endif
       reply_err(fd, h->header.sequence_num, ENOENT);
       return;
     }
@@ -1947,11 +2235,13 @@ nfs3_symlink (int fd, ref<struct xfs_message_symlink> h, cache_entry *e,
     h0 = (struct xfs_message_header *) &msg1;
     h0_len = sizeof (msg1);
 
+#if DEBUG > 0
     warn << "symlink !!(" 
          << h->parent_handle.a << ","
          << h->parent_handle.b << ","
          << h->parent_handle.c << ","
          << h->parent_handle.d << ")\n";
+#endif
     msg2.node.tokens = XFS_ATTR_R;
     msg2.parent_handle = h->parent_handle;
     strlcpy (msg2.name, h->name, sizeof (msg2.name));
@@ -1965,11 +2255,15 @@ nfs3_symlink (int fd, ref<struct xfs_message_symlink> h, cache_entry *e,
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << err << ": nfs3_symlink\n";
+#endif
       reply_err (fd, h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << "nfs3_symlink: " << strerror (res->status) << "\n";
+#endif
       reply_err (fd, h->header.sequence_num, res->status);
     }
   }
@@ -1979,11 +2273,15 @@ int
 xfs_message_symlink (int fd, ref<struct xfs_message_symlink> h, u_int size)
 {
 
+#if DEBUG > 0
   warn << "symlimk !!\n";
+#endif
 
   cache_entry *e = xfsindex[h->parent_handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_message_symlink: Can't find parent_handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -2008,7 +2306,9 @@ remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
 {
   cache_entry *e1 = xfsindex[h->parent_handle];
   if (!e1) {
+#if DEBUG > 0
     warn << "xfs_message_remove: Can't find parent_handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return;
   }
@@ -2026,7 +2326,9 @@ remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
     strcpy (msg1.cache_name, e1->cache_name);
     fhandle_t cfh;
     if (getfh (msg1.cache_name, &cfh)) {
+#if DEBUG > 0
       warn << "getfh failed\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
@@ -2048,7 +2350,9 @@ remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
     else if (lres->resok->dir_attributes.present)
       a = lres->resok->dir_attributes;
     else {
+#if DEBUG > 0
       warn << "lookup in remove: error no attr present\n";
+#endif
       reply_err(fd, h->header.sequence_num, EIO);
       return;
     }
@@ -2058,7 +2362,9 @@ remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
 
       cache_entry *e2 = nfsindex[lres->resok->object];
       if (!e2) {
+#if DEBUG > 0
 	warn << "xfs_message_remove: Can't find handle\n";
+#endif
 	return;
       }
 
@@ -2081,11 +2387,15 @@ remove (int fd, ref<struct xfs_message_remove> h, ref<ex_lookup3res > lres,
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << err << ": nfs3_lookup in remove\n";
+#endif
       reply_err (fd, h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << strerror (wres->status) << ": nfs3_lookup in remove\n";
+#endif
       reply_err (fd, h->header.sequence_num, wres->status);
     }
   }
@@ -2100,7 +2410,9 @@ nfs3_remove (int fd, ref<struct xfs_message_remove> h,
 
     cache_entry *e = xfsindex[h->parent_handle];
     if (!e) {
+#if DEBUG > 0
       warn << "xfs_message_mkdir: Can't find parent_handle\n";
+#endif
       reply_err(fd, h->header.sequence_num, ENOENT);
       return;
     }
@@ -2115,11 +2427,15 @@ nfs3_remove (int fd, ref<struct xfs_message_remove> h,
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << err << ": nfs3_remove\n";
+#endif
       reply_err (fd, h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << "nfs3_remove: lres->status = " << strerror (lres->status) << "\n";
+#endif
       reply_err (fd, h->header.sequence_num, lres->status);
     }
   }
@@ -2129,11 +2445,15 @@ int
 xfs_message_remove (int fd, ref<struct xfs_message_remove> h, u_int size)
 {
 
+#if DEBUG > 0
   warn << "remove !!\n";
+#endif
 
   cache_entry *e = xfsindex[h->parent_handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_message_mkdir: Can't find parent_handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -2141,7 +2461,9 @@ xfs_message_remove (int fd, ref<struct xfs_message_remove> h, u_int size)
   diropargs3 doa;
   doa.dir = e->nh;
   doa.name = h->name;
+#if DEBUG > 0
   warn << "requesting file name " << doa.name.cstr () << "\n";
+#endif
   ref<ex_lookup3res > res = New refcounted < ex_lookup3res >;
 
   nfsc->call (lbfs_NFSPROC3_LOOKUP, &doa, res,
@@ -2159,7 +2481,9 @@ nfs3_rmdir (int fd, ref<struct xfs_message_rmdir> h, ref<ex_lookup3res > lres,
 
     cache_entry *e = xfsindex[h->parent_handle];
     if (!e) {
+#if DEBUG > 0
       warn << "xfs_message_mkdir: Can't find parent_handle\n";
+#endif
       reply_err(fd, h->header.sequence_num, ENOENT);
       return;
     }
@@ -2181,11 +2505,15 @@ nfs3_rmdir (int fd, ref<struct xfs_message_rmdir> h, ref<ex_lookup3res > lres,
   }
   else {
     if (err) {
+#if DEBUG > 0
       warn << err << ": nfs3_rmdir\n";
+#endif
       reply_err (fd, h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << "nfs3_rmdir: lres->status = " << lres->status << "\n";
+#endif
       reply_err (fd, h->header.sequence_num, lres->status);
     }
   }
@@ -2195,11 +2523,15 @@ int
 xfs_message_rmdir (int fd, ref<struct xfs_message_rmdir> h, u_int size)
 {
 
+#if DEBUG > 0
   warn << "rmdir !!\n";
+#endif
 
   cache_entry *e = xfsindex[h->parent_handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_message_mkdir: Can't find parent_handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -2207,7 +2539,9 @@ xfs_message_rmdir (int fd, ref<struct xfs_message_rmdir> h, u_int size)
   diropargs3 doa;
   doa.dir = e->nh;
   doa.name = h->name;
+#if DEBUG > 0
   warn << "requesting file name " << doa.name.cstr () << "\n";
+#endif
   ref<ex_lookup3res > res = New refcounted < ex_lookup3res >;
 
   nfsc->call (lbfs_NFSPROC3_LOOKUP, &doa, res,
@@ -2250,12 +2584,16 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
 
   if (err || rena->gares->status != NFS3_OK) {
     if (err) {
+#if DEBUG > 0
       warn << err << ": nfs3_rename_getattr\n";
+#endif
       reply_err (rena->fd, rena->h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << "nfs3_rename_getattr: gares->status = " 
 	   << strerror (rena->gares->status) << "\n";
+#endif
       reply_err (rena->fd, rena->h->header.sequence_num, rena->gares->status);
     }
     return;
@@ -2274,7 +2612,9 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
 
   cache_entry *e1 = nfsindex[file];
   if (!e1) {
+#if DEBUG > 0
     warn << "nfs3_rename_getattr: Can't find file handle\n";
+#endif
     reply_err(rena->fd, rena->h->header.sequence_num, ENOENT);
     return;
   }
@@ -2297,18 +2637,22 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
 
   cache_entry *e2 = xfsindex[rena->h->new_parent_handle];
   if (!e2) {
+#if DEBUG > 0
     warn << "nfs3_rename_getattr: Can't find file new_parent_handle(" 
 	 << rena->h->new_parent_handle.a << ","
 	 << rena->h->new_parent_handle.b << ","
 	 << rena->h->new_parent_handle.c << ","
 	 << rena->h->new_parent_handle.d << ")\n";
+#endif
     reply_err(rena->fd, rena->h->header.sequence_num, ENOENT);
     return;
   }
   strcpy (msg2.cache_name, e2->cache_name);
   fhandle_t parent_fh;
   if (getfh (msg2.cache_name, &parent_fh)) {
+#if DEBUG > 0
     warn << "getfh failed\n";
+#endif
     reply_err(rena->fd, rena->h->header.sequence_num, EIO);
     return;
   }
@@ -2328,14 +2672,18 @@ nfs3_rename_getattr (ref<rename_args> rena, time_t rqtime2, clnt_stat err)
 	              &rena->h->new_parent_handle)) {
     cache_entry *e3 = xfsindex[rena->h->old_parent_handle];
     if (!e3) {
+#if DEBUG > 0
       warn << "nfs3_rename_getattr: Can't find file old_parent_handle\n";
+#endif
       reply_err(rena->fd, rena->h->header.sequence_num, ENOENT);
       return;
     }
     strcpy (msg3.cache_name, e3->cache_name);
     //change content of new parent dir (later)
     if (getfh (msg3.cache_name, &parent_fh)) {
+#if DEBUG > 0
       warn << "getfh failed\n";
+#endif
       reply_err(rena->fd, rena->h->header.sequence_num, EIO);
       return;
     }
@@ -2361,14 +2709,18 @@ void
 nfs3_rename_rename (ref<rename_args> rena, clnt_stat err)
 {
 
+#if DEBUG > 0
   warn << "rename_rename !!\n";
+#endif
   if (!err) {
     nfs_fh3 fh = rena->lres->resok->object;
     nfsc->call (lbfs_NFSPROC3_GETATTR, &fh, rena->gares,
 		wrap (&nfs3_rename_getattr, rena, timenow));
   } else {
+#if DEBUG > 0
     if (err)
       warn << err << ": nfs3_rename_rename\n";
+#endif
   }
 }
 
@@ -2376,16 +2728,22 @@ void
 nfs3_rename_lookup (ref<rename_args> rena, time_t rqtime, clnt_stat err)
 {
 
+#if DEBUG > 0
   warn << "rename_lookup !!\n";
+#endif
 
   if (err || rena->lres->status != NFS3_OK) {
     if (err) {
+#if DEBUG > 0
       warn << err << ": nfs3_rename_lookup\n";
+#endif
       reply_err (rena->fd, rena->h->header.sequence_num, EIO);
     }
     else {
+#if DEBUG > 0
       warn << "nfs3_rename_lookup: lres->status = " 
 	   << strerror (rena->lres->status) << "\n";
+#endif
       reply_err (rena->fd, rena->h->header.sequence_num, rena->lres->status);
     }
     return;
@@ -2393,7 +2751,9 @@ nfs3_rename_lookup (ref<rename_args> rena, time_t rqtime, clnt_stat err)
 
   cache_entry *e1 = xfsindex[rena->h->old_parent_handle];
   if (!e1) {
+#if DEBUG > 0
     warn << "xfs_message_rename: Can't find old_parent_handle\n";
+#endif
     reply_err(rena->fd, rena->h->header.sequence_num, ENOENT);
     return;
   }
@@ -2404,7 +2764,9 @@ nfs3_rename_lookup (ref<rename_args> rena, time_t rqtime, clnt_stat err)
 
   cache_entry *e2 = xfsindex[rena->h->new_parent_handle];
   if (!e2) {
+#if DEBUG > 0
     warn << "xfs_message_rename: Can't find new_parent_handle\n";
+#endif
     reply_err(rena->fd, rena->h->header.sequence_num, ENOENT);
     return;
   }
@@ -2423,11 +2785,15 @@ int
 xfs_message_rename (int fd, ref<struct xfs_message_rename> h, u_int size)
 {
 
+#if DEBUG > 0
   warn << "rename !!\n";
+#endif
 
   cache_entry *e = xfsindex[h->old_parent_handle];
   if (!e) {
+#if DEBUG > 0
     warn << "xfs_message_rename: Can't find old_parent_handle\n";
+#endif
     reply_err(fd, h->header.sequence_num, ENOENT);
     return -1;
   }
@@ -2446,9 +2812,13 @@ xfs_message_rename (int fd, ref<struct xfs_message_rename> h, u_int size)
 int
 xfs_message_pioctl (int fd, ref<struct xfs_message_pioctl> h, u_int size) {
   
+#if DEBUG > 0
   warn << "pioctl!! return 0 no matter what!!!\n";
+#endif
 
+#if DEBUG > 0
   warn << "pioctl: opcode = " << h->opcode << "\n";
+#endif
   
   int error = 0;
 
@@ -2712,7 +3082,7 @@ xfs_message_pioctl (int fd, ref<struct xfs_message_pioctl> h, u_int size) {
 	error = vioc_breakcallback (fd, h, size);
 	break;
     default:
-      warn << "unknown pioctl call \n";
+	warn << "unknown pioctl call \n";
       error = EINVAL ;
   }
 
@@ -2725,7 +3095,9 @@ xfs_message_pioctl (int fd, ref<struct xfs_message_pioctl> h, u_int size) {
 void 
 cbdispatch (svccb * sbp)
 {
+#if DEBUG > 0
   warn << "cbdispatch called\n";
+#endif
   if (!sbp)
     return;
 

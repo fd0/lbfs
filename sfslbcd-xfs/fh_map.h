@@ -28,6 +28,8 @@
 #include "ihash.h"
 #include "nfstrans.h"
 
+#define DEBUG 0
+
 #define MAX_FH 65535 //4000
 //#define MAX_FH MAXHANDLE //xfs constant for max file handles opened at any time
 //#define MAXPATHLEN (1024+4) //This is what arla used...

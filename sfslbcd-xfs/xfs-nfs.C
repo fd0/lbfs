@@ -80,11 +80,13 @@ void nfsobj2xfsnode(xfs_cred cred, nfs_fh3 obj, ex_fattr3 attr, time_t rqtime,
     e->nfs_attr = attr;
 
   node->handle = e->xh; 
+#if DEBUG > 0
   warn << "nfsfh becomes node.handle (" 
        << node->handle.a << ","
        << node->handle.b << ","
        << node->handle.c << ","
        << node->handle.d << ")\n";
+#endif
 
   node->anonrights = XFS_RIGHT_R | XFS_RIGHT_W | XFS_RIGHT_X;
   node->tokens = XFS_ATTR_R; // | ~XFS_DATA_MASK;
@@ -183,26 +185,34 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args) {
     xde = (xfs_dirent *)args->ptr;
     bzero(xde, sizeof(*xde));
     xde->d_namlen = nfs_dirent->name.len();
+#if DEBUG
     warn << "xde->namlen = " << xde->d_namlen 
 	 << " nfs_dirent_len = " << nfs_dirent->name.len() << "\n";
+#endif
     xde->d_reclen = reclen;
 #if defined(HAVE_STRUCT_DIRENT_D_TYPE) && !defined(__linux__)
     xde->d_type = DT_UNKNOWN;
 #endif
     xde->d_fileno = nfs_dirent->fileid;
     strcpy(xde->d_name, nfs_dirent->name.cstr());
+#if DEBUG
     warn << "xde->d_name = " << xde->d_name 
 	 << " nfs_dirent_name = " << nfs_dirent->name.cstr() << "\n";
+#endif
 #if 1
     args->ptr += xde->d_reclen;
     args->off += xde->d_reclen;
     args->last = xde;
 #else    
     if (write (args->fd, xde, reclen) != reclen) {
+#if DEBUG
       warn << "(" << errno << "):write\n";
+#endif
       return -1;
     }
+#if DEBUG
     warn << "wrote " << xde->d_name << "\n";
+#endif
     delete xde;
 #endif
     nfs_dirent = nfs_dirent->nextentry;
@@ -224,7 +234,9 @@ int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid) {
   xde->d_fileno = fid;
   
   if (write(fd, xde, xde->d_reclen) != xde->d_reclen) {
+#if DEBUG
     warn << strerror(errno) << "(" << errno << "):write\n";
+#endif
     return -1;
   }
   return 0;
@@ -236,18 +248,24 @@ int xfsfile_rm_dirent(int fd, const char* fname) {
   
   do {
     if ((err = read(fd, xde, sizeof(*xde))) < 0) {
+#if DEBUG
       warn << "xfsfile_rm_dirent: " << strerror(errno) << "\n";
+#endif
       return -1;
     }
     if (err != sizeof(*xde)) {
+#if DEBUG
       warn << "err = " << err << " ..short read..wierd\n";
+#endif
       return -1;
     }
     offset += reclen;
+#if DEBUG
     warn << "xde->d_namlen = " << xde->d_namlen << "\n";
     warn << "xde->d_name = " << xde->d_name << "\n";
     warn << "xde->d_reclen = " << xde->d_reclen << "\n";
     warn << "xde->d_fileno = " << xde->d_fileno << "\n";
+#endif
   } while (strncmp(xde->d_name, fname, strlen(fname)));
 
   lseek(fd, offset-reclen, SEEK_SET);

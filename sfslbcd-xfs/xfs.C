@@ -174,15 +174,19 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
   unsigned opcode = h->opcode;
   
   if (opcode >= XFS_MSG_COUNT || rcvfuncs[opcode] == NULL ) {
+#if DEBUG > 0
     warn << "Bad message opcode = " << opcode << "!!!!!!!!!\n";
+#endif
     return -1;
   }
   
   ++recv_stat[opcode];
-  
+ 
+#if DEBUG > 0
   warn << "Rec message: opcode = " << opcode << "("
        << rcvfuncs_name[opcode] << "), seq = " << h->sequence_num 
        << " size = " << h->size << "\n";
+#endif
 
   str msgstr = str((const char *)h, size);
   switch (opcode) {
@@ -393,19 +397,25 @@ xfs_message_send (int fd, struct xfs_message_header *h, u_int size)
      h->sequence_num = seqnums[fd]++;
 
      if (opcode >= XFS_MSG_COUNT) {
+#if DEBUG > 0
        warn << "Bad message opcode = " << opcode << "\n";
+#endif
        return -1;
      }
 
      ++sent_stat[opcode];
 
+#if DEBUG > 0
      warn << "Send message: opcode = " << opcode << "("<<
        rcvfuncs_name[opcode] << "), size = " << h->size << "\n";
+#endif
 
      //this is still a non-blocking socket..
      ret = kern_write (fd, h, size);
      if (u_int(ret) != size) {
+#if DEBUG > 0
        warn << strerror(errno) << " xfs_message_send: write\n";
+#endif
        return errno;
      } else
 	 return 0;
@@ -424,7 +434,9 @@ xfs_send_message_wakeup (int fd, u_int seqnum, int error)
      msg.header.opcode = XFS_MSG_WAKEUP;
      msg.sleepers_sequence_num = seqnum;
      msg.error = error;
+#if DEBUG > 0
      warn << "sending wakeup: seq = " << seqnum << ", error = " << error <<"\n";
+#endif
      return xfs_message_send (fd, (struct xfs_message_header*)(&msg), 
 			      sizeof(msg));
 }
@@ -533,8 +545,11 @@ add_new_msg (int fd,
     assert (h->opcode >= 0 && h->opcode < XFS_MSG_COUNT);
     ++sent_stat[h->opcode];
 
-    warn << "Multi-send: opcode = " << h->opcode << "(" << rcvfuncs_name[h->opcode]
+#if DEBUG > 0
+    warn << "Multi-send: opcode = " << h->opcode << "(" 
+         << rcvfuncs_name[h->opcode]
 	 << ") size = " << h->size << "\n";
+#endif
     
     memcpy (buf->buf + buf->len, h, size);
     memset (buf->buf + buf->len + size, 0, h->size - size);
@@ -555,14 +570,18 @@ send_msg (int fd, struct write_buf *buf)
 	return 0;
 
     ret = kern_write (fd, buf->buf, buf->len);
+#if DEBUG > 0
     warn << "ret = " << ret << " buf->len = " << buf->len << "\n";
+#endif
     if (ret != buf->len) {
       if (errno == EBADF) 
 	warn << "EBADF: ";
       else 
 	if (errno == EAGAIN)
 	  warn << "EAGAIN: ";
+#if DEBUG > 0
       warn << strerror(errno) << "(" << errno << ") :send_msg: write to fd=" << fd << "\n";
+#endif
       buf->len = 0;
       return errno;
     }
@@ -679,8 +698,10 @@ xfs_send_message_wakeup_vmultiple (int fd,
     int ret;
 
     ret = xfs_send_message_vmultiple (fd, args);
+#if DEBUG > 0
     if (ret)
       warn << "xfs_send_message_wakeup_vmultiple: failed sending messages with error " << ret << "\n";
+#endif
 
     msg.header.opcode = XFS_MSG_WAKEUP;
     msg.header.size  = sizeof(msg);
@@ -690,12 +711,16 @@ xfs_send_message_wakeup_vmultiple (int fd,
 
     ++sent_stat[XFS_MSG_WAKEUP];
 
+#if DEBUG > 0
     warn << "multi-sending wakeup: seq = " << seqnum << ", error = " << error << "\n";
+#endif
 
     ret = kern_write (fd, &msg, sizeof(msg));
     if (ret != sizeof(msg)) {
+#if DEBUG > 0
       warn << errno << "xfs_send_message_wakeup_vmultiple: writev";
-	return -1;
+#endif
+      return -1;
     }
     return 0;
 }

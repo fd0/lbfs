@@ -32,7 +32,7 @@
 #include "fingerprint.h"
 #include "lbfs.h"
 
-#define DEBUG 3
+#define DEBUG 0
 
 #if DEBUG > 1
 struct timeval tv0, tv1;
@@ -542,8 +542,10 @@ client::nfs3dispatch (svccb *sbp)
 	           authtab[authno]);
   }
   else {
+#if DEBUG > 0
     if (sbp->proc () == NFSPROC3_LOOKUP) 
       warn ("server: %lu %lu\n", xc->bytes_sent, xc->bytes_recv);
+#endif
     normal_dispatch(sbp, rqs);
   }
 }
