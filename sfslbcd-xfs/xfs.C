@@ -119,7 +119,6 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 #endif
 
   ++recv_stat[opcode];
-  //str msgstr = str((const char *)h, size);
   char *msgstr = New char [size];
   strncpy (msgstr, (const char *)h, size);
   ptr<xfscall> xfsc;
@@ -335,8 +334,9 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 #endif /* Other cases */
   default:
 #if DEBUG > 0
-    warn << "Function not implemented !!!!!!!!! \n";
+    warn << "Opcode "<< opcode << ": Function not implemented !!!!!!!!! \n";
 #endif
+    assert (0);
     break;
   }
 

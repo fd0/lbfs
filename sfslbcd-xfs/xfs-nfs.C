@@ -50,18 +50,6 @@ nfs_rights2xfs_rights (u_int32_t access, ftype3 ftype, u_int32_t mode)
 
 void nfsobj2xfsnode (xfs_cred cred, cache_entry *e, xfs_msg_node *node) 
 {
-#if 0
-  // change expire to rpc_time + expire
-  if (attr.type != NF3DIR || update_dir_expire)
-    attr.expire += rqtime;
-
-  cache_entry *e = nfsindex[obj];
-  if (!e) {
-    e = New cache_entry(obj, attr);
-  } else
-    e->nfs_attr = attr;
-#endif
-
   node->handle = e->xh; 
 #if DEBUG > 0
   warn << "nfsfh becomes node.handle (" 

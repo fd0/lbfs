@@ -186,7 +186,6 @@ struct getroot_obj {
     nc->call (lbfs_NFSPROC3_FSINFO, &sfs_fsi->nfs->v3->root, nfs_fsi,
 	      wrap (this, &getroot_obj::gotnfs_fsinfo), lbfs_authof (sa));
     const struct xfs_message_putattr *h1 = (xfs_message_putattr *) &h;
-    warn << "Called lbfs_attr !!!!\n";
     lbfs_attr (fd, *h1, sa, sfs_fsi->nfs->v3->root, 
 	       nc, wrap (this, &getroot_obj::gotattr));
   }
@@ -471,7 +470,6 @@ struct readdir_obj {
       h0 = (struct xfs_message_header *) &msg;
       h0_len = sizeof (msg);
       
-      warn << "write_dirfile: seq_num = " << h.header.sequence_num << "\n";
       xfs_send_message_wakeup_multiple (fd, h.header.sequence_num, 0,
 					h0, h0_len, NULL, 0);
       (*cb) ();
@@ -1073,13 +1071,21 @@ struct create_obj {
 				  msg3.cache_name, &msg3.cache_handle);
       close (cfd);
       
-      strcpy (msg1.cache_name, e->cache_name);
+      int parent_fd = assign_cachefile (fd, h.header.sequence_num, e, 
+					msg1.cache_name, &msg1.cache_handle);
+      if (nfsdirent2xfsfile (parent_fd, h.name, e1->nfs_attr.fileid) < 0) {
+#if DEBUG > 0
+	warn << "Error: can't write to parent dir file\n";
+#endif
+	//messages.C: benjie's rant.
+	e->incache = false;	
+      }
+      close (parent_fd);
       assert (res->resok->dir_wcc.after.present);
       e->nfs_attr = *(res->resok->dir_wcc.after.attributes);
       e->set_exp (rqt);
+      e->ltime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
       nfsobj2xfsnode (cred, e, &msg1.node);
-      //messages.C: benjie's rant.
-      e->incache = false;
 
       msg1.flag = XFS_ID_INVALID_DNLC;
       msg1.header.opcode = XFS_MSG_INSTALLDATA;
@@ -1623,12 +1629,6 @@ struct rename_obj {
   rename_obj (int fd1, const xfs_message_rename &h1, sfs_aid sa1, ref<aclnt> c1) :
     fd(fd1), c(c1), h(h1), sa(sa1) 
   {
-    warn << " old_parent_handle ("
-    << (int) h.old_parent_handle.a << ","
-    << (int) h.old_parent_handle.b << ","
-    << (int) h.old_parent_handle.c << ","
-    << (int) h.old_parent_handle.d << ")\n";
-
     e1 =  xfsindex[h.old_parent_handle];
     if (!e1) {
 #if DEBUG > 0
