@@ -5,6 +5,8 @@
 #include "xfs-nfs.h"
 #include "cache.h"
 #include "../sfslbsd/sfsrwsd.h"
+//#include <sys/types.h>
+#include <sys/stat.h>
 
 AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
 AUTH *auth_default = 
@@ -2294,6 +2296,22 @@ struct write_obj {
 void
 lbfs_putdata (int fd, ref<xfs_message_header> h, sfs_aid sa, ref<aclnt> c)
 {
+
+  xfs_message_putdata *hh = msgcast<xfs_message_putdata> (h);
+  cache_entry *e = xfsindex[hh->handle];
+  if (!e) {
+    if (lbcd_trace > 1)
+      warn << "lbfs_putdata: Can't find node handle\n";
+    xfs_reply_err (fd, h->sequence_num, ENOENT);
+    return;
+  }
+
+  struct stat sb;
+  if (!lstat (e->cache_name, &sb))
+    if (sb.st_size < 8192) {
+      vNew write_obj (fd, h, sa, c);
+      return;
+    }
   if (lbfs > 1)
     vNew putdata_obj (fd, h, sa, c);
   else vNew write_obj (fd, h, sa, c);
