@@ -88,8 +88,16 @@ class fh_map {
     } else return -1;
   }
 
+  int setcur(nfs_fh3 nfh) {
+    int fh = find(nfh);
+    if (fh > -1) {
+      cur_fh = fh;
+      return 0;
+    } else return -1;
+  }
+
   void setopened(bool b) { entry[cur_fh].opened = b; }
-  void setcache_name(const char* c) { strcpy(entry[cur_fh].cache_name, c); }
+  //void setcache_name(const char* c) { strcpy(entry[cur_fh].cache_name, c); }
   
   xfs_handle getxh(int i) { return entry[i].xh; }
   nfs_fh3 getnh(int i) { return entry[i].nh; }
@@ -119,6 +127,7 @@ class fh_map {
       entry[i].xh.c = 0;
       entry[i].xh.d = 0;
       //delete entry[i].nh;
+      delete entry[i].cache_name;
       //delete cache file
       entry[i].opened = false;
     }
@@ -132,9 +141,52 @@ class fh_map {
       entry[i].xh.c = 0;
       entry[i].xh.d = 0;
       //delete entry[i].nh;
+      delete entry[i].cache_name;
+#if 0      
       //delete cache file
+      if (unlink(entry[i].cache_name) < 0)
+	warn << strerror(errno) << "\n";
+#endif
       entry[i].opened = false;
     }
+  }
+
+  int assign_dirname(char *dname, int index) {
+    return snprintf(dname, MAXPATHLEN, "cache/%02X", index / 0x100);
+  }
+  
+  int assign_filename(char *fname, int index) {
+    return snprintf(fname, MAXPATHLEN, "cache/%02X/%02X", 
+		    index / 0x100, index % 0x100);
+  }
+
+  int setcache_name(char *fname, int index) { 
+    
+    int fd;
+
+    assign_filename(fname, index);
+    fd = open(fname, O_CREAT | O_RDWR | O_TRUNC, 0666); 
+    if (fd < 0) { 
+      if (errno == ENOENT) {
+	char *dname = new char[MAXPATHLEN];
+	assign_dirname(dname, index);
+	warn << "Creating dir: " << dname << "\n";
+	if (mkdir(dname, 0777) < 0) {
+	  warn << strerror(errno) << "(" << errno << ") mkdir " << dname << "\n";
+	  return -1;
+	}
+	fd = open(fname, O_CREAT | O_RDWR | O_TRUNC, 0666); 
+	if (fd < 0) {
+	  warn << strerror(errno) << "(" << errno << ") on file =" << fname << "\n";
+	  return -1;
+	}
+      } else {
+	warn << strerror(errno) << "(" << errno << ") on file =" << fname << "\n";
+	return -1;
+      }
+    }
+    
+    return fd;
   }
 
   xfs_handle gethandle(nfs_fh3 nfh, ex_fattr3 attr) {
@@ -150,6 +202,7 @@ class fh_map {
       entry[max_fh].xh = xfh;
       entry[max_fh].nh = nfh;
       entry[max_fh].nfs_attr = attr;
+      setcache_name(entry[max_fh].cache_name, max_fh);
       cur_fh = max_fh;
       return xfh;
     }

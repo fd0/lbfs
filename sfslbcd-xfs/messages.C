@@ -37,10 +37,9 @@ lbfs_mktmpfile3args *mt;
 lbfs_condwrite3args *cw;
 lbfs_committmp3args *ct;
 vec<lbfs_chunk *> *cvp; 
+lbfs_getfp3args *gfp;
 
 static char iobuf[NFS_MAXDATA];
-
-//ref<condwrite3args> cwa;
 
 xfs_message_function rcvfuncs[] = {
 NULL,						/* version */
@@ -74,6 +73,8 @@ NULL						/* gc nodes */
 #endif
 
 };
+
+void lbfs_condwrite(ref<condwrite3args> cwa, clnt_stat err);
 
 void getrootattr(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, ex_getattr3res *res, clnt_stat err) {
 
@@ -345,7 +346,10 @@ void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res,
     msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R;
 
     //fill in cache_name, cache_handle, flag
+    
     args.fd = assign_file(msg.cache_name, fht.getcur());
+    //msg.cache_name = fht.getcache_name();
+    //args.fd = open(msg.cache_name, O_CREAT | O_RDWR | O_TRUNC, 0666); 
     if (args.fd < 0) 
       return;
   
@@ -383,8 +387,7 @@ void write_file(int fd, struct xfs_message_getdata *h, ex_read3res *res,
 	       wrap(&write_file, fd, h, rres, cfd, msg));
   } else {
 
-    close(cfd);
-    
+    close(cfd);    
     fht.setopened(true);
 
     struct xfs_message_header *h0 = NULL;
@@ -468,6 +471,129 @@ void nfs3_read_exist(int fd, struct xfs_message_getdata *h) {
  
 }
 
+void normal_read(int fd, struct xfs_message_getdata *h, uint64 offset, uint32 count) {
+
+  if (fht.setcur(h->handle)) {
+    warn << "normal_read: Can't find node handle\n";
+    return;
+  }
+ 
+  ra = new read3args;
+  ra->file = fht.getnh(fht.getcur());
+  ra->offset = offset;
+  ra->count = count;
+  
+  ex_read3res *rres = new ex_read3res;
+  nfsc->call(lbfs_NFSPROC3_READ, ra, rres,
+	     wrap(&nfs3_read, fd, h, rres));
+
+}
+
+#if LBFS_READ
+
+void compose_file(int fd, struct xfs_message_getdata *h, lbfs_getfp3res *res, 
+		  int cfd, struct xfs_message_installdata msg) {
+
+  int err, chfd;
+  uint64 offset = gfp->offset;
+  uint32 count = 0;
+  lbfs_db::chunk_iterator *ci = NULL;
+  bool found = false;
+
+  for (uint i=0; i<res->resok->fprints.size(); i++) {
+    //find matching fp in the database
+    //if found, write that chunk to the file,
+    //otherwise, send for a normal read of that chunk
+    found = false;
+    if (lbfsdb.get_chunk_iterator(res->resok->fprints[i].fingerprint, &ci)) {
+      if (ci) {
+	lbfs_chunk_loc c;
+	if (!ci->get(&c)) {
+	  found = true;
+	  nfs_fh3 fh;
+	  c.get_fh(fh);
+	  unsigned char *buf = new unsigned char[c.count()];
+
+	  //read chunk c.pos() to c.count() from fh into buf 
+	  if (fht.setcur(fh)) {
+	    warn << "compose_file: Can't find node handle\n";
+	    return;
+	  }
+	  
+	  chfd = open(fht.getcache_name(), O_RDONLY, 0666);
+	  if (chfd < 0) {
+	    warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
+	    return;
+	  }
+	  if (lseek(chfd, c.pos(), SEEK_SET) < 0) {
+	    warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
+	    return;	    
+	  }
+	  if ((err = read(chfd, buf, c.count())) > -1) {
+	    if ((uint32)err != c.count()) {
+	      warn << "compose_file: error: " << err << " != " << c.count() << "\n";
+	      return;
+	    }
+	  } else {
+	    warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
+	    return;	    	    
+	  }
+	  //write that chunk to the file
+	  if (lseek(cfd, offset, SEEK_SET) < 0) {
+	    warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
+	    return;	    
+	  } 
+	  if ((err = write(cfd, buf, c.count())) > -1) {
+	    if ((uint32)err != c.count()) {
+	      warn << "compose_file: error: " << err << " != " << c.count() << "\n";
+	      return;
+	    }
+	  } else {
+	    warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
+	    return;	    	     
+	  }
+	}
+      }
+      delete ci;
+    }
+    if (!found) {
+      warn << "compose_file: fp = " << res->resok->fprints[i].fingerprint << " not in DB\n";
+      normal_read(fd, h, offset, res->resok->fprints[i].count);
+    }
+    offset += res->resok->fprints[i].count;
+  }
+}
+
+void lbfs_getfp(int fd, struct xfs_message_getdata *h, lbfs_getfp3res *res, 
+		int cfd, struct xfs_message_installdata msg, clnt_stat err) {
+
+  if (res->status == NFS3_OK) {
+    compose_file(fd, h, res, cfd, msg); 
+    if (!res->resok->eof) {
+      gfp->offset += gfp->count;
+      lbfs_getfp3res *fpres = new lbfs_getfp3res;
+      nfsc->call(lbfs_GETFP, gfp, fpres,
+		 wrap (&lbfs_getfp, fd, h, fpres, cfd, msg));
+    } else {
+      close(cfd);
+      fht.setopened(true);
+      
+      struct xfs_message_header *h0 = NULL;
+      size_t h0_len = 0;
+
+      msg.header.opcode = XFS_MSG_INSTALLDATA;
+      h0 = (struct xfs_message_header *)&msg;
+      h0_len = sizeof(msg);
+    
+      xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+					h0, h0_len, NULL, 0);
+    }
+  } else {
+    warn << "lbfs_getfp: " << strerror(errno) << "\n";
+  }
+}
+#endif
+
 int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
 {
 
@@ -478,11 +604,57 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
        << (int)h->handle.d << ")\n";
   
   if (fht.setcur(h->handle)) {
-    warn << "nfs3_readdir: Can't find node handle\n";
+    warn << "xfs_message_getdata: Can't find node handle\n";
     return -1;
   }
 
   if (!fht.opened()) {
+#if LBFS_READ
+    if (fht.getattr(fht.getcur()).type == NF3DIR) {
+      rda = new readdir3args;
+      rda->dir = fht.getnh(fht.getcur());
+      rda->cookie = 0;
+      rda->cookieverf = cookieverf3();
+      rda->count = fsinfo.dtpref;
+
+      ex_readdir3res *rdres = new ex_readdir3res;
+      nfsc->call(lbfs_NFSPROC3_READDIR, rda, rdres,
+		 wrap (&nfs3_readdir, fd, h, rdres));
+    } else 
+      if (fht.getattr(fht.getcur()).type == NF3REG) {
+	int cfd;
+	struct xfs_message_installdata msg;
+	
+	nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
+		       fht.getattr(fht.getcur()), &msg.node);
+      
+	msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R 
+	  | XFS_OPEN_NW | XFS_DATA_W; //This line is a hack...need to get read access 
+
+	cfd = assign_file(msg.cache_name, fht.getcur());
+	if (cfd < 0) {
+	  warn << "xfs_message_getdata: " << strerror(errno) << "\n";
+	  return -1;
+	}
+      
+	fhandle_t cfh;
+	if (getfh(msg.cache_name, &cfh)) {
+	  warn << "getfh failed\n";
+	  return -1;
+	}
+	memmove(&msg.cache_handle, &cfh, sizeof(cfh));
+	
+	gfp = new lbfs_getfp3args;
+	gfp->file = fht.getnh(fht.getcur());
+	gfp->offset = 0;
+	gfp->count = LBFS_MAXDATA;
+      
+	lbfs_getfp3res *fpres = new lbfs_getfp3res;
+	nfsc->call(lbfs_GETFP, gfp, fpres,
+		   wrap (&lbfs_getfp, fd, h, fpres, cfd, msg));
+      }
+#else 
+
     if (fht.getattr(fht.getcur()).type == NF3DIR) {
       rda = new readdir3args;
       rda->dir = fht.getnh(fht.getcur());
@@ -505,6 +677,7 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
 	nfsc->call(lbfs_NFSPROC3_READ, ra, rres,
 		   wrap(&nfs3_read, fd, h, rres));
       }
+#endif
   } else
     nfs3_read_exist(fd, h);
   
@@ -561,66 +734,70 @@ void nfs3_write (int fd, struct xfs_message_putdata* h, ex_write3res *res, clnt_
   else warn << "nfs3_write: error: " << strerror(errno) << "(" << errno << ")\n";
 }
 
-void nfs3_committmp(ref<condwrite3args> cwa, ex_commit3res *res, clnt_stat err) {
+void committmp(ref<condwrite3args> cwa, ex_commit3res *res, clnt_stat err) {
   if (res->status == NFS3_OK) {
     xfs_send_message_wakeup (cwa->fd, cwa->h->header.sequence_num, 0);
   } else warn << "nfs3_committmp: " << strerror(res->status) << "\n";
   
 }
 
-void lbfs_nfs3_condwrite(ref<condwrite3args> cwa, clnt_stat err) {
-
-  if (cwa->res != NULL) {
-    if (cwa->res->status == NFS3_OK) {
-      if (cwa->res->resok->count != (*cwa->cvp)[cwa->chunk_index-1]->loc.count()) {
-	warn << "lbfs_nfs3_condwrite: did not write the whole chunk...\n";
-	return;
-      } 
-    } else 
-      if (cwa->res->status == NFS3ERR_FPRINTNOTFOUND) {
-	warn << "cwa->chunk_index = " << cwa->chunk_index << " size = " << cwa->cvp->size() << "\n";
-	uint offst = lseek(cwa->rfd, (*cwa->cvp)[cwa->chunk_index-1]->loc.pos(), SEEK_SET);
-	int err = read(cwa->rfd, iobuf, (*cwa->cvp)[cwa->chunk_index-1]->loc.count());
-	if (err < 0) {
-	  warn << "lbfs_nfs3_condwrite: error: " << strerror(errno) << "(" << errno << ")\n";
-	  return;
-	}
-	wa = new write3args;
-	wa->file = cwa->tmpfh;
-	wa->offset = offst;
-	wa->stable = UNSTABLE;
-	wa->count = err;
-	wa->data.setsize(err);
-	memcpy (wa->data.base(), iobuf, err);	
-
-	ex_write3res *wres = new ex_write3res;
-	nfsc->call(lbfs_NFSPROC3_WRITE, wa, wres, 
-		   wrap(&nfs3_write, cwa->fd, cwa->h, wres));
-      }
-  }
-
-  if (cwa->chunk_index < cwa->cvp->size()) {
-    warn << "cwa->chunk_index = " << cwa->chunk_index << " size = " << cwa->cvp->size() << "\n";
-    cw = new lbfs_condwrite3args;
-    cw->file = cwa->tmpfh;
-    cw->offset = (*cwa->cvp)[cwa->chunk_index]->loc.pos();
-    cw->count = (*cwa->cvp)[cwa->chunk_index]->loc.count();
-    cw->fingerprint = (*cwa->cvp)[cwa->chunk_index]->fingerprint;
-
-    lseek(cwa->rfd, (*cwa->cvp)[cwa->chunk_index]->loc.pos(), SEEK_SET);
-    int err = read(cwa->rfd, iobuf, (*cwa->cvp)[cwa->chunk_index]->loc.count());
+void sendwrite(ref<condwrite3args> cwa) {
+  int err, ost;
+  uint64 offst = (*cwa->cvp)[cwa->chunk_index-1]->loc.pos();
+  uint32 count = (*cwa->cvp)[cwa->chunk_index-1]->loc.count();
+  while (count > 0) {
+    ost = lseek(cwa->rfd, offst, SEEK_SET);
+    if (count < NFS_MAXDATA)
+      err = read(cwa->rfd, iobuf, count);
+    else err = read(cwa->rfd, iobuf, NFS_MAXDATA);
+    count -= err;
+    offst += err;
     if (err < 0) {
-      warn << "lbfs_nfs3_condwrite: error: " << strerror(errno) << "(" << errno << ")\n";
+      warn << "lbfs_condwrite: error: " << strerror(errno) << "(" << errno << ")\n";
       return;
     }
-    sha1_hash(&cw->hash, iobuf, cw->count);  
+    wa = new write3args;
+    wa->file = cwa->tmpfh;
+    wa->offset = ost;
+    wa->stable = UNSTABLE;
+    wa->count = err;
+    wa->data.setsize(err);
+    memcpy (wa->data.base(), iobuf, err);	
+    
+    ex_write3res *wres = new ex_write3res;
+    nfsc->call(lbfs_NFSPROC3_WRITE, wa, wres, 
+	       wrap(&nfs3_write, cwa->fd, cwa->h, wres));
+  }
+}
 
-    cwa->res = new ex_write3res;
-    cwa->chunk_index++;
+void sendcondwrite(ref<condwrite3args> cwa) {
 
-    nfsc->call(lbfs_CONDWRITE, cw, cwa->res,
-           wrap(&lbfs_nfs3_condwrite, cwa));
-  } else {
+  cw = new lbfs_condwrite3args;
+  cw->file = cwa->tmpfh;
+  cw->offset = (*cwa->cvp)[cwa->chunk_index]->loc.pos();
+  cw->count = (*cwa->cvp)[cwa->chunk_index]->loc.count();
+  cw->fingerprint = (*cwa->cvp)[cwa->chunk_index]->fingerprint;
+
+  lseek(cwa->rfd, (*cwa->cvp)[cwa->chunk_index]->loc.pos(), SEEK_SET);
+  char *buf = new char[cw->count];
+  int err = read(cwa->rfd, buf, cw->count);
+  warn << "reading: chunk size " << cw->count << " got " << err << "\n";
+  if (err < 0) {
+    warn << "lbfs_condwrite: error: " << strerror(errno) << "(" << errno << ")\n";
+    return;
+  }
+  sha1_hash(&cw->hash, buf, err);
+  delete buf;
+  
+  cwa->res = new ex_write3res;
+  cwa->chunk_index++;
+
+  nfsc->call(lbfs_CONDWRITE, cw, cwa->res,
+	     wrap(&lbfs_condwrite, cwa));
+}
+
+void sendcommittmp(ref<condwrite3args> cwa) {
+
     //signal the server to commit the tmp file
     ct = new lbfs_committmp3args;
     ct->commit_from = cwa->tmpfh;
@@ -633,16 +810,35 @@ void lbfs_nfs3_condwrite(ref<condwrite3args> cwa, clnt_stat err) {
     
     ex_commit3res *cres = new ex_commit3res;
     nfsc->call(lbfs_COMMITTMP, ct, cres,
-	       wrap(&nfs3_committmp, cwa, cres));
+	       wrap(&committmp, cwa, cres));
+}
 
+void lbfs_condwrite(ref<condwrite3args> cwa, clnt_stat err) {
+
+  if (cwa->res != NULL) {
+    if (cwa->res->status == NFS3_OK) {
+      if (cwa->res->resok->count != (*cwa->cvp)[cwa->chunk_index-1]->loc.count()) {
+	warn << "lbfs_condwrite: did not write the whole chunk...\n";
+	return;
+      } 
+    } else 
+      if (cwa->res->status == NFS3ERR_FPRINTNOTFOUND) 
+	sendwrite(cwa);
+  }
+
+  if (cwa->chunk_index < cwa->cvp->size()) {
+    warn << "cwa->chunk_index = " << cwa->chunk_index << " size = " << cwa->cvp->size() << "\n";
+    sendcondwrite(cwa);
+  } else {
+    sendcommittmp(cwa);
   }
 }
 
-void lbfs_nfs3_mktmpfile(int fd, struct xfs_message_putdata* h, 
+void lbfs_mktmpfile(int fd, struct xfs_message_putdata* h, 
 			 ex_diropres3 *res, clnt_stat err) {
 
   if (res->status != NFS3_OK) {
-    warn << "lbfs_nfs3_mktmpfile: error: " << strerror(res->status) << "(" << res->status << ")\n";
+    warn << "lbfs_mktmpfile: error: " << strerror(res->status) << "(" << res->status << ")\n";
     return;
   } else if (!res->resok->obj.present) {
     warn << "tmpfile handle not present\n";
@@ -666,14 +862,14 @@ void lbfs_nfs3_mktmpfile(int fd, struct xfs_message_putdata* h,
   cwa->res = NULL;
 
   if (chunk_file(CHUNK_SIZES(0), cwa->cvp, (char const*)fname) < 0) {
-    warn << strerror(errno) << "(" << errno << "): lbfs_nfs3_mktmpfile(chunkfile)\n";
+    warn << strerror(errno) << "(" << errno << "): lbfs_mktmpfile(chunkfile)\n";
     return;
   }
   
   cwa->rfd = open(fname, O_RDONLY, 0666);
   if (cwa->rfd > -1)
-    lbfs_nfs3_condwrite(cwa, clnt_stat(0));
-  else warn << "lbfs_nfs3_mktmpfile: error: " << strerror(errno) << "(" << errno << ")\n";
+    lbfs_condwrite(cwa, clnt_stat(0));
+  else warn << "lbfs_mktmpfile: error: " << strerror(errno) << "(" << errno << ")\n";
 
 }
 
@@ -694,50 +890,10 @@ int xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size) {
   ex_diropres3 *res = new ex_diropres3;
 
   nfsc->call(lbfs_MKTMPFILE, mt, res,
-	     wrap(&lbfs_nfs3_mktmpfile, fd, h, res));
+	     wrap(&lbfs_mktmpfile, fd, h, res));
   
   return 0;
 }
-
-#if 0
-//normal write
-void write_data(int fd, struct xfs_message_putdata *h, 
-		int ffd, ex_write3res *res, clnt_stat cl_err) {
-
-  int err = 0;
-
-  if (res != NULL) {
-    if (res->status == NFS3_OK)
-      wa->offset += res->resok->count;
-    else return;
-  }
-
-  if (lseek (ffd, (long) wa->offset, L_SET) >= 0)
-    err = read(ffd, iobuf, NFS_MAXDATA);
-  else {
-    warn << strerror(errno) << "(" << errno << "): write_data\n";
-    return;
-  }
-
-  if (err == -1) {
-    warn << strerror(errno) << "(" << errno << ") write_data\n";
-    close(ffd);
-    xfs_send_message_wakeup (fd, h->header.sequence_num, err);
-  } else
-    if (err == 0) { //end of file
-      close(ffd);
-      xfs_send_message_wakeup (fd, h->header.sequence_num, err);
-    } else //maybe more to read
-      if (err <= NFS_MAXDATA) {  
-	wa->count = err;
-	wa->data.setsize(err);
-	memcpy (wa->data.base(), iobuf, err);	
-	res = new ex_write3res;
-	nfsc->call(lbfs_NFSPROC3_WRITE, wa, res,
-		   wrap(&write_data, fd, h, ffd, res));
-      }      
-}
-#endif
 
 int xfs_message_inactivenode (int fd, struct xfs_message_inactivenode* h, u_int size) {
 

@@ -38,6 +38,7 @@
 #include "sha1.h"
 
 #define NFS_MAXDATA 8192
+#define LBFS_MAXDATA 2097152
 
 extern fh_map fht;
 

@@ -29,6 +29,10 @@ ptr<aclnt> nfsc = NULL;
 vec<sfs_extension> sfs_extensions;
 sfs_connectres conres;
 
+#if LBFS_READ
+lbfs_db lbfsdb;
+#endif
+
 bool
 cd_parsepath (str path, str *host, sfs_hash *hostid, u_int16_t *portp)
 {
@@ -157,5 +161,8 @@ void sfsInit(const char* path) {
   warn << "path = " << path << " port = " << port << "\n";
   strcpy(sfs_path, path);
   tcpconnect(hostname, port, wrap(sfsConnect, hostname, hid));
+#if LBFS_READ
+  lbfsdb.open();
+#endif
 }
 

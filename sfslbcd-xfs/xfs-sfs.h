@@ -21,19 +21,23 @@
 
 #ifndef _XFS_SFS_H_
 #define _XFS_SFS_H_ 1
+#define LBFS_READ 1
 
 #include "async.h"
 #include "arpc.h"
 #include "sfsmisc.h"
-//#include "sfs_prot.h"
-//#include "nfs3exp_prot.h"
 #include "lbfs_prot.h"
-
 #include <sys/types.h>
+
+#if LBFS_READ
+#include "lbfsdb.h"
+extern lbfs_db lbfsdb;
+#endif
 
 extern int server_fd;
 extern ptr<aclnt> sfsc;
 extern ptr<aclnt> nfsc;
+
 
 void sfsInit(const char* hostpath);
 
