@@ -166,12 +166,13 @@ int xfs_message_getnode (int fd, struct xfs_message_getnode *h, u_int size)
     warn << "xfs_message_getnode: Can't find parent_handle\n";
     return -1;
   }
+  
   doa = new diropargs3;
   doa->dir = fht.getnh(fht.getcur());
   doa->name = h->name;
   warn << "requesting file name " << doa->name.cstr() << "\n";
   ex_lookup3res *res = new ex_lookup3res;
-
+  
   nfsc->call(ex_NFSPROC3_LOOKUP, doa, res, 
 	     wrap (&nfs3_lookup, fd, h, res));
 
@@ -244,6 +245,8 @@ void write_dirfile(int fd, struct xfs_message_getdata *h, ex_readdir3res *res,
 
       close(args.fd);
 
+      fht.setopened(true);
+
       msg.header.opcode = XFS_MSG_INSTALLDATA;
       h0 = (struct xfs_message_header *)&msg;
       h0_len = sizeof(msg);
@@ -314,6 +317,8 @@ void write_file(int fd, struct xfs_message_getdata *h, ex_read3res *res,
   } else {
 
     close(cfd);
+    
+    fht.setopened(true);
 
     struct xfs_message_header *h0 = NULL;
     size_t h0_len = 0;
@@ -367,6 +372,38 @@ void nfs3_read(int fd, struct xfs_message_getdata *h, ex_read3res *res,
   }
 }
 
+void nfs3_read_exist(int fd, struct xfs_message_getdata *h) {
+
+  int cfd;
+  struct xfs_message_installdata msg; 
+  
+  nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
+		 fht.getattr(fht.getcur()), &msg.node);
+
+  msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R 
+                  | XFS_OPEN_NW | XFS_DATA_W; //This line is a hack...need to get read access 
+
+  assign_filename(msg.cache_name, fht.getcur());
+  fhandle_t cfh;
+  if (getfh(msg.cache_name, &cfh)) {
+    warn << "getfh failed\n";
+    return;
+  }
+  memmove(&msg.cache_handle, &cfh, sizeof(cfh));
+
+  struct xfs_message_header *h0 = NULL;
+  size_t h0_len = 0;
+  
+  msg.header.opcode = XFS_MSG_INSTALLDATA;
+  h0 = (struct xfs_message_header *)&msg;
+  h0_len = sizeof(msg);
+  
+  xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+				    h0, h0_len, NULL, 0);
+ 
+
+}
+
 int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
 {
 
@@ -381,28 +418,31 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
     return -1;
   }
 
-  if (fht.getattr(fht.getcur()).type == NF3DIR) {
-    rda = new readdir3args;
-    rda->dir = fht.getnh(fht.getcur());
-    rda->cookie = 0;
-    rda->cookieverf = cookieverf3();
-    rda->count = 2000; //GUESS!! should use dtpres
+  if (!fht.opened()) {
+    if (fht.getattr(fht.getcur()).type == NF3DIR) {
+      rda = new readdir3args;
+      rda->dir = fht.getnh(fht.getcur());
+      rda->cookie = 0;
+      rda->cookieverf = cookieverf3();
+      rda->count = 2000; //GUESS!! should use dtpres
 
-    ex_readdir3res *rdres = new ex_readdir3res;
-    nfsc->call(ex_NFSPROC3_READDIR, rda, rdres,
-	       wrap (&nfs3_readdir, fd, h, rdres));
+      ex_readdir3res *rdres = new ex_readdir3res;
+      nfsc->call(ex_NFSPROC3_READDIR, rda, rdres,
+		 wrap (&nfs3_readdir, fd, h, rdres));
+    } else
+      if (fht.getattr(fht.getcur()).type == NF3REG) {
+	
+	ra = new read3args;
+	ra->file = fht.getnh(fht.getcur());
+	ra->offset = 0;
+	ra->count = NFS_MAXDATA;
+
+	ex_read3res *rres = new ex_read3res;
+	nfsc->call(ex_NFSPROC3_READ, ra, rres,
+		   wrap(&nfs3_read, fd, h, rres));
+      }
   } else
-    if (fht.getattr(fht.getcur()).type == NF3REG) {
-
-      ra = new read3args;
-      ra->file = fht.getnh(fht.getcur());
-      ra->offset = 0;
-      ra->count = NFS_MAXDATA;
-
-      ex_read3res *rres = new ex_read3res;
-      nfsc->call(ex_NFSPROC3_READ, ra, rres,
-		 wrap(&nfs3_read, fd, h, rres));
-    }
+    nfs3_read_exist(fd, h);
   
   return 0;
 }
@@ -505,6 +545,7 @@ int xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size) {
     return -1;
   } 
 
+#if 0
   char *fname;
   assign_filename(fname, fht.getcur());
   int ffd = open(fname, O_RDONLY, 0666);
@@ -514,7 +555,10 @@ int xfs_message_putdata (int fd, struct xfs_message_putdata *h, u_int size) {
   wa->offset = 0;
   wa->stable = FILE_SYNC;
   write_data(fd, h, ffd, NULL, clnt_stat(0));
+#endif
 
+  xfs_send_message_wakeup (fd, h->header.sequence_num, 0);
+  
   return 0;
 }
 

@@ -43,7 +43,8 @@ typedef struct fh_pair{
   xfs_handle xh;
   nfs_fh3 nh;
   ex_fattr3 nfs_attr;
-  //fhandle_t bfh; //specific to BSD?
+  char *cache_name;
+  bool opened;
 } fh_pair;
 
 class fh_map {
@@ -60,6 +61,7 @@ class fh_map {
       entry[i].xh.b = 0;
       entry[i].xh.c = 0;
       entry[i].xh.d = 0;
+      entry[i].opened = false;
     }
     //move this part to cache soon
     if (int fd = open("cache", O_RDONLY, 0666) < 0) {
@@ -86,10 +88,15 @@ class fh_map {
       return 0;
     } else return -1;
   }
+
+  void setopened(bool b) { entry[cur_fh].opened = b; }
+  void setcache_name(const char* c) { strcpy(entry[cur_fh].cache_name, c); }
   
   xfs_handle getxh(int i) { return entry[i].xh; }
   nfs_fh3 getnh(int i) { return entry[i].nh; }
   ex_fattr3 getattr(int i) {return entry[i].nfs_attr; }
+  char *getcache_name() { return entry[cur_fh].cache_name; }
+  bool opened() { return entry[cur_fh].opened; }
 
   int find(xfs_handle x) {
     for (int i=0; i<=max_fh; i++)
