@@ -51,13 +51,13 @@ nfs_rights2xfs_rights (u_int32_t access, ftype3 ftype, u_int32_t mode)
 void nfsobj2xfsnode (xfs_cred cred, cache_entry *e, xfs_msg_node *node) 
 {
   node->handle = e->xh; 
-#if DEBUG > 0
-  warn << "nfsfh becomes node.handle (" 
-       << node->handle.a << ","
-       << node->handle.b << ","
-       << node->handle.c << ","
-       << node->handle.d << ")\n";
-#endif
+  if (lbcd_trace > 0)
+    warn << "nfsfh becomes node.handle (" 
+	 << node->handle.a << ","
+	 << node->handle.b << ","
+	 << node->handle.c << ","
+	 << node->handle.d << ")\n";
+  
 
   node->anonrights = XFS_RIGHT_R | XFS_RIGHT_W | XFS_RIGHT_X;
   node->tokens = XFS_ATTR_R; // | ~XFS_DATA_MASK;
@@ -158,38 +158,69 @@ int nfsdir2xfsfile(ex_readdir3res *res, write_dirent_args *args)
 #endif
     bzero(xde, sizeof(*xde));
     xde->d_namlen = nfs_dirent->name.len();
-#if DEBUG
-    warn << "xde->namlen = " << xde->d_namlen 
-	 << " nfs_dirent_len = " << nfs_dirent->name.len() << "\n";
-#endif
+    if (lbcd_trace)
+      warn << "xde->namlen = " << xde->d_namlen 
+	   << " nfs_dirent_len = " << nfs_dirent->name.len() << "\n";
     xde->d_reclen = reclen;
 #if defined(HAVE_STRUCT_DIRENT_D_TYPE) && !defined(__linux__)
     xde->d_type = DT_UNKNOWN;
 #endif
     xde->d_fileno = nfs_dirent->fileid;
     strcpy(xde->d_name, nfs_dirent->name.cstr());
-#if DEBUG
-    warn << "xde->d_name = " << xde->d_name 
-	 << " nfs_dirent_name = " << nfs_dirent->name.cstr() << "\n";
-#endif
+    if (lbcd_trace)
+      warn << "xde->d_name = " << xde->d_name 
+	   << " nfs_dirent_name = " << nfs_dirent->name.cstr() << "\n";
 #if 1
     args->ptr += xde->d_reclen;
     args->off += xde->d_reclen;
     args->last = xde;
 #else    
     if (write (args->fd, xde, reclen) != reclen) {
-#if DEBUG
-      warn << "(" << errno << "):write\n";
-#endif
+      if (lbcd_trace)
+	warn << "(" << errno << "):write\n";
       return -1;
     }
-#if DEBUG
-    warn << "wrote " << xde->d_name << "\n";
-#endif
+    if (lbcd_trace)
+      warn << "wrote " << xde->d_name << "\n";
 #endif
     nfs_dirent = nfs_dirent->nextentry;
   }
   //delete xde;
+  return 0;
+}
+
+int conv_dir (int fd, ex_readdir3res *res) 
+{
+  assert(res->status == NFS3_OK);
+  entry3 *nfs_dirent = res->resok->reply.entries;
+  xfs_dirent *xde = (xfs_dirent *) malloc (sizeof (*xde)); 
+  int reclen = sizeof(*xde);
+
+  while (nfs_dirent != NULL) {
+    bzero(xde, sizeof(*xde));
+    xde->d_namlen = nfs_dirent->name.len();
+    if (lbcd_trace)
+      warn << "xde->namlen = " << xde->d_namlen 
+	   << " nfs_dirent_len = " << nfs_dirent->name.len() << "\n";
+    xde->d_reclen = reclen;
+#if defined(HAVE_STRUCT_DIRENT_D_TYPE) && !defined(__linux__)
+    xde->d_type = DT_UNKNOWN;
+#endif
+    xde->d_fileno = nfs_dirent->fileid;
+    strcpy(xde->d_name, nfs_dirent->name.cstr());
+    if (lbcd_trace)
+      warn << "xde->d_name = " << xde->d_name 
+	   << " nfs_dirent_name = " << nfs_dirent->name.cstr() << "\n";
+    if (write (fd, xde, reclen) != reclen) {
+      if (lbcd_trace)
+	warn << "(" << errno << "):write\n";
+      return -1;
+    }
+    if (lbcd_trace)
+      warn << "wrote " << xde->d_name << "\n";
+    nfs_dirent = nfs_dirent->nextentry;
+  }
+  delete xde;
   return 0;
 }
 
@@ -207,9 +238,8 @@ int nfsdirent2xfsfile(int fd, const char* fname, uint64 fid)
   xde->d_fileno = fid;
   
   if (write(fd, xde, xde->d_reclen) != xde->d_reclen) {
-#if DEBUG
-    warn << strerror(errno) << "(" << errno << "):write\n";
-#endif
+    if (lbcd_trace)
+      warn << strerror(errno) << "(" << errno << "):write\n";
     return -1;
   }
   return 0;
@@ -222,24 +252,22 @@ int xfsfile_rm_dirent(int fd1, int fd2, const char* fname)
   
   do {
     if ((err = read(fd1, xde, sizeof(*xde))) < 0) {
-#if DEBUG > 3
-      warn << "xfsfile_rm_dirent: " << strerror(errno) << "\n";
-#endif
+      if (lbcd_trace > 3)
+	warn << "xfsfile_rm_dirent: " << strerror(errno) << "\n";
       return -1;
     }
     if (err != sizeof(*xde)) {
-#if DEBUG > 3
-      warn << "err = " << err << " ..short read..wierd\n";
-#endif
+      if (lbcd_trace > 3)
+	warn << "err = " << err << " ..short read..wierd\n";
       return -1;
     }
     offset += reclen;
-#if DEBUG > 3
-    warn << "xde->d_namlen = " << xde->d_namlen << "\n";
-    warn << "xde->d_name = " << xde->d_name << "\n";
-    warn << "xde->d_reclen = " << xde->d_reclen << "\n";
-    warn << "xde->d_fileno = " << xde->d_fileno << "\n";
-#endif
+    if (lbcd_trace > 3) {
+      warn << "xde->d_namlen = " << xde->d_namlen << "\n";
+      warn << "xde->d_name = " << xde->d_name << "\n";
+      warn << "xde->d_reclen = " << xde->d_reclen << "\n";
+      warn << "xde->d_fileno = " << xde->d_fileno << "\n";
+    }
   } while (strncmp(xde->d_name, fname, strlen(fname)));
 
   offset -= reclen;
@@ -249,9 +277,8 @@ int xfsfile_rm_dirent(int fd1, int fd2, const char* fname)
     offset += reclen;
     err = write (fd2, xde, sizeof (*xde));
     if (err != sizeof(*xde)) {
-#if DEBUG > 3
+      if (lbcd_trace > 3)
       warn << "err = " << err << " ..short write..wierd\n";
-#endif
       return -1;
     }
   }
@@ -383,11 +410,11 @@ xfs_reply_err (int fd, u_int seqnum, int err)
   struct xfs_message_header *h0 = NULL;
   size_t h0_len = 0;
 
-#if DEBUG > 0
-  if (err == EIO)
-    warn << seqnum << ": sending EIO to xfs\n";
-  else warn << seqnum << ": " << strerror(err) << "\n";
-#endif
+  if (lbcd_trace > 0) {
+    if (err == EIO)
+      warn << seqnum << ": sending EIO to xfs\n";
+    else warn << seqnum << ": " << strerror(err) << "\n";
+  }
   xfs_send_message_wakeup_multiple (fd, seqnum, err, h0, h0_len, NULL, 0);
 }
 

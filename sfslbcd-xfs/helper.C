@@ -465,6 +465,7 @@ struct readdir_obj {
 		      clnt_stat err)
   {
     if (nfsdir2xfsfile (rdres, &args) < 0) {
+      //if (conv_dir (args.fd, rdres)) {
       xfs_reply_err(fd, h->header.sequence_num, ENOENT);
       return;
     }
@@ -605,14 +606,14 @@ struct getfp_obj {
   sfs_aid sa;
   cache_entry *e;
   lbfs_getfp3args gfa;
-  uint64 offset; 
+  //uint64 offset; 
   int out_fd;
   str out_fname;
   uint blocks_written;
   uint total_blocks;
   bool eof;
   int retries;
-  ptr<lbfs_getfp3res> fpres;
+  //ptr<lbfs_getfp3res> fpres;
   uint64 bytes_recv;
   uint getfps_sent, reads_sent;
 
@@ -716,8 +717,8 @@ struct getfp_obj {
     ra.file = e->nh;
     ra.offset = cur_offst;
     ra.count = size < NFS_MAXDATA ? size : NFS_MAXDATA;
-if (lbcd_trace)
-    warn << "getfp_obj::nfs3_read @" << offset << " +" << ra.count << "\n";
+    if (lbcd_trace)
+      warn << "getfp_obj::nfs3_read @" << cur_offst << " +" << ra.count << "\n";
 
 
     reads_sent++;
@@ -749,7 +750,7 @@ if (lbcd_trace)
     blocks_written++;
   }
 
-  void compose_file () 
+  void compose_file (int offset, ref<lbfs_getfp3res> fpres) 
   {
     int err, chfd; 
     uint64 cur_offst = offset;
@@ -837,14 +838,14 @@ if (lbcd_trace)
       }
       cur_offst += fpres->resok->fprints[i].count;
     }
-    offset = cur_offst;
+    //offset = cur_offst;
     if (blocks_written == total_blocks && eof) {
       installdata ();
       delete this; return;
     }
   }
 
-  void gotfp (time_t rqt, clnt_stat err) 
+  void gotfp (uint64 offset, ref<lbfs_getfp3res> fpres, time_t rqt, clnt_stat err) 
   {
     if (!err && fpres->status == NFS3_OK) {
       e->nfs_attr = *(fpres->resok->file_attributes.attributes);
@@ -853,7 +854,9 @@ if (lbcd_trace)
       
       total_blocks += fpres->resok->fprints.size ();
       eof = fpres->resok->eof;
-      compose_file ();
+      int prev_offset = offset;
+      for (uint i=0; i < fpres->resok->fprints.size (); i++)
+       offset += fpres->resok->fprints[i].count;
       
       if (!eof) {
 	gfa.offset = offset;
@@ -861,10 +864,11 @@ if (lbcd_trace)
 	  gfa.count *= 2;
 
 	getfps_sent++;
-	fpres = New refcounted <lbfs_getfp3res>;
-	c->call (lbfs_GETFP, &gfa, fpres, 
-		 wrap (this, &getfp_obj::gotfp, timenow), lbfs_authof (sa));
+	ref<lbfs_getfp3res> res = New refcounted <lbfs_getfp3res>;
+	c->call (lbfs_GETFP, &gfa, res, 
+		 wrap (this, &getfp_obj::gotfp, gfa.offset, res, timenow), lbfs_authof (sa));
       }
+      compose_file (prev_offset, fpres);
     } else {
       xfs_reply_err (fd, h->header.sequence_num, err ? err : fpres->status);      
       delete this;
@@ -879,7 +883,7 @@ if (lbcd_trace)
 
   getfp_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
 	     ref<aclnt> c1, getfp_obj::cb_t cb1) :
-    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1), offset(0), blocks_written(0), 
+    cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1), /*offset(0),*/ blocks_written(0), 
     total_blocks(0), eof(false), retries(0), 
     bytes_recv(0), getfps_sent(0), reads_sent(0)    
   {
@@ -902,9 +906,9 @@ if (lbcd_trace)
     gfa.count = LBFS_MAXDATA;
     
     getfps_sent++;
-    fpres = New refcounted <lbfs_getfp3res>;
+    ref<lbfs_getfp3res> fpres = New refcounted <lbfs_getfp3res>;
     c->call (lbfs_GETFP, &gfa, fpres,
-	     wrap (this, &getfp_obj::gotfp, timenow),
+	     wrap (this, &getfp_obj::gotfp, gfa.offset, fpres, timenow),
 	     lbfs_authof (sa));
   }
 };
@@ -1166,7 +1170,7 @@ struct create_obj {
       assert (res->resok->obj.present && res->resok->obj_attributes.present);
       cache_entry *e1 = update_cache (*res->resok->obj.handle, 
 				      *res->resok->obj_attributes.attributes);
-      e1->set_exp (rqt, true);
+      e1->set_exp (rqt);
       xfs_cred cred = h->cred;
       if (e1->nfs_attr.type == NF3DIR) {
 	struct xfs_message_mkdir *hm = (xfs_message_mkdir *) h;
@@ -1194,7 +1198,7 @@ struct create_obj {
       close (parent_fd);
       assert (res->resok->dir_wcc.after.present);
       e->nfs_attr = *(res->resok->dir_wcc.after.attributes);
-      e->set_exp (rqt);
+      e->set_exp (rqt, true);
       e->ltime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
       nfsobj2xfsnode (cred, e, &msg1.node);
 
@@ -1516,9 +1520,10 @@ struct remove_obj {
       int pfd1 = assign_cachefile (fd, h->header.sequence_num, e1, 
 					msg1.cache_name, &msg1.cache_handle,
 					O_CREAT | O_RDWR);
-      //int pfd2 = open (msg1.cache_name, O_WRONLY, 0666);
+      int pfd2 = open (msg1.cache_name, O_WRONLY, 0666);
 #if 0
-      if (dir_remove_name (pfd1, h->name)) {
+      //if (dir_remove_name (pfd1, h->name)) {
+      if (xfsfile_rm_dirent (pfd1, pfd2, h->name)) {
 	if (lbcd_trace)
 	  warn << "Error: " << strerror (errno) << "\n";
 	e1->incache = false; 
@@ -1527,7 +1532,7 @@ struct remove_obj {
       e1->incache = false;
 #endif
       close (pfd1);
-      //close (pfd2);
+      close (pfd2);
 
       nfsobj2xfsnode (h->cred, e1, &msg1.node);
       e1->nfs_attr = *(wres->wcc->after.attributes);
@@ -1689,9 +1694,19 @@ struct rename_obj {
       h1 = (struct xfs_message_header *) &msg1;
       h1_len = sizeof (msg1);
       
-      int cfd = assign_cachefile (fd, h->header.sequence_num, e2, msg2.cache_name,
-				  &msg2.cache_handle);
-      close (cfd);
+      int parent_fd = assign_cachefile (fd, h->header.sequence_num, e2, msg2.cache_name,
+					&msg2.cache_handle);
+#if 0
+      if (nfsdirent2xfsfile (parent_fd, h->new_name, e3->nfs_attr.fileid)) {
+	if (lbcd_trace)
+	  warn << "Error: can't write to parent dir file\n";
+	//messages.C: benjie's rant.
+	e2->incache = false;	
+      }
+#else
+      e2->incache = false;
+#endif
+      close (parent_fd);
 
       assert (rnres->res->todir_wcc.after.present);
       e2->nfs_attr = *(rnres->res->todir_wcc.after.attributes);
@@ -1704,9 +1719,9 @@ struct rename_obj {
 
       if (!xfs_handle_eq (&h->old_parent_handle,
 			  &h->new_parent_handle)) {
-	cfd = assign_cachefile (fd, h->header.sequence_num, e1, msg3.cache_name,
+	parent_fd = assign_cachefile (fd, h->header.sequence_num, e1, msg3.cache_name,
 				&msg3.cache_handle);
-	close (cfd);
+	close (parent_fd);
 
 	assert (rnres->res->fromdir_wcc.after.present);
 	e1->nfs_attr = *(rnres->res->fromdir_wcc.after.attributes);
