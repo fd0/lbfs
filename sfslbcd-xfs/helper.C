@@ -1058,11 +1058,6 @@ struct readfile_obj {
   sfs_aid sa;
   cache_entry *e;
 
-  void done () 
-  {
-    delete this; return;
-  }
-
   void get_updated_copy (ptr<ex_getattr3res> res, time_t rqt, clnt_stat err) {
     if (res) {
       if (!err && res->status == NFS3_OK) {
@@ -1070,26 +1065,30 @@ struct readfile_obj {
 	e->set_exp (rqt, true);
       } else {
 	xfs_reply_err (fd, h->header.sequence_num, err ? err : res->status);
-	delete this; return;
+        (*cb) ();
+	delete this;
+	return;
       }
     } 
     nfstime3 maxtime = max (e->nfs_attr.mtime, e->nfs_attr.ctime);
-    if (greater (maxtime, e->ltime))       
+    if (greater (maxtime, e->ltime)) {
       if (lbfs > 1)
-	lbfs_getfp (fd, hh, e, sa, c, wrap (this, &readfile_obj::done));
-      else {
+	lbfs_getfp (fd, hh, e, sa, c, cb);
+      else
 	lbfs_read (fd, hh, e, sa, c, cb);
-	// MEMORY LEAK delete this; return;
-      }
+      delete this;
+      return;
+    }
     else {
       lbfs_readexist (fd, hh, e);
-      delete this; return;
+      (*cb) ();
+      delete this;
+      return;
     }
   }
   
   ~readfile_obj () 
   {
-    (*cb) ();
   }
 
   readfile_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1,
@@ -1104,26 +1103,27 @@ struct readfile_obj {
 	warn << "open for write: " << e->writers << " writers\n";
     }
     
-    if (!e->incache)
+    if (!e->incache) {
       if (lbfs > 1)
-	lbfs_getfp (fd, hh, e, sa, c, wrap (this, &readfile_obj::done));
-      else {
+	lbfs_getfp (fd, hh, e, sa, c, cb);
+      else
 	lbfs_read (fd, hh, e, sa, c, cb);
-	// MEMORY LEAK delete this; return;
-      }
+      delete this;
+      return;
+    }
     else {
       if (owriters > 0) {
 	lbfs_readexist (fd, hh, e);
-	delete this; return;
+        (*cb) ();
+	delete this;
+	return;
       } else {
 	if (e->nfs_attr.expire < (uint32) timenow) {
 	  lbfs_attr (fd, hh, sa, e->nh, c,
 		     wrap (this, &readfile_obj::get_updated_copy));
 	}
-	else {
+	else
 	  get_updated_copy (NULL, 0, clnt_stat (0));
-	  // MEMORY LEAK delete this; return;
-	}
       }
     }
   }
