@@ -134,7 +134,7 @@ gotconres (int fd, str hostname, sfs_hash hostid, clnt_stat err)
 }
 
 void 
-sfsConnect (str hostname, sfs_hash hid, int fd) 
+sfsConnect (str hostname, sfs_hash hid, str path, int fd) 
 {
   if (fd < 0) {
     warn << strerror(errno) << "..can't connect\n";
@@ -167,12 +167,12 @@ sfsConnect (str hostname, sfs_hash hid, int fd)
   nfsc = aclnt::alloc (x, lbfs_program_3);
   nfscbs = asrv::alloc (x, ex_nfscb_program_3, wrap (&cbdispatch));
   sfs_connectarg arg;
-  arg.release = sfs_release;
-  arg.service = SFS_SFS;
-  arg.name = hostname;
-  arg.hostid = hid;
-  arg.extensions.set (sfs_extensions.base (), sfs_extensions.size (),
-		      freemode::NOFREE);
+  arg.set_civers (5);
+  arg.ci5->release = sfs_release;
+  arg.ci5->service = SFS_SFS;
+  arg.ci5->sname = path;
+  arg.ci5->extensions.set (sfs_extensions.base (), sfs_extensions.size (),
+			   freemode::NOFREE);
   sfsc->call (SFSPROC_CONNECT, &arg, &conres, 
 	      wrap (&gotconres, fd, hostname, hid));
 
@@ -190,7 +190,7 @@ sfsInit (const char* path)
   } 
   warn << "path = " << path << " port = " << port << "\n";
   strcpy(sfs_path, path);
-  tcpconnect(hostname, port, wrap(sfsConnect, hostname, hid));
+  tcpconnect(hostname, port, wrap(sfsConnect, hostname, hid, path));
   random_init_file (sfsdir << "/random_seed");
   lbfsdb.open_and_truncate(FP_DB);
   if (open("cache", O_RDONLY, 0666) < 0) {

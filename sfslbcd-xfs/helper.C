@@ -1103,7 +1103,7 @@ struct create_obj {
 	//messages.C: benjie's rant.
 	e->incache = false;	
       }
-#elseif
+#else
       e->incache = false;
 #endif
       close (parent_fd);
@@ -1427,14 +1427,14 @@ struct remove_obj {
 					msg1.cache_name, &msg1.cache_handle,
 					O_CREAT | O_RDONLY);
       int pfd2 = open (msg1.cache_name, O_WRONLY, 0666);
-#if 0
-      if (xfsfile_rm_dirent (pfd1, pfd2, h->name)) {
+#if 1
+      if (dir_remove_name (pfd1, h->name)) {
 #if DEBUG > 0
-	warn << "Error: can't write to parent dir file\n";
+	warn << "Error: " << strerror (errno) << "\n";
 #endif
 	e1->incache = false; 
       }
-#elseif
+#else
       e1->incache = false;
 #endif
       close (pfd1);

@@ -260,6 +260,47 @@ int xfsfile_rm_dirent(int fd1, int fd2, const char* fname)
   return 0;
 }
 
+#ifndef DIRBLKSIZ
+#define DIRBLKSIZ 1024
+#endif
+
+int dir_remove_name (int fd, const char *fname) 
+{
+  struct stat sb;
+  size_t len;
+
+  if (fstat (fd, &sb) < 0) {
+    return errno;
+  }
+  len = sb.st_size;
+  char *buf = (char *) mmap (0, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (buf == (char *) MAP_FAILED)
+    return errno;
+  char *p;
+  int ret = ENOENT;
+  struct xfs_dirent *dp, *last_dp = NULL;
+  for (p = buf; p < buf + len; p += dp->d_reclen) {
+    dp = (struct xfs_dirent *) p;
+    assert (dp->d_reclen > 0);
+    if (strcmp (fname, dp->d_name) == 0) {
+      if (last_dp != NULL) {
+	unsigned length;
+	length = last_dp->d_reclen + dp->d_reclen;
+	if (length < DIRBLKSIZ)
+	  last_dp->d_reclen = len;
+      }
+      dp->d_fileno = 0;
+      ret = 0;
+      break;
+    }
+    last_dp = dp;
+  }
+
+  if (munmap (buf, len) < 0)
+    return errno;
+  return 0;
+}
+
 int xfsattr2nfsattr(uint32 opcode, xfs_attr xa, sattr3 *na) 
 {
 
