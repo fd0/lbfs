@@ -273,7 +273,7 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     return;
   }
 
-  fixnlc (nc, res);
+  fixlc (nc, res);
   getxattr (rqtime, nc->proc (), nc->getaid (), nc->getvoidarg (), res);
   
   // if file is dirty or being flushed, replace the size attributed
@@ -357,9 +357,9 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 }
 
 void
-server::fixnlc (nfscall *nc, void *res)
+server::fixlc (nfscall *nc, void *res)
 {
-  // create nlc entry and update dir mtime if we see an ACCESS or
+  // create lc entry and update dir mtime if we see an ACCESS or
   // READDIR on the dir or modifying the dir.
   if (nc->proc () == NFSPROC3_CREATE  || nc->proc () == NFSPROC3_MKDIR ||
       nc->proc () == NFSPROC3_SYMLINK || nc->proc () == NFSPROC3_RENAME ||
@@ -370,11 +370,11 @@ server::fixnlc (nfscall *nc, void *res)
     nfs3_getxattr (&xv, nc->proc (), nc->getvoidarg (), res);
     for (xattr *x = xv.base (); x < xv.lim (); x++) {
       if (x->fattr && x->fattr->type == NF3DIR) {
-        dir_nlc **dp = nlc[*x->fh];
+        dir_lc **dp = lc[*x->fh];
         if (!dp) {
-          dir_nlc *d = New dir_nlc;
+          dir_lc *d = New dir_lc;
 	  d->attr = *x->fattr;
-	  nlc.insert(*x->fh, d);
+	  lc.insert(*x->fh, d);
         }
 	else if (nc->proc () != NFSPROC3_READDIR &&
 	         nc->proc () != NFSPROC3_ACCESS)
@@ -386,29 +386,33 @@ server::fixnlc (nfscall *nc, void *res)
   if (nc->proc () == NFSPROC3_ACCESS) {
     ex_access3res *r = static_cast<ex_access3res *> (res);
     if (r->status == NFS3ERR_STALE)
-      nlc.clear();
+      lc.clear();
   }
 
   else if (nc->proc () == NFSPROC3_GETATTR) {
     ex_getattr3res *r = static_cast<ex_getattr3res *> (res);
     if (r->status == NFS3ERR_STALE)
-      nlc.clear();
+      lc.clear();
   }
 
   else if (nc->proc () == NFSPROC3_LOOKUP) {
     diropargs3 *a = nc->template getarg<diropargs3> ();
     ex_lookup3res *r = static_cast<ex_lookup3res *> (res);
-    if (r->status == NFS3ERR_NOENT)
+    if (r->status == NFS3ERR_NOENT) {
       nlc_insert(a->dir, a->name);
-    else if (!r->status)
+      lc_remove(a->dir, a->name);
+    }
+    else if (!r->status) {
       nlc_remove(a->dir, a->name);
+      lc_insert(a->dir, a->name, r->resok->object);
+    }
   }
 
   else if (nc->proc () == NFSPROC3_READDIR) {
     readdir3args *a = nc->template getarg<readdir3args> ();
     ex_readdir3res *r = static_cast<ex_readdir3res *> (res);
     if (r->status)
-      nlc_remove(a->dir);
+      lc_clear(a->dir);
     else {
       for (entry3 *e = r->resok->reply.entries; e; e = e->nextentry)
 	nlc_remove(a->dir, e->name);
@@ -418,43 +422,59 @@ server::fixnlc (nfscall *nc, void *res)
   else if (nc->proc() == NFSPROC3_CREATE) {
     create3args *a = nc->template getarg<create3args> ();
     ex_diropres3 *r = static_cast<ex_diropres3 *> (res);
-    if (!r->status)
+    if (!r->status) {
       nlc_remove(a->where.dir, a->where.name);
+      if (r->resok->obj.present)
+	lc_insert(a->where.dir, a->where.name, *(r->resok->obj.handle));
+    }
   }
 
   else if (nc->proc() == NFSPROC3_MKDIR) {
     mkdir3args *a = nc->template getarg<mkdir3args> ();
     ex_diropres3 *r = static_cast<ex_diropres3 *> (res);
-    if (!r->status)
+    if (!r->status) {
       nlc_remove(a->where.dir, a->where.name);
+      if (r->resok->obj.present)
+	lc_insert(a->where.dir, a->where.name, *(r->resok->obj.handle));
+    }
   }
 
   else if (nc->proc() == NFSPROC3_SYMLINK) {
     symlink3args *a = nc->template getarg<symlink3args> ();
     ex_diropres3 *r = static_cast<ex_diropres3 *> (res);
-    if (!r->status)
+    if (!r->status) {
       nlc_remove(a->where.dir, a->where.name);
+      if (r->resok->obj.present)
+	lc_insert(a->where.dir, a->where.name, *(r->resok->obj.handle));
+    }
   }
 
   else if (nc->proc() == NFSPROC3_RENAME) {
     rename3args *a = nc->template getarg<rename3args> ();
     ex_rename3res *r = static_cast<ex_rename3res *> (res);
-    if (!r->status)
+    if (!r->status) {
       nlc_remove(a->to.dir, a->to.name);
+      nlc_insert(a->from.dir, a->from.name);
+      lc_remove(a->from.dir, a->from.name);
+    }
   }
 
   else if (nc->proc() == NFSPROC3_LINK) {
     link3args *a = nc->template getarg<link3args> ();
     ex_link3res *r = static_cast<ex_link3res *> (res);
-    if (!r->status)
+    if (!r->status) {
       nlc_remove(a->link.dir, a->link.name);
+      lc_insert(a->link.dir, a->link.name, a->file);
+    }
   }
 
   else if (nc->proc() == NFSPROC3_REMOVE || nc->proc() == NFSPROC3_RMDIR) {
     diropargs3 *a = nc->template getarg<diropargs3> ();
     ex_wccstat3 *r = static_cast<ex_wccstat3 *> (res);
-    if (!r->status || r->status == NFS3ERR_NOENT)
+    if (!r->status || r->status == NFS3ERR_NOENT) {
       nlc_insert(a->dir, a->name);
+      lc_remove(a->dir, a->name);
+    }
   }
 }
 
@@ -714,22 +734,46 @@ server::dispatch (nfscall *nc)
 
   else if (nc->proc () == NFSPROC3_LOOKUP) {
     diropargs3 *a = nc->template getarg<diropargs3> ();
-    dir_nlc **dp = nlc[a->dir];
+    dir_lc **dp = lc[a->dir];
     const ex_fattr3 *f = ac.attr_lookup (a->dir);
 
-    if (dp && f && (*dp)->attr.mtime < f->mtime) {
+    if (dp && f && (*dp)->attr.mtime < f->mtime)
       // directory newer
-      warn << "directory newer, flush lookup cache\n";
-      nlc_remove(a->dir);
-    }
-    else if (dp && f) {
+      lc_clear(a->dir);
+    else if (dp) {
       bool has_negative = nlc_lookup(a->dir, a->name);
       if (has_negative) {
         lookup3res res(NFS3ERR_NOENT);
-        res.resfail->set_present (true);
-        *res.resfail->attributes = *reinterpret_cast<const fattr3 *> (f);
+	res.resfail->set_present (false);
+	if (f) {
+          res.resfail->set_present (true);
+          *res.resfail->attributes = *reinterpret_cast<const fattr3 *> (f);
+	}
         nc->reply (&res);
         return;
+      }
+      else {
+	nfs_fh3 fh;
+        bool hit = lc_lookup(a->dir, a->name, fh);
+	if (hit) {
+          lookup3res res(NFS3_OK);
+	  res.resok->object = fh;
+	  res.resok->dir_attributes.set_present (false);
+	  if (f) {
+            res.resok->dir_attributes.set_present (true);
+            *res.resok->dir_attributes.attributes
+	      = *reinterpret_cast<const fattr3 *> (f);
+	  }
+	  f = ac.attr_lookup (fh);
+	  res.resok->obj_attributes.set_present (false);
+	  if (f) {
+            res.resok->obj_attributes.set_present (true);
+            *res.resok->obj_attributes.attributes
+	      = *reinterpret_cast<const fattr3 *> (f);
+	  }
+          nc->reply (&res);
+          return;
+	}
       }
     }
   }
@@ -751,7 +795,7 @@ server::file_cache_gc_remove (file_cache *e)
 }
 
 void
-server::dir_nlc_gc_remove (dir_nlc *d)
+server::dir_lc_gc_remove (dir_lc *d)
 {
   delete d;
 }

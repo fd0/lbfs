@@ -49,6 +49,10 @@ on CREATE, REMOVE, MKDIR, etc. cache is invalidated when we receive an
 INVALIDATE from server on the directory or when directory mtime
 changed by another client.
 
+similarly, keeps a lookup cache. this lookup cache is more aggresive
+than the one in kernel because it knows if a directory is modified by
+another client or not.
+
 fetch optimization: after each data block fetched from server, check
 if any one of the read or write RPC can be executed. a RPC can run if
 it operates on a range of the data already received from the server.

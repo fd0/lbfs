@@ -110,7 +110,7 @@ sfslbcd_alloc(sfsprog *prog, ref<nfsserv> ns, int tcpfd,
 server::server (const sfsserverargs &a)
   : sfsserver_auth (a),
     fc(50000, wrap(mkref(this), &server::file_cache_gc_remove)),
-    nlc(64, wrap(mkref(this), &server::dir_nlc_gc_remove))
+    lc(64, wrap(mkref(this), &server::dir_lc_gc_remove))
 {
   cdir = strbuf(LBFSCACHE) << "/" << a.ma->carg.ci5->sname;
   if (mkdir(cdir.cstr(), 0755) < 0 && errno != EEXIST)
