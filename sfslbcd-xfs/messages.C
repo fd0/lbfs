@@ -20,10 +20,12 @@
  */
 
 #include "messages.h"
-#include "fingerprint.h"
+//#include "fingerprint.h"
+#include <xfs/xfs_pioctl.h>
+#include "pioctl.h"
 
 u_int64_t cache_entry::nextxh;
-ihash<const nfs_fh3, cache_entry, &cache_entry::nh,
+ihash<nfs_fh3, cache_entry, &cache_entry::nh,
   &cache_entry::nlink> nfsindex;
 ihash<xfs_handle, cache_entry, &cache_entry::xh,
   &cache_entry::xlink> xfsindex;
@@ -34,7 +36,7 @@ ex_fsinfo3resok fsinfo;
 
 xfs_message_function rcvfuncs[] = {
 NULL,						/* version */
-NULL, //(xfs_message_function)xfs_message_wakeup,	/* wakeup */
+(xfs_message_function)xfs_message_wakeup,	/* wakeup */
 (xfs_message_function)xfs_message_getroot,	/* getroot */
 NULL,						/* installroot */
 (xfs_message_function)xfs_message_getnode, 	/* getnode */
@@ -56,15 +58,17 @@ NULL,						/* invalidnode */
 (xfs_message_function)xfs_message_rmdir,	/* rmdir */
 (xfs_message_function)xfs_message_rename,	/* rename */
 (xfs_message_function)xfs_message_pioctl,	/* pioctl */
+#if 0
 NULL,	                                        /* wakeup_data */
 NULL,						/* updatefid */
 NULL,						/* advlock */
 NULL						/* gc nodes */
-
+#endif
 };
 
 void lbfs_condwrite(ref<condwrite3args> cwa, clnt_stat err);
-void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count);
+void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count, 
+		 cache_entry *new_e);
 void nfs3_rmdir(int fd, struct xfs_message_rmdir *h, ref<ex_lookup3res> lres,
 		clnt_stat err);
 
@@ -75,6 +79,14 @@ reply_err (int fd, u_int seqnum, int err)
   size_t h0_len = 0;
 
   xfs_send_message_wakeup_multiple (fd, seqnum, err, h0, h0_len, NULL, 0);
+}
+
+int
+xfs_message_wakeup (int fd, struct xfs_message_wakeup *h, u_int size)
+{
+  warn << "Got xfs_message_wakeup from XFS !!!\n";
+
+  return 0;
 }
 
 void 
@@ -122,7 +134,7 @@ sfs_getfsinfo (int fd, struct xfs_message_getroot *h, ref<sfs_fsinfo> fsi, clnt_
 {
 
   assert (fsi->prog == ex_NFS_PROGRAM && fsi->nfs->vers == ex_NFS_V3);
-  x->compress ();
+  //x->compress ();
   ref<ex_fsinfo3res > res = New refcounted < ex_fsinfo3res >;
 
   nfsc->call (lbfs_NFSPROC3_FSINFO, &fsi->nfs->v3->root, res,
@@ -253,7 +265,7 @@ write_dirfile (int fd, struct xfs_message_getdata *h, //cache_entry *e,
 
     close (args.fd);
 
-    e->opened = true;
+    e->open = INCACHE;
 
     msg.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &msg;
@@ -318,7 +330,7 @@ nfs3_readdir (int fd, struct xfs_message_getdata *h, cache_entry *e,
 
 void 
 write_file (ref<getfp_args> ga, uint64 offset, uint32 count,
-	    ref<ex_read3res > res)
+	    ref<ex_read3res > res, cache_entry *new_e)
 {
 
   warn << "filename = " << ga->out_fname << " offset = " << offset << "\n";
@@ -345,52 +357,64 @@ write_file (ref<getfp_args> ga, uint64 offset, uint32 count,
   close (out_fd);
 
   if (res->resok->count < count)
-    normal_read (ga, offset + res->resok->count, count - res->resok->count);
+    normal_read (ga, offset + res->resok->count, count - res->resok->count, 
+		 new_e);
   else
     ga->blocks_written++;
 }
 
 void 
-nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *e,
+nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *new_e,
 	   ref<ex_read3res > res, clnt_stat err)
 {
   if (!err && res->status == NFS3_OK && res->resok->file_attributes.present) {
 
-    write_file (ga, offset, count, res);
+    write_file (ga, offset, count, res, new_e);
 
     if (ga->blocks_written == ga->total_blocks && ga->eof) {
 
+      cache_entry *e = xfsindex[ga->h->handle];
+      if (!e) {
+	warn << "nfs3_read: Can't find node handle\n";
+	return;
+      }
+
+      new_e->nh = e->nh; 
+      delete e;
       //add chunk to the database
       vec < lbfs_chunk * >cvp;
       if (chunk_file (CHUNK_SIZES (0), &cvp, (char const *) ga->msg.cache_name) < 0) {
 	warn << strerror (errno) << "(" << errno << "): nfs3_read(chunkfile)\n";
 	return;
       }
-      cache_entry *e = xfsindex[ga->h->handle];
-#if 0
-      if (!e) {
-	warn << "nfs3_read: Can't find node handle\n";
-	return;
-      }
-#endif      
       for (uint i = 0; i < cvp.size (); i++) {
 	warn << "adding fp = " << cvp[i]->fingerprint << " to lbfsdb\n";
-	cvp[i]->loc.set_fh (e->nh);
+	cvp[i]->loc.set_fh (new_e->nh);
 	lbfsdb.add_entry (cvp[i]->fingerprint, &(cvp[i]->loc));
         delete cvp[i];
       }
       lbfsdb.sync ();
-      e->opened = true;
+      new_e->open = INCACHE;
 
       struct xfs_message_header *h0 = NULL;
       size_t h0_len = 0;
+      struct xfs_message_updatefid msg2;
+      struct xfs_message_header *h1 = NULL;
+      size_t h1_len = 0;
 
       ga->msg.header.opcode = XFS_MSG_INSTALLDATA;
       h0 = (struct xfs_message_header *) &(ga->msg);
       h0_len = sizeof (ga->msg);
 
+      msg2.header.opcode = XFS_MSG_UPDATEFID;
+      msg2.old_handle = ga->h->handle;
+      msg2.new_handle = new_e->xh;
+      
+      h1 = (struct xfs_message_header *) &msg2;
+      h1_len = sizeof (msg2);
+
       xfs_send_message_wakeup_multiple (ga->fd, ga->h->header.sequence_num, 0,
-					h0, h0_len, NULL, 0);
+					h0, h0_len, h1, h1_len, NULL, 0);
     }
   }
   else {
@@ -404,7 +428,7 @@ nfs3_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *e,
 }
 
 void 
-normal_read (ref<getfp_args> ga, uint64 offset, uint32 count)
+normal_read (ref<getfp_args> ga, uint64 offset, uint32 count, cache_entry *new_e)
 {
   cache_entry *e = xfsindex[ga->h->handle];
   if (!e) {
@@ -419,11 +443,11 @@ normal_read (ref<getfp_args> ga, uint64 offset, uint32 count)
 
   ref<ex_read3res > rres = New refcounted < ex_read3res >;
   nfsc->call (lbfs_NFSPROC3_READ, &ra, rres,
-	      wrap (&nfs3_read, ga, offset, count, e, rres));
+	      wrap (&nfs3_read, ga, offset, count, new_e, rres));
 }
 
 void 
-compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res > res)
+compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res > res, cache_entry *new_e)
 {
 
   int err, chfd, out_fd;
@@ -520,30 +544,47 @@ compose_file (ref<getfp_args> ga, ref<lbfs_getfp3res > res)
     }
     if (!found) {
       warn << "compose_file: fp = " << res->resok->fprints[i].fingerprint << " not in DB\n";
-      normal_read (ga, offset, res->resok->fprints[i].count);
+      normal_read (ga, offset, res->resok->fprints[i].count, new_e);
     }
     offset += res->resok->fprints[i].count;
   }
   ga->offset = offset;		//offset is 'the' current position in the file
 
   if (ga->blocks_written == ga->total_blocks && ga->eof) {
-    if (e) e->opened = true;
+    e = xfsindex[ga->h->handle];
+    if (!e) {
+      warn << "compose_file: Can't find node handle\n";
+      return;      
+    }
+    new_e->nh = e->nh; 
+    delete e;
+    new_e->open = INCACHE;
 
     struct xfs_message_header *h0 = NULL;
     size_t h0_len = 0;
+    struct xfs_message_updatefid msg2;
+    struct xfs_message_header *h1 = NULL;
+    size_t h1_len = 0;
 
     ga->msg.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &(ga->msg);
     h0_len = sizeof (ga->msg);
 
+    msg2.header.opcode = XFS_MSG_UPDATEFID;
+    msg2.old_handle = ga->h->handle;
+    msg2.new_handle = new_e->xh;
+      
+    h1 = (struct xfs_message_header *) &msg2;
+    h1_len = sizeof (msg2);
+    
     xfs_send_message_wakeup_multiple (ga->fd, ga->h->header.sequence_num, 0,
-				      h0, h0_len, NULL, 0);
+				      h0, h0_len, h1, h1_len, NULL, 0);
   }
 }
 
 void 
 lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
-	    clnt_stat err)
+	    cache_entry *new_e, clnt_stat err)
 {
 
   if (!err && res->status == NFS3_OK) {
@@ -560,7 +601,7 @@ lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
 
     ga->total_blocks += res->resok->fprints.size ();
     ga->eof = res->resok->eof;
-    compose_file (ga, res);
+    compose_file (ga, res, new_e);
 
     if (!res->resok->eof) {
       //ga->offset += gfp->count; //ga->res->resok->count;
@@ -572,7 +613,7 @@ lbfs_getfp (ref<getfp_args> ga, ref<lbfs_getfp3res > res, time_t rqtime,
       ref<lbfs_getfp3res > fpres = New refcounted < lbfs_getfp3res >;
       //ga->res = fpres;
       nfsc->call (lbfs_GETFP, &gfp, fpres,
-		  wrap (&lbfs_getfp, ga, fpres, timenow));
+		  wrap (&lbfs_getfp, ga, fpres, timenow, new_e));
     }
   }
   else {
@@ -616,13 +657,7 @@ nfs3_read_exist (int fd, struct xfs_message_getdata *h, cache_entry *e)
 void 
 getfp (int fd, struct xfs_message_getdata *h, cache_entry *e)
 {
-#if 0
-  cache_entry *e = xfsindex[h->handle];
-  if (!e) {
-    warn << "getfp: Can't find node handle\n";
-    return;
-  }
-#endif
+
   struct xfs_message_installdata msg;
 
   //this is to fill in msg.node only
@@ -632,7 +667,9 @@ getfp (int fd, struct xfs_message_getdata *h, cache_entry *e)
   msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R
     | XFS_OPEN_NW | XFS_DATA_W;	//This line is a hack...need to get read access 
 
-  strcpy (msg.cache_name, e->cache_name);
+  nfs_fh3 new_fh = nfs_fh3();
+  cache_entry *new_e = new cache_entry(new_fh, e->nfs_attr);
+  strcpy (msg.cache_name, new_e->cache_name);
   int cfd = open (msg.cache_name, O_CREAT | O_WRONLY | O_TRUNC, 0666);
   if (cfd < 0) {
     warn << "xfs_message_getdata: " << strerror (errno) << "\n";
@@ -649,7 +686,7 @@ getfp (int fd, struct xfs_message_getdata *h, cache_entry *e)
 
   ref<getfp_args> ga = New refcounted<getfp_args> (fd, h);
   ga->msg = msg;
-  strcpy (ga->out_fname, e->cache_name);
+  strcpy (ga->out_fname, new_e->cache_name);
 
   lbfs_getfp3args gfp;
   gfp.file = e->nh;
@@ -659,7 +696,7 @@ getfp (int fd, struct xfs_message_getdata *h, cache_entry *e)
   ref<lbfs_getfp3res > fpres = New refcounted < lbfs_getfp3res >;
 
   nfsc->call (lbfs_GETFP, &gfp, fpres,
-	      wrap (&lbfs_getfp, ga, fpres, timenow));
+	      wrap (&lbfs_getfp, ga, fpres, timenow, new_e));
 }
 
 bool 
@@ -765,7 +802,7 @@ nfs3_readlink (int fd, struct xfs_message_getdata *h, cache_entry *e,
     memmove (&msg.cache_handle, &cfh, sizeof (cfh));
     write (lfd, res->resok->data.cstr (), res->resok->data.len ());
     close (lfd);
-    e->opened = true;
+    e->open = INCACHE;
 
     msg.header.opcode = XFS_MSG_INSTALLDATA;
     h0 = (struct xfs_message_header *) &msg;
@@ -798,6 +835,11 @@ xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
     return -1;
   }
 
+  if (e->open == XFS_OPEN_NW || e->open == XFS_OPEN_EW) {
+    nfs3_read_exist (fd, h, e);
+    return 0;
+  }
+
   if (e->nfs_attr.type == NF3LNK) {
     warn << "reading a symlink!!\n";
     nfs_fh3 fh = e->nh;
@@ -807,7 +849,8 @@ xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
     return 0;
   }
 
-  if (!e->opened) {
+  if (!e->open) {
+    e->open = h->tokens & XFS_OPEN_MASK;
     if (e->nfs_attr.type == NF3DIR) {
       readdir3args rda;
       rda.dir = e->nh;
@@ -819,8 +862,9 @@ xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
       nfsc->call (lbfs_NFSPROC3_READDIR, &rda, rdres,
 		  wrap (&nfs3_readdir, fd, h, e, rdres, timenow));
     }
-    else if (e->nfs_attr.type == NF3REG)
-      getfp (fd, h, e);
+    else 
+      if (e->nfs_attr.type == NF3REG)
+	getfp (fd, h, e);
   }
   else {
     if (e->nfs_attr.expire < (uint32) timenow) {
@@ -1157,8 +1201,12 @@ xfs_message_inactivenode (int fd, struct xfs_message_inactivenode *h, u_int size
   if (h->flag == XFS_DELETE ||	//Node is no longer in kernel cache. Delete immediately!!
        h->flag == XFS_NOREFS) {	//Node is still in kernel cache. Delete when convenient.
     cache_entry *e = xfsindex[h->handle];
-    if (e)
+    if (e) {
+      e->inactive = true;
+#if 0 //keep everything for now
       delete e;
+#endif 
+    }
   }
   //  xfs_send_message_wakeup (fd, h->header.sequence_num, 0);
 
@@ -1788,6 +1836,7 @@ remove (int fd, struct xfs_message_remove *h, ref<ex_lookup3res > lres,
 
   }
   else {
+#if 0
     if (wres->status == NFS3ERR_ISDIR) {
       diropargs3 doa;
       doa.dir = e1->nh;
@@ -1796,7 +1845,8 @@ remove (int fd, struct xfs_message_remove *h, ref<ex_lookup3res > lres,
       ref<ex_wccstat3 > rmdres = New refcounted < ex_wccstat3 >;
       nfsc->call (lbfs_NFSPROC3_RMDIR, &doa, rmdres,
 		  wrap (&remove, fd, (struct xfs_message_remove *) h, lres, rmdres, timenow));      
-    } else 
+    } else
+#endif 
     if (err)
       warn << err << ": nfs3_lookup in remove\n";
     else {
@@ -2135,9 +2185,276 @@ xfs_message_rename (int fd, struct xfs_message_rename *h, u_int size)
 int
 xfs_message_pioctl (int fd, struct xfs_message_pioctl *h, u_int size) {
   
-  warn << "pioctl!! return EINVAL no matter what!!!\n";
+  warn << "pioctl!! return 0 no matter what!!!\n";
+
+  warn << "pioctl: opcode = " << h->opcode << "\n";
   
-  int error = EINVAL;
+  int error = 0;
+
+  switch(h->opcode) {
+#ifdef KERBEROS
+#ifdef VIOCSETTOK_32
+  case VIOCSETTOK_32:
+  case VIOCSETTOK_64:
+#else
+  case VIOCSETTOK:
+#endif
+    error = viocsettok (fd, h, size);
+    break;
+#ifdef VIOCGETTOK_32
+  case VIOCGETTOK_32:
+  case VIOCGETTOK_64:
+#else
+  case VIOCGETTOK :
+#endif
+    return viocgettok (fd, h, size);
+#ifdef VIOCUNPAG_32
+  case VIOCUNPAG_32:
+  case VIOCUNPAG_64:
+#else
+  case VIOCUNPAG:
+#endif
+#ifdef VIOCUNLOG_32
+  case VIOCUNLOG_32:
+  case VIOCUNLOG_64:
+#else
+  case VIOCUNLOG:
+#endif
+    error = viocunlog (fd, h, size);
+    break;
+#endif /* KERBEROS */
+#ifdef VIOCCONNECTMODE_32
+  case VIOCCONNECTMODE_32:
+  case VIOCCONNECTMODE_64:
+#else
+  case VIOCCONNECTMODE:
+#endif
+    return viocconnect(fd, h, size);
+#ifdef VIOCFLUSH_32
+  case VIOCFLUSH_32:
+  case VIOCFLUSH_64:
+#else
+  case VIOCFLUSH:
+#endif
+    error = viocflush(fd, h, size);
+    break;
+#ifdef VIOC_FLUSHVOLUME_32
+  case VIOC_FLUSHVOLUME_32:
+  case VIOC_FLUSHVOLUME_64:
+#else
+  case VIOC_FLUSHVOLUME:
+#endif
+    error = viocflushvolume(fd, h, size);
+    break;
+#ifdef VIOCGETFID_32
+  case VIOCGETFID_32:
+  case VIOCGETFID_64:
+#else
+  case VIOCGETFID:
+#endif
+    return viocgetfid (fd, h, size);
+#ifdef VIOCGETAL_32
+  case VIOCGETAL_32:
+  case VIOCGETAL_64:
+#else
+  case VIOCGETAL:
+#endif
+    return viocgetacl(fd, h, size);
+#ifdef VIOCSETAL_32
+  case VIOCSETAL_32:
+  case VIOCSETAL_64:
+#else
+  case VIOCSETAL:
+#endif
+    return viocsetacl(fd, h, size);
+#ifdef VIOCGETVOLSTAT_32
+  case VIOCGETVOLSTAT_32:
+  case VIOCGETVOLSTAT_64:
+#else
+  case VIOCGETVOLSTAT:
+#endif
+    return viocgetvolstat(fd, h, size);
+#ifdef VIOCSETVOLSTAT_32
+  case VIOCSETVOLSTAT_32:
+  case VIOCSETVOLSTAT_64:
+#else
+  case VIOCSETVOLSTAT:
+#endif
+    error = viocsetvolstat(fd, h, size);
+    break;
+#ifdef VIOC_AFS_STAT_MT_PT_32
+  case VIOC_AFS_STAT_MT_PT_32:
+  case VIOC_AFS_STAT_MT_PT_64:
+#else
+  case VIOC_AFS_STAT_MT_PT:
+#endif
+    return vioc_afs_stat_mt_pt(fd, h, size);
+#ifdef VIOC_AFS_DELETE_MT_PT_32
+  case VIOC_AFS_DELETE_MT_PT_32:
+  case VIOC_AFS_DELETE_MT_PT_64:
+#else
+  case VIOC_AFS_DELETE_MT_PT:
+#endif
+    return vioc_afs_delete_mt_pt(fd, h, size);
+#ifdef VIOCWHEREIS_32
+  case VIOCWHEREIS_32:
+  case VIOCWHEREIS_64:
+#else
+  case VIOCWHEREIS:
+#endif
+    return viocwhereis(fd, h, size);
+#ifdef VIOCNOP_32
+  case VIOCNOP_32:
+  case VIOCNOP_64:
+#else
+  case VIOCNOP:
+#endif
+    error = EINVAL;
+    break;
+#ifdef VIOCGETCELL_32
+  case VIOCGETCELL_32:
+  case VIOCGETCELL_64:
+#else
+  case VIOCGETCELL:
+#endif
+    return vioc_get_cell(fd, h, size);
+#ifdef VIOC_GETCELLSTATUS_32
+  case VIOC_GETCELLSTATUS_32:
+  case VIOC_GETCELLSTATUS_64:
+#else
+  case VIOC_GETCELLSTATUS:
+#endif
+    return vioc_get_cellstatus(fd, h, size);
+#ifdef VIOC_SETCELLSTATUS_32
+  case VIOC_SETCELLSTATUS_32:
+  case VIOC_SETCELLSTATUS_64:
+#else
+  case VIOC_SETCELLSTATUS:
+#endif
+    return vioc_set_cellstatus(fd, h, size);
+#ifdef VIOCNEWCELL_32
+  case VIOCNEWCELL_32:
+  case VIOCNEWCELL_64:
+#else
+  case VIOCNEWCELL:
+#endif
+    return vioc_new_cell(fd, h, size);
+#ifdef VIOC_VENUSLOG_32
+  case VIOC_VENUSLOG_32:
+  case VIOC_VENUSLOG_64:
+#else
+    case VIOC_VENUSLOG:
+#endif
+	error = viocvenuslog (fd, h, size);
+	break;
+#ifdef VIOC_AFS_SYSNAME_32
+    case VIOC_AFS_SYSNAME_32:
+    case VIOC_AFS_SYSNAME_64:
+#else
+    case VIOC_AFS_SYSNAME:
+#endif
+	return vioc_afs_sysname (fd, h, size);
+#ifdef VIOC_FILE_CELL_NAME_32
+    case VIOC_FILE_CELL_NAME_32:
+    case VIOC_FILE_CELL_NAME_64:
+#else
+    case VIOC_FILE_CELL_NAME:
+#endif
+	return viocfilecellname (fd, h, size);
+#ifdef VIOC_GET_WS_CELL_32
+    case VIOC_GET_WS_CELL_32:
+    case VIOC_GET_WS_CELL_64:
+#else
+    case VIOC_GET_WS_CELL:
+#endif
+	return viocgetwscell (fd, h, size);
+#ifdef VIOCSETCACHESIZE_32
+    case VIOCSETCACHESIZE_32:
+    case VIOCSETCACHESIZE_64:
+#else
+    case VIOCSETCACHESIZE:
+#endif
+	error = viocsetcachesize (fd, h, size);
+	break;
+#ifdef VIOCCKSERV_32
+    case VIOCCKSERV_32:
+    case VIOCCKSERV_64:
+#else
+    case VIOCCKSERV:
+#endif
+	return viocckserv (fd, h, size);
+#ifdef VIOCGETCACHEPARAMS_32
+    case VIOCGETCACHEPARAMS_32:
+    case VIOCGETCACHEPARAMS_64:
+#else
+    case VIOCGETCACHEPARAMS:
+#endif
+	return viocgetcacheparms (fd, h, size);
+#ifdef VIOC_GETRXKCRYPT_32
+    case VIOC_GETRXKCRYPT_32:
+    case VIOC_GETRXKCRYPT_64:
+#else
+    case VIOC_GETRXKCRYPT:
+#endif
+	return getrxkcrypt(fd, h, size);
+#ifdef VIOC_SETRXKCRYPT_32
+    case VIOC_SETRXKCRYPT_32:
+    case VIOC_SETRXKCRYPT_64:
+#else
+    case VIOC_SETRXKCRYPT:
+#endif
+	error = setrxkcrypt(fd, h, size);
+	break;
+#ifdef VIOC_FPRIOSTATUS_32
+    case VIOC_FPRIOSTATUS_32:
+    case VIOC_FPRIOSTATUS_64:
+#else
+    case VIOC_FPRIOSTATUS:
+#endif
+	error = vioc_fpriostatus(fd, h, size);
+	break;
+#ifdef VIOC_AVIATOR_32
+    case VIOC_AVIATOR_32:
+    case VIOC_AVIATOR_64:
+#else
+    case VIOC_AVIATOR:
+#endif
+	return viocaviator (fd, h, size);
+#ifdef VIOC_ARLADEBUG_32
+    case VIOC_ARLADEBUG_32:
+    case VIOC_ARLADEBUG_64:
+#else
+    case VIOC_ARLADEBUG:
+#endif
+	return vioc_arladebug (fd, h, size);
+#ifdef VIOC_GCPAGS_32
+    case VIOC_GCPAGS_32:
+    case VIOC_GCPAGS_64:
+#else
+    case VIOC_GCPAGS:
+#endif
+	error = vioc_gcpags (fd, h, size);
+	break;
+#ifdef VIOC_CALCULATE_CACHE_32
+    case VIOC_CALCULATE_CACHE_32:
+    case VIOC_CALCULATE_CACHE_64:
+#else
+    case VIOC_CALCULATE_CACHE:
+#endif
+	return vioc_calculate_cache (fd, h, size);
+#ifdef VIOC_BREAKCALLBACK_32
+    case VIOC_BREAKCALLBACK_32:
+    case VIOC_BREAKCALLBACK_64:
+#else
+    case VIOC_BREAKCALLBACK:
+#endif	
+	error = vioc_breakcallback (fd, h, size);
+	break;
+    default:
+      warn << "unknown pioctl call \n";
+      error = EINVAL ;
+  }
+
   xfs_send_message_wakeup (fd, h->header.sequence_num, error);
     
   return 0;

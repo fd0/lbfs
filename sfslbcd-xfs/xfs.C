@@ -169,14 +169,15 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
      unsigned opcode = h->opcode;
 
      if (opcode >= XFS_MSG_COUNT || rcvfuncs[opcode] == NULL ) {
-       warn << "Bad message opcode = " << opcode << "\n";
+       warn << "Bad message opcode = " << opcode << "!!!!!!!!!\n";
        return -1;
      }
 
      ++recv_stat[opcode];
 
-     warn << "Rec message: opcode = " << opcode << "("<<
-       rcvfuncs_name[opcode] << "), size = " << h->size << "\n";
+     warn << "Rec message: opcode = " << opcode << "("
+	  << rcvfuncs_name[opcode] << "), seq = " << h->sequence_num 
+	  << " size = " << h->size << "\n";
 
      return (*rcvfuncs[opcode])(fd, h, size);
 }

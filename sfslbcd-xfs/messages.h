@@ -124,6 +124,8 @@ class xfs_message {
 }
 #endif
 
+int xfs_message_wakeup (int fd, struct xfs_message_wakeup *h, u_int size);
+
 int xfs_message_getroot (int, struct xfs_message_getroot*, u_int);
 
 int xfs_message_getnode (int, struct xfs_message_getnode*, u_int);
