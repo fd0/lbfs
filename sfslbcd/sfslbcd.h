@@ -109,7 +109,8 @@ class server : public sfsserver_auth {
   void read_from_cache (nfscall *nc, fcache *e);
   void access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err);
   void cache_file_reply (time_t rqtime, nfscall *nc, void *res, bool ok);
-  void access_reply_cached(nfscall *nc, int32_t perm, fattr3 fa, bool ok);
+  void access_reply_cached(nfscall *nc, int32_t perm, fattr3 fa,
+                           bool update_fa, bool ok);
 
   void remove_cache (fcache e);
   str fh2fn(nfs_fh3 fh) {

@@ -42,18 +42,21 @@ operator< (const nfstime3 &t1, const nfstime3 &t2) {
 }
 
 void
-server::access_reply_cached(nfscall *nc, int32_t perm, fattr3 fa, bool ok)
+server::access_reply_cached(nfscall *nc, int32_t perm, fattr3 fa,
+                            bool update_fa, bool ok)
 {
   if (ok) {
     access3args *a = nc->template getarg<access3args> ();
     fcache *e = fc[a->object];
-    if (!e) {
-      fcache_insert(a->object,fa);
-      e = fc[a->object];
-      assert(e);
+    if (update_fa) {
+      if (!e) {
+        fcache_insert(a->object,fa);
+        e = fc[a->object];
+        assert(e);
+      }
+      e->fa = fa;
     }
-    e->fa = fa;
-    e->users++;
+    if (e) e->users++;
     access3res res(NFS3_OK);
     res.resok->obj_attributes.set_present (true);
     *res.resok->obj_attributes.attributes = fa;
@@ -73,6 +76,13 @@ server::access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     access3args *a = nc->template getarg<access3args> ();
     ex_fattr3 fa = *ares->resok->obj_attributes.attributes;
     fcache *e = fc[a->object];
+      
+    if (fa.type == NF3REG && e) {
+      warn << "new attr, users " << e->users << " "
+	   << "cache time " << e->fa.mtime.seconds << ":"
+	   << " mtime " << fa.mtime.seconds << "\n";
+    }
+
     // update cache if cache time < mtime and file is not open
     if (fa.type == NF3REG &&
 	(!e || (e->fa.mtime < fa.mtime && e->users == 0))) {
@@ -262,6 +272,7 @@ server::dispatch (nfscall *nc)
 {
   if (nc->proc() == cl_NFSPROC3_CLOSE) {
     nfs_fh3 *a = nc->template getarg<nfs_fh3> ();
+    warn << "close on " << *a << "\n";
     fcache *e = fc[*a];
     if (e) {
       if (e->users > 0)
@@ -285,24 +296,33 @@ server::dispatch (nfscall *nc)
 
   else if (nc->proc () == NFSPROC3_ACCESS) {
     access3args *a = nc->template getarg<access3args> ();
+    warn << "access on " << a->object << "\n";
     int32_t perm = ac.access_lookup (a->object, nc->getaid (), a->access);
     if (perm > 0) {
       fattr3 fa =
 	*reinterpret_cast<const fattr3 *> (ac.attr_lookup (a->object));
       fcache *e = fc[a->object];
+
+      if (fa.type == NF3REG && e) {
+        warn << "cached attr, users " << e->users << " "
+	     << "cache time " << e->fa.mtime.seconds << ":"
+	     << " mtime " << fa.mtime.seconds << "\n";
+      }
+
       // update cache if cache time < mtime and file is not open
       if (fa.type == NF3REG &&
 	  (!e || (e->fa.mtime < fa.mtime && e->users == 0))) {
         str f = fh2fn(a->object);
         lbfs_read
 	  (f, a->object, fa.size, nfsc, authof(nc->getaid()),
-	   wrap(mkref(this), &server::access_reply_cached, nc, perm, fa));
+	   wrap(mkref(this), &server::access_reply_cached, nc, perm, fa, true));
         return;
       }
-      access_reply_cached(nc, perm, fa, true);
+      access_reply_cached(nc, perm, fa, false, true);
       return;
     }
- 
+
+    warn << "snt ACCESS\n";
     void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
     nfsc->call (nc->proc (), nc->getvoidarg (), res,
 	        wrap (mkref(this), &server::access_reply, timenow, nc, res),
