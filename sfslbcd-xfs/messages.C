@@ -35,6 +35,7 @@ mkdir3args *ma;
 setattr3args *sa;
 lbfs_mktmpfile3args *mt;
 lbfs_condwrite3args *cw;
+lbfs_committmp3args *ct;
 vec<lbfs_chunk *> *cvp; 
 
 static char iobuf[NFS_MAXDATA];
@@ -560,6 +561,13 @@ void nfs3_write (int fd, struct xfs_message_putdata* h, ex_write3res *res, clnt_
   else warn << "nfs3_write: error: " << strerror(errno) << "(" << errno << ")\n";
 }
 
+void nfs3_committmp(ref<condwrite3args> cwa, ex_commit3res *res, clnt_stat err) {
+  if (res->status == NFS3_OK) {
+    xfs_send_message_wakeup (cwa->fd, cwa->h->header.sequence_num, 0);
+  } else warn << "nfs3_committmp: " << strerror(res->status) << "\n";
+  
+}
+
 void lbfs_nfs3_condwrite(ref<condwrite3args> cwa, clnt_stat err) {
 
   if (cwa->res != NULL) {
@@ -607,14 +615,27 @@ void lbfs_nfs3_condwrite(ref<condwrite3args> cwa, clnt_stat err) {
     }
     sha1_hash(&cw->hash, iobuf, cw->count);  
 
-    cwa->res = new lbfs_condwrite3res;
+    cwa->res = new ex_write3res;
     cwa->chunk_index++;
 
     nfsc->call(lbfs_NFSPROC3_CONDWRITE, cw, cwa->res,
            wrap(&lbfs_nfs3_condwrite, cwa));
-  } else 
-    xfs_send_message_wakeup (cwa->fd, cwa->h->header.sequence_num, 0);
+  } else {
+    //signal the server to commit the tmp file
+    ct = new lbfs_committmp3args;
+    ct->commit_from = cwa->tmpfh;
 
+    if (fht.setcur(cwa->h->handle)) {
+      warn << "xfs_getattr: Can't find node handle\n";
+      return;
+    }     
+    ct->commit_to = fht.getnh(fht.getcur());
+    
+    ex_commit3res *cres = new ex_commit3res;
+    nfsc->call(lbfs_NFSPROC3_COMMITTMP, ct, cres,
+	       wrap(&nfs3_committmp, cwa, cres));
+
+  }
 }
 
 void lbfs_nfs3_mktmpfile(int fd, struct xfs_message_putdata* h, 

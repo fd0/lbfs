@@ -52,7 +52,7 @@ public:
   int rfd;
   uint chunk_index;
   vec<lbfs_chunk *> *cvp;
-  lbfs_condwrite3res *res;
+  ex_write3res *res;
 };
 
 #if 0
