@@ -1,10 +1,12 @@
 
+XXX implement wcc
+  - on each write/commit, check if wcc.pre == previous attribute of
+    file, if so, update attribute, otherwise, don't update
+
 close-to-open consistency is: on any close, nfs client flushes all
 changes to server; on any open, nfs client fetches latest attributes
 from server, and loads new data when the cache time is less than
 mtime.
-
-XXX GETATTR/ACCESS on a dirty file returns what attribute/permission?
 
 consistency
  0) don't update cache if cached file is dirty
@@ -14,6 +16,13 @@ consistency
  3) if lease has expired, fetch attribute; if cache time does not
     match mtime, update cache
 
+attributes in attribute cache and file cache
+ - if file is cached and dirty
+   - return attribute from file cache on GETATTR
+   - don't update attribute cache with new attributes from server
+   - XXX we don't modify the attribute returned from server on the
+         dirty file, such as, for example, ACCESS, should we?
+
 write
  - don't update mtime on each write or close. can't update on write
    bcecause clocks can be out of sync; can't update on close because
@@ -21,6 +30,7 @@ write
    client's writes or not
  - mark cached file dirty on first write; we won't update the cache
    file on subsequent ACCESS until the cache file is flushed to server
+ - update size in both attribute and file cache
  - always return FILE_SYNC
  - XXX what verf should we return
 
@@ -36,7 +46,7 @@ commit
    them onto the server.
 
 setattr
- - if size is changed, change the size of the cache file as well
+ - if size is changed, update size in both attribute and file cache
  - always forward setattr rpc onto the server
 
 can we depend on nfs client to always send an ACCESS rpc before any

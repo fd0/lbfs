@@ -75,10 +75,7 @@ server::access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     access3args *a = nc->template getarg<access3args> ();
     ex_fattr3 fa = *ares->resok->obj_attributes.attributes;
     fcache *e = fc[a->object];
-    if (fa.type == NF3REG && e)
-      warn << "new attr, " << e->fa.mtime.seconds << ":"
-	   << fa.mtime.seconds << ":" << e->dirty << "\n";
-    // update cache if cache time < mtime and file is not dirty
+    // update file cache if cache time < mtime and file is not dirty
     if (fa.type == NF3REG && (!e || (e->fa.mtime < fa.mtime && !e->dirty))) {
       str f = fh2fn(a->object);
       lbfs_read(f, a->object, fa.size, mkref(this), authof(nc->getaid()),
@@ -144,7 +141,7 @@ server::read_from_cache (nfscall *nc, fcache *e)
   res.resok->eof = (((unsigned)n) <= a->count);
   res.resok->file_attributes.set_present (true);
   *res.resok->file_attributes.attributes = e->fa;
-  warn << "read from cache, eof " << res.resok->eof << "\n";
+  // warn << "read from cache, eof " << res.resok->eof << "\n";
   nc->reply(&res);
 }
 
@@ -166,6 +163,8 @@ server::write_to_cache (nfscall *nc, fcache *e)
     nc->reject (SYSTEM_ERR);
     return;
   }
+  warn << "WRITE " << a->offset << ":" << a->count << "\n";
+
   int n = write(e->fd, a->data.base(), a->count);
   if (n < 0) {
     perror("write cache file");
@@ -177,14 +176,20 @@ server::write_to_cache (nfscall *nc, fcache *e)
   write3res res(NFS3_OK);
   res.resok->count = n;
   res.resok->committed = FILE_SYNC; // on close, COMMIT everything
+  
   // change e->fa.size but not e->fa.mtime. for wcc, reflect before
   // and after file sizes.
   res.resok->file_wcc.before.set_present (true);
   (res.resok->file_wcc.before.attributes)->size = e->fa.size;
   (res.resok->file_wcc.before.attributes)->mtime = e->fa.mtime;
   (res.resok->file_wcc.before.attributes)->ctime = e->fa.ctime;
+ 
+  // update size in both the attribute cache and file cache
   if (a->offset+n > e->fa.size)
     e->fa.size = a->offset+n;
+  ex_fattr3 *f = const_cast<ex_fattr3*>(ac.attr_lookup (e->fh));
+  f->size = e->fa.size;
+
   res.resok->file_wcc.after.set_present (true);
   *(res.resok->file_wcc.after.attributes) = e->fa;
   // XXX res.resok->verf = ;
@@ -202,8 +207,13 @@ server::truncate_cache (uint64 size, fcache *e)
   }
   if (ftruncate(e->fd, size) < 0)
     return -1;
-  e->dirty = true;
+  
+  // update size in both the attribute cache and file cache
   e->fa.size = size;
+  ex_fattr3 *f = const_cast<ex_fattr3*>(ac.attr_lookup (e->fh));
+  f->size = e->fa.size;
+  e->dirty = true;
+
   return 0;
 }
 
@@ -219,6 +229,11 @@ server::close_reply (nfscall *nc, bool ok)
 void
 server::flush_cache (nfscall *nc, fcache *e)
 {
+  // setting e->dirty to false BEFORE lbfs_write is important.
+  // lbfs_write will try to update the attribute cache after making
+  // each nfs call. if e->dirty is still set to true, then the
+  // attribute cache will not be updated, causing stale attributes to
+  // be returned to client.
   e->dirty = false;
   str fn = fh2fn(e->fh);
   lbfs_write
@@ -230,6 +245,11 @@ void
 server::getattr (time_t rqtime, unsigned int proc,
                  sfs_aid aid, void *arg, void *res)
 {
+  nfs_fh3 *fh = static_cast<nfs_fh3 *> (arg);
+  fcache *e = fc[*fh];
+  if (e && e->dirty) // if file is dirty, don't update attribute cache
+    return;
+
   xattrvec xv;
   nfs3_getxattr (&xv, proc, arg, res);
   for (xattr *x = xv.base (); x < xv.lim (); x++) {
@@ -349,6 +369,15 @@ void
 server::dispatch (nfscall *nc)
 {
   if (nc->proc () == NFSPROC3_GETATTR) {
+    // if file is cached and dirty, return attribute from file cache
+    fcache *e = fc[*nc->template getarg<nfs_fh3> ()];
+    if (e && e->dirty) {
+      warn << "returning attribute from file cache\n";
+      getattr3res res (NFS3_OK);
+      *res.attributes = e->fa;
+      nc->reply (&res);
+      return;
+    }
     const ex_fattr3 *f = ac.attr_lookup (*nc->template getarg<nfs_fh3> ());
     if (f) {
       getattr3res res (NFS3_OK);
@@ -360,16 +389,12 @@ server::dispatch (nfscall *nc)
 
   else if (nc->proc () == NFSPROC3_ACCESS) {
     access3args *a = nc->template getarg<access3args> ();
-    warn << "access on " << a->object << "\n";
     int32_t perm = ac.access_lookup (a->object, nc->getaid (), a->access);
+    fcache *e = fc[a->object];
     if (perm > 0) {
       fattr3 fa =
 	*reinterpret_cast<const fattr3 *> (ac.attr_lookup (a->object));
-      fcache *e = fc[a->object];
-      if (fa.type == NF3REG && e)
-	warn << "cached attr, " << e->fa.mtime.seconds << ":"
-	     << fa.mtime.seconds << ":" << e->dirty << "\n";
-      // update cache if cache time < mtime and file is not dirty
+      // update file cache if cache time < mtime and file is not dirty
       if (fa.type == NF3REG && (!e || (e->fa.mtime < fa.mtime && !e->dirty))) {
         str f = fh2fn(a->object);
         lbfs_read
@@ -380,6 +405,7 @@ server::dispatch (nfscall *nc)
       access_reply_cached(nc, perm, fa, false, true);
       return;
     }
+
     void *res = ex_nfs_program_3.tbl[nc->proc ()].alloc_res ();
     nfsc->call (nc->proc (), nc->getvoidarg (), res,
 	        wrap (mkref(this), &server::access_reply, timenow, nc, res),
@@ -438,6 +464,7 @@ server::dispatch (nfscall *nc)
     setattr3args *a = nc->template getarg<setattr3args> ();
     fcache *e = fc[a->object];
     if (a->new_attributes.size.set && e) {
+      warn << "SETATTR " << *(a->new_attributes.size.val) << "\n";
       if (truncate_cache (*(a->new_attributes.size.val), e) < 0) {
         nc->reject (SYSTEM_ERR);
 	return;
