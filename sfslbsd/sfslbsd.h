@@ -28,6 +28,7 @@
 #include "qhash.h"
 #include "arpc.h"
 #include "vec.h"
+#include "getfh3.h"
 #include "sfscrypt.h"
 #include "sfsmisc.h"
 #include "mount_prot.h"
@@ -147,14 +148,11 @@ struct synctab;
 class filesrv {
 public:
   struct reqstate {
+    ptr<aclnt> c;
     u_int32_t fsno;
     bool rootfh;
   };
 
-  str host;
-  ptr<aclnt> c;
-  ptr<aclnt> mountc;
- 
   ptr<sfs_servinfo_w> siw;
   sfs_servinfo servinfo;
   sfs_hash hostid;
@@ -189,7 +187,7 @@ private:
   void getnfsc (ptr<aclnt> c, clnt_stat stat);
   void getmountc (ptr<aclnt> c, clnt_stat stat);
 
-  void gotroot (ref<erraccum> ea, int i, const nfs_fh3 *fhp, str err);
+  void gotroot (ref<erraccum> ea, int i, ptr<nfsinfo> ni, str err);
   void gotroots (bool ok);
 
   void gottrashdir (ref<erraccum> ea, int i, int j, bool root,
@@ -248,8 +246,6 @@ void getfh3 (const char *host, str path,
 	     callback<void, const nfs_fh3 *, str>::ref);
 void getfh3 (ref<aclnt> c, str path,
 	     callback<void, const nfs_fh3 *, str>::ref);
-void lookupfh3 (ref<aclnt> c, const nfs_fh3 &start, str path,
-		callback<void, const nfs_fh3 *, const FATTR3 *, str>::ref cb);
 
 // issues READ requests to server, in order. for each successful read, pass
 // data pointer, number of bytes read, and offset to the rcb. when all read

@@ -5,7 +5,10 @@
 #include "sha1.h"
 #include "rabinpoly.h"
 #include "fingerprint.h"
-  
+
+const char *FP_DB = getenv("LBFS_FPDB") ? getenv("LBFS_FPDB") 
+                                        : "/var/tmp/fp.db";
+
 unsigned Chunker::min_size_suppress = 0;
 unsigned Chunker::max_size_suppress = 0;
 

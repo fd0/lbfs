@@ -30,6 +30,8 @@ AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
 AUTH *auth_default = 
   authunix_create ("localhost", (uid_t) 32767, (gid_t) 9999, 0, NULL);
 
+#if 0
+
 const strbuf &
 strbuf_cat (const strbuf &sb, mountstat3 stat)
 {
@@ -177,6 +179,7 @@ lookupfh3 (ref<aclnt> c, const nfs_fh3 &start, str path, lookup3obj::cb_t cb)
 {
   vNew lookup3obj (c, start, path, cb);
 }
+#endif
 
 
 struct mkdir_obj {

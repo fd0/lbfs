@@ -21,6 +21,7 @@
 
 #include "sfslbcd.h"
 #include "lbfs_prot.h"
+#include "fingerprint.h"
 
 struct write_obj {
   static const int PARALLEL_WRITES = 8;
@@ -38,10 +39,21 @@ struct write_obj {
   unsigned int outstanding_writes;
   bool callback;
   bool commit;
+
+  Chunker chunker;
   
   void
   commit_reply(time_t rqtime, ref<commit3args> arg,
                ref<ex_commit3res> res, clnt_stat err) {
+
+    chunker.stop ();
+    for (unsigned i=0; i<chunker.chunk_vector().size(); i++) {
+      chunk *c = chunker.chunk_vector()[i];
+      uint64 off = c->location ().pos ();
+      uint64 cnt = c->location ().count ();
+      warn << c->hashidx () << ": " << off << "+" << cnt << "\n";
+    }
+
     outstanding_writes--;
     if (!err) {
       srv->getxattr (rqtime, NFSPROC3_COMMIT, 0, arg, res);
@@ -136,6 +148,9 @@ struct write_obj {
     a->stable = UNSTABLE;
     a->data.setsize(sz);
     memmove (a->data.base (), buf->base (), sz);
+    
+    chunker.chunk_data ((unsigned char*) a->data.base (), (unsigned)sz);
+
     ref<ex_write3res> res = New refcounted <ex_write3res>;
     srv->nfsc->call (lbfs_NFSPROC3_WRITE, a, res,
 	             wrap (this, &write_obj::write_reply, timenow, a, res),

@@ -180,49 +180,31 @@ filesrv::init (cb_t c)
 {
   assert (!cb);
   cb = c;
-  aclntudp_create (host, 0, nfs_program_3, wrap (this, &filesrv::getnfsc));
+  
   fpdb.open (FP_DB);
   fp_db::iterator *iter = 0;
   delaycb(LBSD_GC_PERIOD, wrap(this, &filesrv::db_gc, iter));
-}
-
-void
-filesrv::getnfsc (ptr<aclnt> nc, clnt_stat stat)
-{
-  if (!nc) {
-    warn << host << ": NFS3: " << stat << "\n";
-    (*cb) (false);
-    return;
-  }
-  c = nc;
-  aclntudp_create (host, 0, mount_program_3, wrap (this, &filesrv::getmountc));
-}
-
-void
-filesrv::getmountc (ptr<aclnt> nc, clnt_stat stat)
-{
-  if (!nc) {
-    warn << host << ": MOUNT3: " << stat << "\n";
-    (*cb) (false);
-    return;
-  }
-  mountc = nc;
 
   for (size_t i = 0; i < fstab.size (); i++)
     fstab[i].parent = &fstab[path2fsidx (fstab[i].path_mntpt, i)];
   ref<erraccum> ea (New refcounted<erraccum> (wrap (this,
 						    &filesrv::gotroots)));
   for (size_t i = 0; i < fstab.size (); i++)
-    if (fstab[i].path_root)
-      getfh3 (mountc, fstab[i].path_root,
-	      wrap (this, &filesrv::gotroot, ea, i));
+    findfs (NULL, fstab[i].path_root,
+	    wrap (this, &filesrv::gotroot, ea, i), FINDFS_NOSFS);
 }
 
 void
-filesrv::gotroot (ref<erraccum> ea, int i, const nfs_fh3 *fhp, str err)
+filesrv::gotroot (ref<erraccum> ea, int i, ptr<nfsinfo> ni, str err)
 {
-  if (resok (ea, strbuf ("mount: ") << fstab[i].path_root, err))
-    fstab[i].fh_root = *fhp;
+  if (resok (ea, "findfs", err)) {
+    fstab[i].host = ni->hostname;
+    fstab[i].fh_root = ni->fh;
+    fstab[i].c = ni->c;
+    /* XXX - the fsid will vary accross server reboots if path_root is
+     * * an NFS mount point (particularly an automounted one). */
+    fstab[i].fsid = ni->rdev;
+  }
 }
 
 void
@@ -237,9 +219,9 @@ filesrv::gotroots (bool ok)
   sfs_trash.setsize(fstab.size());
 
   for (size_t i = 0; i < fstab.size (); i++) {
-    lookupfh3 (c, fstab[i].fh_root, "",
+    lookupfh3 (fstab[i].c, fstab[i].fh_root, "",
 	       wrap (this, &filesrv::gotrootattr, ea, i));
-    lookupfh3 (c, fstab[i].parent->fh_root,
+    lookupfh3 (fstab[i].c, fstab[i].parent->fh_root,
 	       substr (fstab[i].path_mntpt,
 		       fstab[i].parent->path_mntpt.len ()),
 	       wrap (this, &filesrv::gotmp, ea, i));
@@ -252,7 +234,7 @@ filesrv::gotroots (bool ok)
     trash_attr.gid.set_set(true);
     *(trash_attr.gid.val) = 0;
    
-    nfs3_mkdir (c, fstab[i].fh_root, ".sfs.trash", trash_attr,
+    nfs3_mkdir (fstab[i].c, fstab[i].fh_root, ".sfs.trash", trash_attr,
 	        wrap (this, &filesrv::gottrashdir, ea, i, 0, true));
   }
 }
@@ -275,7 +257,7 @@ filesrv::gottrashdir (ref<erraccum> ea, int i, int j, bool root,
       *(trash_attr.gid.val) = 0;
       char subdir[32];
       sprintf(subdir, "%d", 0);
-      nfs3_mkdir (c, sfs_trash[i].topdir, subdir, trash_attr,
+      nfs3_mkdir (fstab[i].c, sfs_trash[i].topdir, subdir, trash_attr,
 	          wrap(this, &filesrv::gottrashdir, ea, i, 0, false));
     }
     else {
@@ -290,7 +272,7 @@ filesrv::gottrashdir (ref<erraccum> ea, int i, int j, bool root,
         *(trash_attr.gid.val) = 0;
         char subdir[32];
         sprintf(subdir, "%d", j+1);
-        nfs3_mkdir (c, sfs_trash[i].topdir, subdir, trash_attr,
+        nfs3_mkdir (fstab[i].c, sfs_trash[i].topdir, subdir, trash_attr,
 	            wrap(this, &filesrv::gottrashdir, ea, i, j+1, false));
       } else {
         sfs_trash[i].window[0] = 0;
@@ -359,9 +341,9 @@ filesrv::make_trashent(unsigned fsno, unsigned trash_idx)
   arg.dir = sfs_trash[fsno].subdirs[r % SFS_TRASH_DIR_BUCKETS];
   arg.name = tmpfile;
   lookup3res *res = New lookup3res;
-  c->call (NFSPROC3_LOOKUP, &arg, res,
-	   wrap(this, &filesrv::make_trashent_lookup_cb, r, fsno, res),
-	   auth_default);
+  fstab[fsno].c->call (NFSPROC3_LOOKUP, &arg, res,
+	               wrap(this, &filesrv::make_trashent_lookup_cb,
+		            r, fsno, res), auth_default);
 }
 
 void
@@ -382,8 +364,9 @@ filesrv::make_trashent_lookup_cb(unsigned r, unsigned fsno,
     arg.name = tmpfile;
     arg.dir = sfs_trash[fsno].subdirs[r % SFS_TRASH_DIR_BUCKETS];
     wccstat3 *wres = New wccstat3;
-    c->call(NFSPROC3_REMOVE, &arg, wres,
-	    wrap(this, &filesrv::make_trashent_remove_cb, wres), auth_default);
+    fstab[fsno].c->call(NFSPROC3_REMOVE, &arg, wres,
+	                wrap(this, &filesrv::make_trashent_remove_cb, wres),
+			auth_default);
   }
   delete res;
 }
@@ -465,7 +448,7 @@ filesrv::gotrootattr (ref<erraccum> ea, int i,
 		      const nfs_fh3 *fhp, const FATTR3 *attr, str err)
 {
   if (resok (ea, strbuf ("getattr: ") << fstab[i].path_root, err)) {
-    fstab[i].fsid = attr->fsid;
+    // fstab[i].fsid = attr->fsid;
     fstab[i].fileid_root = attr->fileid;
   }
 }
@@ -541,6 +524,8 @@ filesrv::gotrdres (ref<erraccum> ea, ref<readdir3res> res,
   arg.cookie = ep->cookie;
   arg.cookieverf = res->resok->cookieverf;
   arg.count = 8192;
+  
+  aclnt *c = mp ? fstab[i].parent->c : fstab[i].c;
   c->call (NFSPROC3_READDIR, &arg, res,
 	   wrap (this, &filesrv::gotrdres, ea, res, i, mp),
 	   auth_default);
@@ -708,6 +693,7 @@ filesrv::fixarg (svccb *sbp, reqstate *rqsp)
   rqsp->fsno = fht.srvno;
   filesys *fsp = &fstab[rqsp->fsno];
   rqsp->rootfh = false;
+  rqsp->c = fsp->c;
 
   /* We let anonymous users GETATTR any root file handle, not just the
    * root of all exported files.  This is to help client

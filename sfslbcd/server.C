@@ -448,6 +448,10 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     return;
   }
 
+  // connection to server ok. if connection fails, reconnect with
+  // try_compress on
+  try_compress = true;
+
   fixlc (nc, res);
   getxattr (rqtime, nc->proc (), nc->getaid (), nc->getvoidarg (), res);
   

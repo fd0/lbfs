@@ -99,9 +99,9 @@ client::renamecb_1 (svccb *sbp, void *_res, filesrv::reqstate rqs,
   }
 
   lookup3res *ares = New lookup3res;
-  fsrv->c->call (NFSPROC3_LOOKUP, &sbp->template getarg<rename3args> ()->to,
-		 ares, wrap (mkref (this), &client::renamecb_2,
-			     sbp, res, rqs, ares), auth);
+  rqs.c->call (NFSPROC3_LOOKUP, &sbp->template getarg<rename3args> ()->to,
+               ares, wrap (mkref (this), &client::renamecb_2,
+		           sbp, res, rqs, ares), auth);
 }
 
 static inline int
@@ -143,7 +143,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
       Chunker *chunker = New Chunker;
       unsigned char *buf = New unsigned char[c.count()];
       nfs3_read
-	(fsrv->c, fh, 
+	(rqs.c, fh, 
 	 c.pos(), c.count(),
 	 wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos(), chunker), 
 	 wrap(mkref(this), &client::condwrite_got_chunk, 
@@ -159,7 +159,7 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     ufd_rec *u = ufdtab.tab[cwa->fd];
     assert(u);
     nfs_fh3 fh = u->fh;
-    nfs3_write(fsrv->c, fh,
+    nfs3_write(rqs.c, fh,
 	       wrap(mkref(this), &client::condwrite_write_cb, 
 		    sbp, rqs, cwa->count),
 	       data, cwa->offset, cwa->count, UNSTABLE);
@@ -249,7 +249,7 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
         Chunker *chunker = New Chunker;
 	unsigned char *buf = New unsigned char[c.count()];
 	nfs3_read
-	  (fsrv->c, fh,
+	  (rqs.c, fh,
 	   c.pos(), c.count(),
 	   wrap(mkref(this), &client::condwrite_read_cb, buf, c.pos(),chunker),
 	   wrap(mkref(this), &client::condwrite_got_chunk,
@@ -304,9 +304,9 @@ client::tmpwrite (svccb *sbp, filesrv::reqstate rqs)
       warg.data = fwa->data;
       u->writes++;
       write3res *res = New write3res;
-      fsrv->c->call(NFSPROC3_WRITE, &warg, res,
-		    wrap (mkref (this), &client::tmpwrite_cb, sbp, rqs, res),
-	            authtab[authno]);
+      rqs.c->call(NFSPROC3_WRITE, &warg, res,
+		  wrap (mkref (this), &client::tmpwrite_cb, sbp, rqs, res),
+	          authtab[authno]);
     }
     else
       u->sbps.push_back(sbp);
@@ -378,10 +378,9 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   (c3arg.how.obj_attributes)->gid.set_set(false);
 
   void *cres = nfs_program_3.tbl[NFSPROC3_CREATE].alloc_res ();
-  fsrv->c->call (NFSPROC3_CREATE, &c3arg, cres,
-		 wrap (mkref (this), &client::mktmpfile_cb, 
-		       sbp, rqs, c3arg.where.dir, r, cres),
-		 authtab[authno]);
+  rqs.c->call (NFSPROC3_CREATE, &c3arg, cres,
+               wrap (mkref (this), &client::mktmpfile_cb, 
+		     sbp, rqs, c3arg.where.dir, r, cres), authtab[authno]);
   fsrv->update_trashent(rqs.fsno);
 }
 
@@ -450,7 +449,7 @@ client::committmp (svccb *sbp, filesrv::reqstate rqs)
     else {
       if (lbsd_trace > 2)
         gettimeofday(&t0, 0L);
-      nfs3_copy (fsrv->c, u->fh, cta->commit_to,
+      nfs3_copy (rqs.c, u->fh, cta->commit_to,
                  wrap(read_cb_nop),
                  wrap(mkref(this), &client::committmp_cb, sbp, rqs));
     }
@@ -558,7 +557,7 @@ client::getfp (svccb *sbp, filesrv::reqstate rqs)
     gettimeofday(&t0, NULL);
   Chunker *chunker = New Chunker;
   nfs3_read 
-    (fsrv->c, arg->file, 
+    (rqs.c, arg->file, 
      arg->offset, arg->count,
      wrap(mkref(this), &client::chunk_data, chunker),
      wrap(mkref(this), &client::getfp_cb, sbp, rqs, chunker));
@@ -603,9 +602,9 @@ client::trashent_link (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 fh)
   lnarg.link.name = tmpfile;
   lnarg.link.dir = fsrv->sfs_trash[rqs.fsno].subdirs[r%SFS_TRASH_DIR_BUCKETS];
   link3res *lnres = New link3res;
-  fsrv->c->call (NFSPROC3_LINK, &lnarg, lnres,
-	         wrap(mkref(this), &client::trashent_link_cb, sbp, rqs, lnres),
-		 authtab[authno]);
+  rqs.c->call (NFSPROC3_LINK, &lnarg, lnres,
+	       wrap(mkref(this), &client::trashent_link_cb, sbp, rqs, lnres),
+	       authtab[authno]);
   fsrv->update_trashent(rqs.fsno);
 }
 
@@ -680,13 +679,13 @@ client::normal_demux (svccb *sbp, filesrv::reqstate rqs)
   u_int32_t authno = sbp->getaui ();
   void *res = nfs_program_3.tbl[sbp->proc ()].alloc_res ();
   if (sbp->proc () == NFSPROC3_RENAME)
-    fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
-		   wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
-		   authtab[authno]);
+    rqs.c->call (sbp->proc (), sbp->template getarg<void> (), res,
+		 wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
+		 authtab[authno]);
   else
-    fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
-		   wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
-		   authtab[authno]);
+    rqs.c->call (sbp->proc (), sbp->template getarg<void> (), res,
+		 wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),
+		 authtab[authno]);
 }
 
 u_int64_t
@@ -721,6 +720,7 @@ client::sfs_getfsinfo (svccb *sbp)
   if (fsrv) {
     sbp->replyref (fsrv->fsinfo);
     static_cast<axprt_zcrypt *> (x.get ())->compress ();
+    warn << "turning compress on\n";
   }
   else
     sbp->reject (PROC_UNAVAIL);
