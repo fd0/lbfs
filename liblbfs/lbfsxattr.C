@@ -18,7 +18,7 @@ lbfs_constop (u_int32_t proc)
   case lbfs_NFSPROC3_RENAME:
   case lbfs_NFSPROC3_LINK:
   case lbfs_CONDWRITE:
-  case lbfs_FDWRITE:
+  case lbfs_TMPWRITE:
   case lbfs_MKTMPFILE:
   case lbfs_COMMITTMP:
   case lbfs_GETFP:

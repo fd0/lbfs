@@ -293,7 +293,7 @@ class client : public virtual refcount, public sfsserv {
   void condwrite_read_cb (unsigned char *, off_t, Chunker*,
                           const unsigned char *, size_t, off_t);
   void condwrite (svccb *sbp, filesrv::reqstate rqs);
-  void fdwrite (svccb *sbp, filesrv::reqstate rqs);
+  void tmpwrite (svccb *sbp, filesrv::reqstate rqs);
 
   void mktmpfile_cb (svccb *sbp, filesrv::reqstate rqs, nfs_fh3 dir, 
                      char *path, void *_cres, clnt_stat err);

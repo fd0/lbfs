@@ -1967,7 +1967,8 @@ struct putdata_obj {
       memcpy (wa.data.base (), iobuf, err);
       bytes_sent += wa.count;
 #else
-      lbfs_fdwrite3args fwa;
+      lbfs_tmpwrite3args fwa;
+      fwa.commit_to = e->nh;
       fwa.fd = tmpfd;
       fwa.offset = ost;
       fwa.stable = UNSTABLE;
@@ -1983,7 +1984,7 @@ struct putdata_obj {
       c->call (lbfs_NFSPROC3_WRITE, &wa, res,
 	       wrap (this, &putdata_obj::do_sendwrite, chunk, res), lbfs_authof (sa));
 #else 
-      c->call (lbfs_FDWRITE, &fwa, res,
+      c->call (lbfs_TMPWRITE, &fwa, res,
 	       wrap (this, &putdata_obj::do_sendwrite, chunk, res), lbfs_authof (sa));
 #endif
     }
@@ -2037,6 +2038,7 @@ struct putdata_obj {
 #if LBFS_PROT == 1
     cw.file = tmpfh;
 #else 
+    cw.commit_to = e->nh;
     cw.fd = tmpfd;
 #endif    
     cw.offset = chunk->location().pos ();
@@ -2184,6 +2186,7 @@ struct putdata_obj {
 #if LBFS_PROT == 1
     mt.commit_to = e->nh;
 #else 
+    mt.commit_to = e->nh;
     tmpfd = FILE_DES++;
     mt.fd = tmpfd;
 #endif
@@ -2193,7 +2196,7 @@ struct putdata_obj {
     
     c->call (lbfs_MKTMPFILE, &mt, mtres,
 	     wrap (this, &putdata_obj::mktmpfile), lbfs_authof (sa));
-    //benjie's rant
+    // benjie's rant
     e->writers = 0;
   }
 };

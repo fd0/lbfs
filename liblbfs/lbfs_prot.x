@@ -29,7 +29,7 @@ struct lbfs_condwrite3args {
   sfs_hash hash;
 };
 
-struct lbfs_fdwrite3args {
+struct lbfs_tmpwrite3args {
   nfs_fh3 commit_to;
   unsigned fd;
   uint64 offset;
@@ -146,7 +146,7 @@ program LBFS_PROGRAM {
 		lbfs_CONDWRITE (lbfs_condwrite3args) = 22;
 		
 		ex_write3res
-		lbfs_FDWRITE (lbfs_fdwrite3args) = 23;
+		lbfs_TMPWRITE (lbfs_tmpwrite3args) = 23;
 		
 		ex_diropres3
 		lbfs_MKTMPFILE (lbfs_mktmpfile3args) = 24;

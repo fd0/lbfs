@@ -244,9 +244,9 @@ client::condwrite (svccb *sbp, filesrv::reqstate rqs)
 }
 
 void
-client::fdwrite (svccb *sbp, filesrv::reqstate rqs)
+client::tmpwrite (svccb *sbp, filesrv::reqstate rqs)
 {
-  lbfs_fdwrite3args *fwa = sbp->template getarg<lbfs_fdwrite3args> ();
+  lbfs_tmpwrite3args *fwa = sbp->template getarg<lbfs_tmpwrite3args> ();
   ufd_rec *u = ufdtab.tab[fwa->fd];
   if (u) {
     u_int32_t authno = sbp->getaui ();
@@ -579,8 +579,8 @@ client::nfs3dispatch (svccb *sbp)
     mktmpfile(sbp, rqs);
   else if (sbp->proc () == lbfs_COMMITTMP)
     committmp(sbp, rqs);
-  else if (sbp->proc () == lbfs_FDWRITE)
-    fdwrite(sbp, rqs);
+  else if (sbp->proc () == lbfs_TMPWRITE)
+    tmpwrite(sbp, rqs);
   else if (sbp->proc () == lbfs_CONDWRITE)
     condwrite(sbp, rqs);
   else if (sbp->proc () == lbfs_GETFP)
