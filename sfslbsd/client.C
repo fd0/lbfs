@@ -116,6 +116,9 @@ client::nfs3dispatch (svccb *sbp)
     fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
 		   wrap (mkref (this), &client::renamecb_1, sbp, res, rqs),
 		   authtab[authno]);
+  else if (sbp->proc () == lbfs_NFSPROC3_CONDWRITE) {
+    // XXX - write me
+  }
   else
     fsrv->c->call (sbp->proc (), sbp->template getarg<void> (), res,
 		   wrap (mkref (this), &client::nfs3reply, sbp, res, rqs),

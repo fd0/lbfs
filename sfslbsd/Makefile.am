@@ -3,12 +3,12 @@
 
 $(PROGRAMS): $(LDEPS)
 
-sfslib_PROGRAMS = mkdb dbif lbfsusrv
+sfslib_PROGRAMS = mkdb dbif sfslbsd
 
-noinst_HEADERS = \
-lbfs.h lbfsusrv.h
+noinst_HEADERS = lbfs.h sfsrwsd.h
 
-lbfsusrv_SOURCES = lbfsusrv.C lbfsclient.C
+sfslbsd_SOURCES = client.C fhtrans.C filesrv.C getfh3.C lease.C sfsrwsd.C
+sfslbsd_LDADD = $(LDADD) $(DB3_LIB)
 
 mkdb_SOURCES = mkdb.C
 mkdb_LDADD = $(LDADD) $(DB3_LIB)

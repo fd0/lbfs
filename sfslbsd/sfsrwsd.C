@@ -230,8 +230,8 @@ parseconfig (str cf)
   fsrv->servinfo.host.pubkey = fsrv->sk->n;
   if (!sfs_mkhostid (&fsrv->hostid, fsrv->servinfo.host))
     fatal ("could not marshal my own hostinfo\n");
-  fsrv->servinfo.prog = ex_NFS_PROGRAM;
-  fsrv->servinfo.vers = ex_NFS_V3;
+  fsrv->servinfo.prog = LBFS_PROGRAM;
+  fsrv->servinfo.vers = LBFS_V3;
 
   return fsrv;
 }

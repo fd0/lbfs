@@ -286,8 +286,8 @@ filesrv::gotdds (bool ok)
 
   fh3trans fht (fh3trans::ENCODE, fhkey, 0);
 
-  fsinfo.set_prog (ex_NFS_PROGRAM);
-  fsinfo.nfs->set_vers (ex_NFS_V3);
+  fsinfo.set_prog (LBFS_PROGRAM);
+  fsinfo.nfs->set_vers (LBFS_V3);
   fsinfo.nfs->v3->root = fstab[0].fh_root;
   if (!rpc_traverse (fht, fsinfo.nfs->v3->root))
     fatal ("filesrv::finish: nfs3_transres encode failed (err %d)\n", fht.err);
