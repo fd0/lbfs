@@ -3,9 +3,9 @@
 
 sfslib_LTLIBRARIES = liblbfs.la
 
-liblbfs_la_SOURCES = lbfs_prot.C rabinpoly.C
+liblbfs_la_SOURCES = lbfs_prot.C rabinpoly.C lbfsdb.C chunking.C
 
-sfsinclude_HEADERS = lbfs_prot.x lbfs_prot.h rabinpoly.h
+sfsinclude_HEADERS = lbfs_prot.x lbfs_prot.h rabinpoly.h lbfsdb.h chunking.h
 
 lbfs_prot.h: $(srcdir)/lbfs_prot.x
 	@rm -f $@

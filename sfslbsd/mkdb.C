@@ -13,10 +13,14 @@ main(int argc, char *argv[])
   lbfs_db db(FMAP_DB);
   db.open();
 
-  vec<lbfs_chunk>
+  vec<u_int64_t> fv;
+  vec<lbfs_chunk *> cv;
 
-  add_file(argv[1], &db);
-      if (db->add_chunk(f, &c) != 0)
-        printf("add returned non-zero\n");
+  chunk_file(argv[1], &fv, &cv);
+  for(unsigned i=0; i<fv.size(); i++) {
+    if (db.add_chunk(fv[i], cv[i]) != 0) 
+      printf("add returned non-zero\n");
+    delete cv[i];
+  }
 }
 

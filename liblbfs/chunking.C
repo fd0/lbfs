@@ -3,8 +3,8 @@
 #include <stdio.h>
 #include <db.h>
 
-#include "rabinpoly.h"
 #include "lbfsdb.h"
+#include "rabinpoly.h"
 
 static bool
 mapfile (const u_char **bufp, size_t *sizep, const char *path)
@@ -36,9 +36,8 @@ mapfile (const u_char **bufp, size_t *sizep, const char *path)
   return true;
 }
 
-
 int
-add_file(const char *path, lbfs_db *db)
+chunk_file(const char *path, vec<u_int64_t> *fvp, vec<lbfs_chunk *> *cvp)
 {
   const u_char *fp;
   size_t fl;
@@ -56,26 +55,18 @@ add_file(const char *path, lbfs_db *db)
     f = w.slide8 (fp[i]);
     if ((f % BREAKMARK_K) == BREAKMARK_X) {
       printf ("C%d 0x%016qx\n", i, f);
-      lbfs_chunk c(path, last_i, i-last_i);
-      if (db->add_chunk(f, &c) != 0)
-        printf("add returned non-zero\n");
+      lbfs_chunk *c = new lbfs_chunk(path, last_i, i-last_i);
+      fvp->push_back(f);
+      cvp->push_back(c);
       w.reset();
       last_i = i;
     }
     i++;
   }
   printf ("C%d 0x%016qx\n", i, f);
-  lbfs_chunk c(path, last_i, i-last_i);
-  if (db->add_chunk(f, &c) != 0) 
-    printf("add returned non-zero\n");
+  lbfs_chunk *c = new lbfs_chunk(path, last_i, i-last_i); 
+  fvp->push_back(f);
+  cvp->push_back(c);
   return 0;
-}
-
-int 
-main(int argc, char *argv[]) 
-{
-  lbfs_db db(FMAP_DB);
-  db.open();
-  add_file(argv[1], &db);
 }
 

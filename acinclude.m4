@@ -779,19 +779,19 @@ if test ! "${with_db3+set}"; then
 fi
 
 if test "$with_db3" != no; then
-    AC_MSG_CHECKING([for DB3 library])
+    AC_MSG_CHECKING([for DB3 CXX library])
     if test "$DB3_DIR" -a "$with_db3" = yes; then
 	CPPFLAGS="$CPPFLAGS "'-I$(top_builddir)/'"$DB3_DIR"
 	DB3_LIB='-L$(top_builddir)/'"$DB3_DIR -ldb"
 	AC_MSG_RESULT([using distribution in $DB3_DIR subdirectory])
     else
-	libdbrx='^libdb([[3.-]].*)?.la$'
+	libdbrx='^libdb([[3.-]].*)?_cxx.la$'
 	if test "$with_db3" = yes; then
 	    for dir in "$prefix/BerkeleyDB.3.1" /usr/local/BerkeleyDB.3.1 \
 		    "$prefix/BerkeleyDB.3.0" /usr/local/BerkeleyDB.3.0 \
 		    /usr "$prefix" /usr/local; do
 		test -f $dir/include/db.h -o -f $dir/include/db3.h || continue
-		if test -f $dir/lib/libdb.a \
+		if test -f $dir/lib/libdb_cxx.a \
 			|| ls $dir/lib | egrep -q "$libdbrx"; then
 		    with_db3="$dir"
 		    break
@@ -811,9 +811,9 @@ if test "$with_db3" != no; then
 	    DB3_LIB="$with_db3/lib/$DB3_LIB"
 	elif test "$with_db3" = /usr; then
 	    with_db3=yes
-	    DB3_LIB="-ldb"
+	    DB3_LIB="-ldb_cxx"
 	else
-	    DB3_LIB="-L${with_db3}/lib -ldb"
+	    DB3_LIB="-L${with_db3}/lib -ldb_cxx"
 	fi
 	AC_MSG_RESULT([$with_db3])
     fi
