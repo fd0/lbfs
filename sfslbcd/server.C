@@ -333,14 +333,19 @@ server::flush_done (nfscall *nc, nfs_fh3 fh, fattr3 fa, bool ok)
       warn << "after flush, file still dirty\n";
       e->dirty ();
     }
-    if (nc)
-      nc->error (NFS3_OK);
+    if (nc) {
+      commit3res res (NFS3_OK);
+      res.resok->verf = verf3;
+      nc->reply (&res);
+    }
   }
   else {
     warn << "flush failed\n";
     e->error();
-    if (nc)
-      nc->error (NFS3ERR_IO);
+    if (nc) {
+      commit3res res (NFS3ERR_IO);
+      nc->reply (&res);
+    }
   }
   e->flush_wait = e->flush_scheduled = false;
   run_rpcs (e);
@@ -970,7 +975,9 @@ server::dispatch (nfscall *nc)
 	e->afh = 0;
       }
 
-      nc->error (NFS3_OK);
+      commit3res res (NFS3_OK);
+      res.resok->verf = verf3;
+      nc->reply (&res);
       return;
     }
 

@@ -2,9 +2,10 @@ Index: nfs/nfs.h
 ===================================================================
 RCS file: /home/cr1/benjie/cvsroot/freebsd/nfs/nfs.h,v
 retrieving revision 1.1.1.1
-diff -c -r1.1.1.1 nfs.h
+retrieving revision 1.2
+diff -c -r1.1.1.1 -r1.2
 *** nfs/nfs.h	20 May 2002 16:43:15 -0000	1.1.1.1
---- nfs/nfs.h	22 May 2002 18:11:02 -0000
+--- nfs/nfs.h	22 May 2002 18:15:08 -0000	1.2
 ***************
 *** 167,172 ****
 --- 167,173 ----
@@ -30,9 +31,10 @@ Index: nfs/nfs_vnops.c
 ===================================================================
 RCS file: /home/cr1/benjie/cvsroot/freebsd/nfs/nfs_vnops.c,v
 retrieving revision 1.1.1.1
-diff -c -r1.1.1.1 nfs_vnops.c
+retrieving revision 1.3
+diff -c -r1.1.1.1 -r1.3
 *** nfs/nfs_vnops.c	20 May 2002 16:43:16 -0000	1.1.1.1
---- nfs/nfs_vnops.c	22 May 2002 18:11:02 -0000
+--- nfs/nfs_vnops.c	15 Nov 2002 23:34:36 -0000	1.3
 ***************
 *** 566,571 ****
 --- 566,576 ----
@@ -53,17 +55,27 @@ diff -c -r1.1.1.1 nfs_vnops.c
   		np->n_flag &= ~NWRITEERR;
   		error = np->n_error;
   	    }
-+ 	    if ((VFSTONFS(vp->v_mount)->nm_flag & NFSMNT_SENDCLOSE))
-+ 	      nfs_send_close(vp, ap->a_cred, ap->a_p);
++ 	    if (!error && (VFSTONFS(vp->v_mount)->nm_flag & NFSMNT_SENDCLOSE))
++ 	      error = nfs_send_close(vp, ap->a_cred, ap->a_p);
   	}
   	return (error);
   }
 ***************
-*** 2674,2679 ****
---- 2681,2711 ----
-  			error = NFSERR_STALEWRITEVERF;
-  		}
-  	}
+*** 2664,2669 ****
+--- 2671,2711 ----
+  	tl += 2;
+  	*tl = txdr_unsigned(cnt);
+  	nfsm_request(vp, NFSPROC_COMMIT, procp, cred);
++ 	nfsm_wcc_data(vp, wccflag);
++ 	if (!error) {
++ 		nfsm_dissect(tl, u_int32_t *, NFSX_V3WRITEVERF);
++ 		if (bcmp((caddr_t)nmp->nm_verf, (caddr_t)tl,
++ 			NFSX_V3WRITEVERF)) {
++ 			bcopy((caddr_t)tl, (caddr_t)nmp->nm_verf,
++ 				NFSX_V3WRITEVERF);
++ 			error = NFSERR_STALEWRITEVERF;
++ 		}
++ 	}
 + 	nfsm_reqdone;
 + 	return (error);
 + }
@@ -79,26 +91,27 @@ diff -c -r1.1.1.1 nfs_vnops.c
 + {
 + 	register caddr_t cp;
 + 	register u_int32_t *tl;
-+ 	register int32_t t2;
++ 	register int32_t t1, t2;
++ 	caddr_t bpos, dpos, cp2;
 + 	register struct nfsmount *nmp = VFSTONFS(vp->v_mount);
-+ 	caddr_t bpos, dpos;
-+ 	int error = 0;
++ 	int error = 0, wccflag = NFSV3_WCCRATTR;
 + 	struct mbuf *mreq, *mrep, *md, *mb, *mb2;
 + 	
 + 	nfsstats.rpccnt[NFSPROC_CLOSE]++;
 + 	nfsm_reqhead(vp, NFSPROC_CLOSE, NFSX_FH(1));
 + 	nfsm_fhtom(vp, 1);
 + 	nfsm_request(vp, NFSPROC_CLOSE, procp, cred);
-  	nfsm_reqdone;
-  	return (error);
-  }
+  	nfsm_wcc_data(vp, wccflag);
+  	if (!error) {
+  		nfsm_dissect(tl, u_int32_t *, NFSX_V3WRITEVERF);
 Index: nfs/nfsproto.h
 ===================================================================
 RCS file: /home/cr1/benjie/cvsroot/freebsd/nfs/nfsproto.h,v
 retrieving revision 1.1.1.1
-diff -c -r1.1.1.1 nfsproto.h
+retrieving revision 1.2
+diff -c -r1.1.1.1 -r1.2
 *** nfs/nfsproto.h	20 May 2002 16:43:16 -0000	1.1.1.1
---- nfs/nfsproto.h	22 May 2002 18:11:02 -0000
+--- nfs/nfsproto.h	22 May 2002 18:15:08 -0000	1.2
 ***************
 *** 175,182 ****
   #define	NQNFSPROC_VACATED	23
