@@ -119,8 +119,7 @@ server::setfd(int fd)
 {
   warn << "setfd in sfslbcd called\n";
   assert (fd >= 0);
-  xx = axprt_crypt::alloc (fd);
-  x = axprt_compress::alloc (xx);
+  x = New refcounted<axprt_zcrypt>(fd, axprt_zcrypt::ps());
   sfsc = aclnt::alloc (x, sfs_program_1);
   sfscbs = asrv::alloc (x, sfscb_program_1,
                         wrap (this, &server::dispatch_dummy));
@@ -140,9 +139,7 @@ server::setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_cb)
   }
 
   rootfh = fh;
-  if (typeid (*x) != typeid (refcounted<axprt_compress>))
-    panic("sfslbcd: transport must be axprt_compress!\n");
-  static_cast<axprt_compress *> (x.get ())->compress ();
+  static_cast<axprt_zcrypt *> (x.get ())->compress ();
   nfsc = aclnt::alloc (x, lbfs_program_3);
   nfscbs = asrv::alloc (x, ex_nfscb_program_3,
 			wrap (this, &server::cbdispatch));

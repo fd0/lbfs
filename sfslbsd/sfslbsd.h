@@ -331,7 +331,7 @@ class client : public virtual refcount, public sfsserv {
   void getfp (svccb *sbp, filesrv::reqstate rqs);
 
 protected:
-  explicit client (ref<axprt_crypt> x);
+  explicit client (ref<axprt_zcrypt> x);
   ~client ();
   ptr<rabin_priv> doconnect (const sfs_connectarg *, sfs_servinfo *);
 
@@ -342,7 +342,7 @@ public:
 
   void sfs_getfsinfo (svccb *sbp);
 
-  static void launch (ref<axprt_crypt> x);
+  static void launch (ref<axprt_zcrypt> x);
   filesrv *getfilesrv () const { return fsrv; }
 };
 
@@ -358,7 +358,7 @@ void doleases (filesrv *fsrv, u_int64_t cgen, u_int32_t fsno,
 bool fh3tosfs (nfs_fh3 *);
 bool fh3tonfs (nfs_fh3 *);
 
-void client_accept (ptr<axprt_crypt> x);
+ptr<axprt_crypt> client_accept (ptr<axprt_crypt> x);
 
 extern filesrv *defsrv;
 

@@ -23,7 +23,6 @@
 
 #include "arpc.h"
 #include "axprt_compress.h"
-#include "axprt_crypt.h"
 
 struct xprtest {
   enum { pktsize = 0x10000 };
@@ -48,7 +47,6 @@ struct xprtest {
     }
 
     void input (xprtest *xt, const char *pkt, ssize_t len, const sockaddr *) {
-      // warn ("input %p: %d\n", this, len);
       if (len <= 0)
 	panic << xt->testname << ": receive error\n";
       if (rctr > xprtest::npkt)
@@ -77,7 +75,6 @@ struct xprtest {
 	int len = getint (snd) % xprtest::pktsize & ~3;
 	for (int j = 0; j < len; j++)
 	  pkt[j] = snd.getbyte ();
-	// warn ("output %p: %d\n", this, len);
 	x->send (pkt, len, NULL);
       }
       if (sctr < xprtest::npkt)
@@ -146,8 +143,7 @@ struct bigtest {
   ~bigtest () { rcv->setrcb (NULL); delete[] msg; }
 };
 
-ptr<axprt_stream> sta, stb;
-ptr<axprt_compress> zta, ztb;
+ptr<axprt_zcrypt> zta, ztb;
 
 void
 dobig ()
@@ -163,11 +159,9 @@ main (int argc, char **argv)
   int fds[2];
   if (socketpair (AF_UNIX, SOCK_STREAM, 0, fds) < 0)
     fatal ("socketpair: %m\n");
-  sta = axprt_crypt::alloc (fds[0], axprt_compress::ps ());
-  stb = axprt_crypt::alloc (fds[1], axprt_compress::ps ());
-  zta = axprt_compress::alloc (sta);
-  ztb = axprt_compress::alloc (stb);
 
+  zta = New refcounted<axprt_zcrypt>(fds[0], axprt_zcrypt::ps ());
+  ztb = New refcounted<axprt_zcrypt>(fds[1], axprt_zcrypt::ps ());
   zta->compress ();
   ztb->compress ();
 

@@ -119,7 +119,7 @@ start_server (filesrv *fsrv, bool ok)
 
   defsrv = fsrv;
 
-  sfssd_slave (wrap (client_accept));
+  sfssd_slave_axprt (wrap (client_accept));
 }
 
 

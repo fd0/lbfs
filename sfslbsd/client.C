@@ -698,8 +698,8 @@ client::nextgen ()
   return g;
 }
 
-client::client (ref<axprt_crypt> xx)
-  : sfsserv (xx, axprt_compress::alloc (xx)), fsrv (NULL),
+client::client (ref<axprt_zcrypt> xx)
+  : sfsserv (xx), fsrv (NULL),
     generation (nextgen ())
 {
   nfssrv = asrv::alloc (x, lbfs_program_3,
@@ -720,12 +720,7 @@ client::sfs_getfsinfo (svccb *sbp)
 {
   if (fsrv) {
     sbp->replyref (fsrv->fsinfo);
-#if 1
-    if (typeid (*x) != typeid (refcounted<axprt_compress>))
-      panic ("client::sfs_getfsinfo %s != %s\n",
-	     typeid (*x).name (), typeid (refcounted<axprt_compress>).name ());
-    static_cast<axprt_compress *> (x.get ())->compress ();
-#endif
+    static_cast<axprt_zcrypt *> (x.get ())->compress ();
   }
   else
     sbp->reject (PROC_UNAVAIL);
@@ -740,16 +735,19 @@ client::doconnect (const sfs_connectarg *ci, sfs_servinfo *si)
 }
 
 void
-client::launch (ref<axprt_crypt> xc)
+client::launch (ref<axprt_zcrypt> xc)
 {
   vNew refcounted<client> (xc);
 }
 
-void
+ptr<axprt_crypt>
 client_accept (ptr<axprt_crypt> x)
 {
   if (!x)
     fatal ("EOF from sfssd\n");
-  client::launch (x);
+  int fd = x->reclaim();
+  ptr<axprt_zcrypt> xx = New refcounted<axprt_zcrypt>(fd, axprt_zcrypt::ps());
+  client::launch (xx);
+  return xx;
 }
 

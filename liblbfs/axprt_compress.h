@@ -4,6 +4,7 @@
 /*
  *
  * Copyright (C) 2001 David Mazieres (dm@uun.org)
+ * Copyright (C) 2002 Benjie Chen (benjie@lcs.mit.edu)
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -26,38 +27,133 @@
 #define _AXPRT_COMPRESS_H_ 1
 
 #include "arpc.h"
+#include "crypt.h"
+#include "refcnt.h"
 #include "zlib.h"
 
-class axprt_compress : public axprt {
+extern int lbfs_compress;
+
+template<class T>
+class axprt_compress : public T {
 protected:
   bool docompress;
-  recvcb_t cb;
+  axprt::recvcb_t compress_cb;
   z_stream zin;
   z_stream zout;
   size_t bufsize;
   char *buf;
 
-  axprt_compress (ref<axprt> xx);
+  VA_TEMPLATE (explicit axprt_compress, : T, { init(); });
   ~axprt_compress ();
+
+  void init ();
   void rcb (const char *buf, ssize_t len, const sockaddr *sa);
-  void fail () { if (cb) (*cb) (NULL, -1, NULL); }
+  void fail () { if (compress_cb) (*compress_cb) (NULL, -1, NULL); }
 
 public:
-  void sendv (const iovec *, int, const sockaddr *);
-  void setwcb (cbv cb) { x->setwcb (cb); }
-  void setrcb (recvcb_t c) {
-    cb = c;
-    if (cb)
-      x->setrcb (wrap (this, &axprt_compress::rcb));
+  virtual void sendv (const iovec *, int, const sockaddr *);
+  virtual void setwcb (cbv cb) { T::setwcb (cb); }
+  virtual void setrcb (axprt::recvcb_t c) {
+    compress_cb = c;
+    if (compress_cb)
+      T::setrcb (wrap (this, &axprt_compress::rcb));
     else
-      x->setrcb (NULL);
+      T::setrcb (NULL);
   }
-  bool ateof () { return x->ateof (); }
   void compress () { docompress = true; }
   static size_t ps (u_int s = defps) { return s + s/1000 + 13; } // see zlib.h
- 
-  static ref<axprt_compress> alloc (ref<axprt> xx)
-    { return New refcounted<axprt_compress> (xx); }
 };
+
+template<class T> 
+inline void
+axprt_compress<T>::init()
+{
+  docompress = false;
+  assert (T::reliable && T::connected);
+  setrcb (NULL);
+  bzero (&zin, sizeof (zin));
+  if (int zerr = inflateInit (&zin))
+    panic ("inflateInit: %d\n", zerr);
+  bzero (&zout, sizeof (zout));
+  warn << "using compression level " << lbfs_compress << "\n";
+  if (int zerr = deflateInit (&zout, lbfs_compress))
+    panic ("deflateInit: %d\n", zerr);
+
+  bufsize = ps ();		// XXX - should use x's packet size
+  buf = (char *) xmalloc (bufsize);
+}
+
+template<class T>
+inline axprt_compress<T>::~axprt_compress ()
+{
+  inflateEnd (&zin);
+  deflateEnd (&zout);
+  free (buf);
+}
+
+template<class T>
+inline void
+axprt_compress<T>::sendv (const iovec *iov, int iovcnt, const sockaddr *sa)
+{
+  if (!docompress) {
+    T::sendv (iov, iovcnt, sa);
+    return;
+  }
+
+  zout.next_out = (Bytef *) buf;
+  zout.avail_out = bufsize;
+
+  for (int i=0; i < iovcnt; i++) {
+    zout.next_in  = (Bytef *) iov[i].iov_base;
+    zout.avail_in = iov[i].iov_len;
+
+#if 0
+    if (!zout.avail_out) {
+      buf = (char *) xrealloc (buf, 2 * bufsize);
+      zout.next_out = (Bytef *) (buf + bufsize);
+      zout.avail_out = bufsize;
+      bufsize = 2 * bufsize;
+    }
+#endif
+
+    if (int zerr = deflate (&zout, i == iovcnt - 1 ? Z_SYNC_FLUSH : 0)) {
+      warn ("deflate: %d\n", zerr);
+      fail ();
+    }
+  }
+  
+  {
+    iovec iov2 = {buf, (char*)zout.next_out - buf};
+    T::sendv (&iov2, 1, sa);
+  }
+}
+
+template<class T>
+inline void
+axprt_compress<T>::rcb(const char *pkt, ssize_t len, const sockaddr *sa)
+{
+  if (!compress_cb)
+    return;
+
+  if (!docompress || len <= 0) {
+    (*compress_cb) (pkt, len, sa);
+    return;
+  }
+
+  zin.next_out = (Bytef *) buf;
+  zin.avail_out = bufsize;
+  zin.next_in = (Bytef *) pkt;
+  zin.avail_in = len;
+
+  if (int zerr = inflate (&zin, Z_SYNC_FLUSH)) {
+    warn ("inflate: %d\n", zerr);
+    fail ();
+    return;
+  }
+
+  (*compress_cb) (buf, (char *) zin.next_out - buf, sa);
+}
+
+typedef axprt_compress<axprt_crypt> axprt_zcrypt;
 
 #endif /* _AXPRT_COMPRESS_H_ */
