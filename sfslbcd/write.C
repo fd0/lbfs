@@ -226,7 +226,7 @@ struct write_obj {
         chunk *c = cv[i];
         uint64 off = c->location ().pos ();
         uint64 cnt = c->location ().count ();
-        warn << c->hashidx () << ": " << off << "+" << cnt << "\n";
+        // warn << c->hashidx () << ": " << off << "+" << cnt << "\n";
 
 	lbfs_condwrite3args arg;
         arg.commit_to = fh;
@@ -239,7 +239,9 @@ struct write_obj {
         srv->nfsc->call (lbfs_CONDWRITE, &arg, res,
 	                 wrap (this, &write_obj::condwrite_reply,
 			       off, cnt, res), auth);
-	// XXX add chunk into local db
+        c->location ().set_fh (fh);
+        server::fpdb.add_entry
+	  (c->hashidx (), &(c->location ()), c->location ().size ());
       }
       chunkv_sz = cv.size ();
     }

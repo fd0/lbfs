@@ -300,7 +300,8 @@ struct read_obj {
   void compose (uint64 offset, ref<lbfs_getfp3res> res)
   {
     for (unsigned i=0; i<res->resok->fprints.size(); i++) {
-      warn << "get_fp +" << res->resok->fprints[i].count << "\n";
+      uint64 count = res->resok->fprints[i].count;
+      // warn << "get_fp +" << count << "\n";
       bool checking = false;
       fp_db::iterator *ci = 0;
       u_int64_t index;
@@ -310,7 +311,7 @@ struct read_obj {
           rdstate *rds = New rdstate;
           rds->ci = ci;
           rds->offset = offset;
-          rds->cnt = res->resok->fprints[i].count;
+          rds->cnt = count;
           rds->hash = res->resok->fprints[i].hash;
 	  if (next_chunk(true, rds))
 	    checking = true;
@@ -321,16 +322,14 @@ struct read_obj {
 	}
       }
       if (!checking) { // chunk not found locally
-        warn << index << ": nothing in db, queueing "
-	     << res->resok->fprints[i].count << "\n";
+        // warn << index << ": nothing in db, queueing " << count << "\n";
         rq_off.push_back (offset);
-	rq_cnt.push_back (res->resok->fprints[i].count);
+	rq_cnt.push_back (count);
       }
-      chunk c
-	(offset, res->resok->fprints[i].count, res->resok->fprints[i].hash);
+      chunk c (offset, count, res->resok->fprints[i].hash);
       c.location ().set_fh (fh);
       server::fpdb.add_entry
-	(c.hashidx(), &(c.location ()), c.location().size());
+	(c.hashidx (), &(c.location ()), c.location ().size ());
       offset += res->resok->fprints[i].count;
     }
     do_read ();
