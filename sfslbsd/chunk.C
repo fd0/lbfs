@@ -22,11 +22,9 @@ void done()
   extern unsigned max_size_chunks;
   printf("# %u min size chunks\n", min_size_chunks);
   printf("# %u max size chunks\n", max_size_chunks);
-#if 0
   for (int i=0; i<NBUCKETS; i++) {
     printf("%d %d\n", i<<7, buckets[i]);
   }
-#endif
 }
 
 void
