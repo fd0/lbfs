@@ -37,6 +37,7 @@ lbfs_mktmpfile3args *mt;
 lbfs_condwrite3args *cw;
 lbfs_committmp3args *ct;
 vec<lbfs_chunk *> *cvp; 
+lbfs_chunk_loc *chl;
 lbfs_getfp3args *gfp;
 
 static char iobuf[NFS_MAXDATA];
@@ -75,6 +76,7 @@ NULL						/* gc nodes */
 };
 
 void lbfs_condwrite(ref<condwrite3args> cwa, clnt_stat err);
+void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count);
 
 void getrootattr(int fd, struct xfs_message_getroot *h, sfs_fsinfo *fsi, ex_getattr3res *res, clnt_stat err) {
 
@@ -369,70 +371,61 @@ void nfs3_readdir(int fd, struct xfs_message_getdata *h, ex_readdir3res *res,
   }
 }
 
-void write_file(int fd, struct xfs_message_getdata *h, ex_read3res *res, 
-		int cfd, struct xfs_message_installdata msg, clnt_stat cl_err) {
+void write_file(ref<getfp_args> ga, uint64 offset, uint32 count, ex_read3res *res) {
+//, clnt_stat cl_err) {
 
-  int err = write(cfd, res->resok->data.base(), res->resok->data.size());
-  if (err != (int)res->resok->data.size()) {
-    warn << "write error or short write!!\n";
+  if (fht.setcur(ga->h->handle)) {
+    warn << "nfs3_readdir: Can't find node handle\n";
+    return;
   }
 
-  if (!res->resok->eof) {
-    ra->file = fht.getnh(fht.getcur());
-    ra->offset += res->resok->count;
-    ra->count = NFS_MAXDATA; //or fsinfo->rtpref;
-    
-    ex_read3res *rres = new ex_read3res;
-    nfsc->call(lbfs_NFSPROC3_READ, ra, rres,
-	       wrap(&write_file, fd, h, rres, cfd, msg));
-  } else {
-
-    close(cfd);    
-    fht.setopened(true);
-
-    struct xfs_message_header *h0 = NULL;
-    size_t h0_len = 0;
-
-    msg.header.opcode = XFS_MSG_INSTALLDATA;
-    h0 = (struct xfs_message_header *)&msg;
-    h0_len = sizeof(msg);
-    
-    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
-				      h0, h0_len, NULL, 0);
+  //add chunk to the database
+  chl = New lbfs_chunk_loc;
+  chl->set_fh(fht.getnh(fht.getcur()));
+  chl->set_pos(offset);
+  chl->set_count(res->resok->count);
+  uint64 fp = fingerprint((unsigned char *) res->resok->data.base(), res->resok->data.size());
+  lbfsdb.add_chunk(fp, chl);
+  
+  int err;
+  if ((err = lseek(ga->cfd, offset, SEEK_SET)) < 0) {
+    warn << "write_file: " << strerror(errno) << "\n";
+    return;
   }
   
+  err = write(ga->cfd, res->resok->data.base(), res->resok->data.size());
+  if (err != (int)res->resok->data.size()) {
+    warn << "write error or short write!!\n";
+    return;
+  }
+
+  if (res->resok->count < count)
+    normal_read(ga, offset+res->resok->count, count-res->resok->count);
+  else ga->blocks_written++;
+
 }
 
-void nfs3_read(int fd, struct xfs_message_getdata *h, ex_read3res *res, 
-	     clnt_stat err) {
+void nfs3_read(ref<getfp_args> ga, uint64 offset, uint32 count, ex_read3res *res, 
+	       clnt_stat err) {
   
   if (res->status == NFS3_OK && res->resok->file_attributes.present) {
 
-    int cfd;
-    struct xfs_message_installdata msg; 
- 
-    if (fht.setcur(h->handle)) {
-      warn << "nfs3_read: Can't find node handle\n";
-      return;
-    }
-    
-    nfsobj2xfsnode(h->cred, fht.getnh(fht.getcur()), 
-		   *res->resok->file_attributes.attributes, &msg.node);
+    write_file(ga, offset, count, res); //, clnt_stat(0));
 
-    msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R 
-                     | XFS_OPEN_NW | XFS_DATA_W; //This line is a hack...need to get read access 
-
-    cfd = assign_file(msg.cache_name, fht.getcur());
-    if (cfd < 0) 
-      return;
-      
-    fhandle_t cfh;
-    if (getfh(msg.cache_name, &cfh)) {
-      warn << "getfh failed\n";
-      return;
+    if (ga->blocks_written == ga->res->resok->fprints.size()) {
+      close(ga->cfd);
+      fht.setopened(true);
+	
+      struct xfs_message_header *h0 = NULL;
+      size_t h0_len = 0;
+	
+      ga->msg.header.opcode = XFS_MSG_INSTALLDATA;
+      h0 = (struct xfs_message_header *)&(ga->msg);
+      h0_len = sizeof(ga->msg);
+	
+      xfs_send_message_wakeup_multiple (ga->fd, ga->h->header.sequence_num, 0,
+					h0, h0_len, NULL, 0);
     }
-    memmove(&msg.cache_handle, &cfh, sizeof(cfh));
-    write_file(fd, h, res, cfd, msg, clnt_stat(0));
   } else {
     warn << "error: " << strerror(errno) << "(" << errno << ")\n";
     if (res->resfail->present) 
@@ -471,9 +464,9 @@ void nfs3_read_exist(int fd, struct xfs_message_getdata *h) {
  
 }
 
-void normal_read(int fd, struct xfs_message_getdata *h, uint64 offset, uint32 count) {
+void normal_read(ref<getfp_args> ga, uint64 offset, uint32 count) {
 
-  if (fht.setcur(h->handle)) {
+  if (fht.setcur(ga->h->handle)) {
     warn << "normal_read: Can't find node handle\n";
     return;
   }
@@ -485,35 +478,40 @@ void normal_read(int fd, struct xfs_message_getdata *h, uint64 offset, uint32 co
   
   ex_read3res *rres = new ex_read3res;
   nfsc->call(lbfs_NFSPROC3_READ, ra, rres,
-	     wrap(&nfs3_read, fd, h, rres));
+	     wrap(&nfs3_read, ga, offset, count, rres));
 
 }
 
 #if LBFS_READ
 
-void compose_file(int fd, struct xfs_message_getdata *h, lbfs_getfp3res *res, 
-		  int cfd, struct xfs_message_installdata msg) {
+void compose_file(ref<getfp_args> ga) {
 
   int err, chfd;
-  uint64 offset = gfp->offset;
-  uint32 count = 0;
+  uint64 offset = ga->offset; //chunk position
+
   lbfs_db::chunk_iterator *ci = NULL;
   bool found = false;
+  ga->blocks_written = 0;
 
-  for (uint i=0; i<res->resok->fprints.size(); i++) {
+  for (uint i=0; i<ga->res->resok->fprints.size(); i++) {
     //find matching fp in the database
     //if found, write that chunk to the file,
     //otherwise, send for a normal read of that chunk
     found = false;
-    if (lbfsdb.get_chunk_iterator(res->resok->fprints[i].fingerprint, &ci)) {
+    if (lbfsdb.get_chunk_iterator(ga->res->resok->fprints[i].fingerprint, &ci)) {
       if (ci) {
 	lbfs_chunk_loc c;
 	if (!ci->get(&c)) {
 	  found = true;
+	  warn << "FOUND!! compose_file: fp = " << ga->res->resok->fprints[i].fingerprint << " in client DB\n";
 	  nfs_fh3 fh;
 	  c.get_fh(fh);
 	  unsigned char *buf = new unsigned char[c.count()];
 
+	  if (c.count() != ga->res->resok->fprints[i].count) {
+	    warn << "chunk size != size from server\n";
+	    return;
+	  }
 	  //read chunk c.pos() to c.count() from fh into buf 
 	  if (fht.setcur(fh)) {
 	    warn << "compose_file: Can't find node handle\n";
@@ -539,11 +537,11 @@ void compose_file(int fd, struct xfs_message_getdata *h, lbfs_getfp3res *res,
 	    return;	    	    
 	  }
 	  //write that chunk to the file
-	  if (lseek(cfd, offset, SEEK_SET) < 0) {
+	  if (lseek(ga->cfd, offset, SEEK_SET) < 0) {
 	    warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
 	    return;	    
 	  } 
-	  if ((err = write(cfd, buf, c.count())) > -1) {
+	  if ((err = write(ga->cfd, buf, c.count())) > -1) {
 	    if ((uint32)err != c.count()) {
 	      warn << "compose_file: error: " << err << " != " << c.count() << "\n";
 	      return;
@@ -552,41 +550,68 @@ void compose_file(int fd, struct xfs_message_getdata *h, lbfs_getfp3res *res,
 	    warn << "compose_file: error: " << strerror(errno) << "(" << errno << ")\n";
 	    return;	    	     
 	  }
+	  ga->blocks_written++;
 	}
       }
       delete ci;
     }
     if (!found) {
-      warn << "compose_file: fp = " << res->resok->fprints[i].fingerprint << " not in DB\n";
-      normal_read(fd, h, offset, res->resok->fprints[i].count);
+      warn << "compose_file: fp = " << ga->res->resok->fprints[i].fingerprint << " not in DB\n";
+      normal_read(ga, offset, ga->res->resok->fprints[i].count);
     }
-    offset += res->resok->fprints[i].count;
-  }
-}
+    offset += ga->res->resok->fprints[i].count;
 
-void lbfs_getfp(int fd, struct xfs_message_getdata *h, lbfs_getfp3res *res, 
-		int cfd, struct xfs_message_installdata msg, clnt_stat err) {
-
-  if (res->status == NFS3_OK) {
-    compose_file(fd, h, res, cfd, msg); 
-    if (!res->resok->eof) {
-      gfp->offset += gfp->count;
-      lbfs_getfp3res *fpres = new lbfs_getfp3res;
-      nfsc->call(lbfs_GETFP, gfp, fpres,
-		 wrap (&lbfs_getfp, fd, h, fpres, cfd, msg));
-    } else {
-      close(cfd);
+    if (ga->blocks_written == ga->res->resok->fprints.size()) {
+      close(ga->cfd);
       fht.setopened(true);
       
       struct xfs_message_header *h0 = NULL;
       size_t h0_len = 0;
-
-      msg.header.opcode = XFS_MSG_INSTALLDATA;
-      h0 = (struct xfs_message_header *)&msg;
-      h0_len = sizeof(msg);
-    
-      xfs_send_message_wakeup_multiple (fd, h->header.sequence_num, 0,
+      
+      ga->msg.header.opcode = XFS_MSG_INSTALLDATA;
+      h0 = (struct xfs_message_header *)&(ga->msg);
+      h0_len = sizeof(ga->msg);
+	
+      xfs_send_message_wakeup_multiple (ga->fd, ga->h->header.sequence_num, 0,
 					h0, h0_len, NULL, 0);
+    }
+  }
+}
+
+void lbfs_getfp(ref<getfp_args> ga, clnt_stat err) {
+
+  if (ga->res->status == NFS3_OK) {
+    if (fht.setcur(ga->h->handle)) {
+      warn << "lbfs_getfp: Can't find node handle\n";
+      return;
+    }
+
+    compose_file(ga); 
+    if (!ga->res->resok->eof) {
+      ga->offset += gfp->count; //ga->res->resok->count;
+      gfp->file = fht.getnh(fht.getcur());
+      gfp->offset = ga->offset;
+      gfp->count = LBFS_MAXDATA;
+
+      lbfs_getfp3res *fpres = new lbfs_getfp3res;
+      ga->res = fpres;
+      nfsc->call(lbfs_GETFP, gfp, fpres,
+		 wrap (&lbfs_getfp, ga));
+    } else {
+#if 0
+	close(ga->cfd);
+	fht.setopened(true);
+	
+	struct xfs_message_header *h0 = NULL;
+	size_t h0_len = 0;
+	
+	ga->msg.header.opcode = XFS_MSG_INSTALLDATA;
+	h0 = (struct xfs_message_header *)&(ga->msg);
+	h0_len = sizeof(ga->msg);
+	
+	xfs_send_message_wakeup_multiple (ga->fd, ga->h->header.sequence_num, 0,
+					  h0, h0_len, NULL, 0);
+#endif
     }
   } else {
     warn << "lbfs_getfp: " << strerror(errno) << "\n";
@@ -644,14 +669,21 @@ int xfs_message_getdata (int fd, struct xfs_message_getdata *h, u_int size)
 	}
 	memmove(&msg.cache_handle, &cfh, sizeof(cfh));
 	
+	ref<getfp_args> ga = new refcounted<getfp_args> (fd, h);
+
 	gfp = new lbfs_getfp3args;
 	gfp->file = fht.getnh(fht.getcur());
 	gfp->offset = 0;
 	gfp->count = LBFS_MAXDATA;
       
 	lbfs_getfp3res *fpres = new lbfs_getfp3res;
+	ga->offset = 0;
+	ga->res = fpres;
+	ga->cfd = cfd;
+	ga->msg = msg;
+
 	nfsc->call(lbfs_GETFP, gfp, fpres,
-		   wrap (&lbfs_getfp, fd, h, fpres, cfd, msg));
+		   wrap (&lbfs_getfp, ga));
       }
 #else 
 

@@ -56,9 +56,24 @@ public:
   ex_write3res *res;
 };
 
+class getfp_args {
+ public:
+  getfp_args(int f, struct xfs_message_getdata *header) : 
+    fd(f), h(header) {}
+
+ int fd;
+ struct xfs_message_getdata *h;
+ uint64 offset; 
+ lbfs_getfp3res *res; 
+ int cfd; 
+ struct xfs_message_installdata msg;
+ uint blocks_written;
+
+};
+
 #if 0
 class xfs_message {
- public: xfs_message(xfs_message_header header, )
+ public: xfs_message
 }
 #endif
 

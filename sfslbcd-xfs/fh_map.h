@@ -61,7 +61,7 @@ class fh_map {
       entry[i].xh.b = 0;
       entry[i].xh.c = 0;
       entry[i].xh.d = 0;
-      entry[i].cache_name = NULL;
+      entry[i].cache_name = new char[MAXPATHLEN];
       entry[i].opened = false;
     }
     //move this part to cache soon
