@@ -4,8 +4,12 @@
 * relax write back consistency
   - optimize write right after flush/close
 
-partial file fetch - when should we fetch entire file, when should we
-wait for read before fetch
+if we receives a request with first byte at N > 0, fetch til EOF
+before fetch beginning part of the file
+
+run file system correctness tests on lbfs and lbfs-a. make sure things
+like close, setattr, getattr ends up returning the right attr even if
+the flush to server was not finished
 
 write test cases for
  - open, open, write, close, write, close
