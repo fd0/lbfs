@@ -26,7 +26,7 @@
 #include "lbfs.h"
 #include "sfsrwsd.h"
 
-#define LBSD_GC_PERIOD 300
+#define LBSD_GC_PERIOD 120
 #define CHUNKS_PER_GC  1024
 
 extern int lbsd_trace;
@@ -171,7 +171,7 @@ lbfs_exp_disable (u_int32_t proc, void *resp)
 
 
 filesrv::filesrv ()
-  : leasetime (60), db_gc_on(false), st (synctab_alloc ())
+  : leasetime (60), db_is_dirty(false), st (synctab_alloc ())
 {
 }
 
@@ -182,6 +182,8 @@ filesrv::init (cb_t c)
   cb = c;
   aclntudp_create (host, 0, nfs_program_3, wrap (this, &filesrv::getnfsc));
   fpdb.open (FP_DB);
+  fp_db::iterator *iter = 0;
+  delaycb(LBSD_GC_PERIOD, wrap(this, &filesrv::db_gc, iter));
 }
 
 void
@@ -375,11 +377,6 @@ filesrv::make_trashent_lookup_cb(unsigned r, unsigned fsno,
       removed_fhs.push_back(res->resok->object);
       if (lbsd_trace > 1)
         warn << "GC: schedule old fh for " << tmpfile << " for gc\n";
-      if (!db_gc_on) {
-	fp_db::iterator *iter = 0;
-        delaycb(LBSD_GC_PERIOD, wrap(this, &filesrv::db_gc, iter));
-	db_gc_on = true;
-      }
     }
     diropargs3 arg;
     arg.name = tmpfile;
@@ -395,6 +392,12 @@ void
 filesrv::make_trashent_remove_cb(wccstat3 *res, clnt_stat err)
 {
   delete res;
+}
+
+void
+filesrv::db_dirty()
+{
+  db_is_dirty = true;
 }
 
 void
@@ -425,7 +428,7 @@ filesrv::db_gc(fp_db::iterator *iter)
 	  }
         }
       } while(!(over = iter->next(&c)) && (nchunks%CHUNKS_PER_GC));
-      fpdb.sync();
+      db_dirty();
     }
     else
       over = true;
@@ -444,12 +447,17 @@ end:
   if (iter)
     delete iter;
   removed_fhs.setsize(0);
-  db_gc_on = false;
-
+  if (db_is_dirty) {
+    if (lbsd_trace > 1) warn << "sync\n";
+    fpdb.sync();
+    db_is_dirty = false;
+  }
   warn << sfs_trash.size() << " volumn(s)\n";
   for(size_t i=0; i<sfs_trash.size(); i++)
     warn << "volume " << i << " has " 
          << sfs_trash[i].nactive << " active tmp files\n";
+  iter = 0;
+  delaycb(LBSD_GC_PERIOD, wrap(this, &filesrv::db_gc, iter));
 }
 
 void

@@ -169,15 +169,15 @@ client::condwrite_got_chunk (svccb *sbp, filesrv::reqstate rqs,
     
     delete chunker0;
     delete iter;
-    // fsrv->fpdb.sync();
+    fsrv->db_dirty();
     return;
   }
 
   delete iter;
   if (lbsd_trace > 0)
     warn << "CONDWRITE: ran out of files to try\n";
-  // fsrv->fpdb.sync();
   lbfs_nfs3exp_err (sbp, NFS3ERR_FPRINTNOTFOUND);
+  fsrv->db_dirty();
 }
   
 void
@@ -430,7 +430,7 @@ client::committmp_cb (svccb *sbp, filesrv::reqstate rqs,
     ufdtab.tab.remove(u);
     delete u;
   }
-  fsrv->fpdb.sync();
+  fsrv->db_dirty();
 }
 
 void
@@ -487,7 +487,7 @@ client::aborttmp (svccb *sbp, filesrv::reqstate rqs)
   }
   else
     lbfs_nfs3exp_err (sbp, NFS3ERR_NOENT);
-  fsrv->fpdb.sync();
+  fsrv->db_dirty();
 }
 
 void 

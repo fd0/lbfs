@@ -16,6 +16,8 @@ int lbcd_trace (getenv("LBCD_TRACE") ? atoi (getenv ("LBCD_TRACE")) : 0);
 unsigned FILE_DES = 0;
 int lbfs_prot = 2;
 
+extern bool lbfsdb_is_dirty;
+
 uint64 total_bytes_sent = 0;
 uint64 total_write_filesize = 0;
 uint64 total_bytes_recv = 0;
@@ -586,8 +588,8 @@ struct readdir_obj {
     (*cb) ();
   }
 
-  readdir_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
-     	       ref<aclnt> c1, readdir_obj::cb_t cb1) :
+  readdir_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, 
+               sfs_aid sa1, ref<aclnt> c1, readdir_obj::cb_t cb1) :
     cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1)    
   {
     h = msgcast<xfs_message_open> (hh);
@@ -615,8 +617,8 @@ struct readdir_obj {
 };
 
 void 
-lbfs_readdir (int fd, ref<xfs_message_header> h, cache_entry *e, sfs_aid sa, 
-	      ref<aclnt> c, readdir_obj::cb_t cb)
+lbfs_readdir (int fd, ref<xfs_message_header> h, cache_entry *e,
+              sfs_aid sa, ref<aclnt> c, readdir_obj::cb_t cb)
 {
   vNew readdir_obj (fd, h, e, sa, c, cb);
 }
@@ -932,11 +934,11 @@ struct getfp_obj {
   { 
     if (out_fd) close(out_fd);
     (*cb) ();
-    lbfsdb.sync ();
+    lbfsdb_is_dirty = true;
   }
 
-  getfp_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, sfs_aid sa1, 
-	     ref<aclnt> c1, getfp_obj::cb_t cb1) :
+  getfp_obj (int fd1, ref<xfs_message_header> h1, cache_entry *e1, 
+             sfs_aid sa1, ref<aclnt> c1, getfp_obj::cb_t cb1) :
     cb(cb1), fd(fd1), c(c1), hh(h1), sa(sa1), e(e1), bytes_written(0),
     total_bytes(0), eof(false), retries(0), bytes_recv(0), getfps_sent(0),
     reads_sent(0)    
@@ -2209,7 +2211,8 @@ struct putdata_obj {
 	for (; index < v_size; index++) {
 	  if (lbcd_trace > 1) {
 	    warn << "chindex = " << index << " size = " << v_size << "\n";
-	    warn << "adding fp = " << chunker->chunk_vector()[index]->fingerprint()
+	    warn << "adding fp = " 
+	         << chunker->chunk_vector()[index]->fingerprint()
 		 << " to lbfsdb \n";
 	  }
 	  outstanding_condwrites++;
@@ -2231,7 +2234,8 @@ struct putdata_obj {
       for (; index < v_size; index++) {
 	if (lbcd_trace > 1) {
 	  warn << "chindex = " << index << " size = " <<  total_blocks<< "\n";
-	  warn << "adding fp = " << chunker->chunk_vector()[index]->fingerprint()
+	  warn << "adding fp = "
+	       << chunker->chunk_vector()[index]->fingerprint()
 	       << " to lbfsdb \n";
 	}
 	sendcondwrite(chunker->chunk_vector()[index]);
@@ -2265,14 +2269,14 @@ struct putdata_obj {
   ~putdata_obj () 
   {
     delete chunker;
-    lbfsdb.sync ();
+    lbfsdb_is_dirty = true;
   }
 
-  putdata_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
-    fd(fd1), c(c1), hh(h1), sa(sa1), blocks_written(0), total_blocks(0), 
-    eof(false), retries(0), committed(false), cur_pos(0), 
-    OUTSTANDING_CONDWRITES(16), outstanding_condwrites(0), 
-    bytes_sent(0), condwrites_sent(0), writes_sent(0)
+  putdata_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) 
+    : fd(fd1), c(c1), hh(h1), sa(sa1), blocks_written(0), total_blocks(0), 
+      eof(false), retries(0), committed(false), cur_pos(0), 
+      OUTSTANDING_CONDWRITES(16), outstanding_condwrites(0), 
+      bytes_sent(0), condwrites_sent(0), writes_sent(0)
   {
     h = msgcast<xfs_message_putdata> (hh);
     chunker = New Chunker;

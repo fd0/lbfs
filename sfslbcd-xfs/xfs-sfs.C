@@ -37,6 +37,8 @@ ptr<axprt_crypt> xc;
 vec<sfs_extension> sfs_extensions;
 sfs_connectres conres;
 fp_db lbfsdb;
+bool lbfsdb_is_dirty = false;
+#define LBCD_GC_PERIOD 120
 
 sfs_aid 
 xfscred2aid (const xfs_cred *xc) 
@@ -187,6 +189,16 @@ sfsConnect (str hostname, sfs_hash hid, str path, int fd)
 
 }
 
+void
+db_sync()
+{
+  if (lbfsdb_is_dirty) {
+    lbfsdb.sync();
+    lbfsdb_is_dirty = true;
+  }
+  delaycb(LBCD_GC_PERIOD, wrap(db_sync));
+}
+
 int
 sfsInit (const char* path) 
 {
@@ -202,6 +214,7 @@ sfsInit (const char* path)
   tcpconnect(hostname, port, wrap(sfsConnect, hostname, hid, path));
   random_init_file (sfsdir << "/random_seed");
   lbfsdb.open_and_truncate(FP_DB);
+  delaycb(LBCD_GC_PERIOD, wrap(db_sync));
   if (open("cache", O_RDONLY, 0666) < 0) {
     if (errno == ENOENT) {
       warn << "Creating dir: cache\n";
@@ -216,4 +229,5 @@ sfsInit (const char* path)
   } 
   return 0;
 }
+
   

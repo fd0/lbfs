@@ -213,7 +213,7 @@ private:
                                lookup3res *res, clnt_stat err);
   void make_trashent_remove_cb(wccstat3 *res, clnt_stat err);
   void db_gc(fp_db::iterator *);
-  bool db_gc_on;
+  bool db_is_dirty;
 
 public:
   synctab *const st;
@@ -228,6 +228,7 @@ public:
   filesrv ();
   
   fp_db fpdb;
+  void db_dirty();
 };
 
 extern int sfssfd;
