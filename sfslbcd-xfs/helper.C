@@ -10,35 +10,6 @@ AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
 AUTH *auth_default = 
   authunix_create ("localhost", (uid_t) 14228, (gid_t) 100, 0, NULL);
 
-void 
-installattr (int fd, uint seqnum, xfs_cred cred, nfs_fh3 fh, ex_fattr3 attr, 
-	     time_t rqt, clnt_stat err) 
-{
-  if (!err) {
-    struct xfs_message_header *h0 = NULL;
-    size_t h0_len = 0;
-    struct xfs_message_installattr msg;
-
-    msg.header.opcode = XFS_MSG_INSTALLATTR;
-    h0 = (struct xfs_message_header *) &msg;
-    h0_len = sizeof (msg);
-
-    bool update_dir_expire = false;
-    cache_entry *e = update_cache (fh, attr);
-    if (e->nfs_attr.type == NF3DIR) {
-      nfstime3 maxtime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
-      if (!greater(maxtime, e->ltime))
-	update_dir_expire = true;
-    }
-    e->set_exp (rqt, update_dir_expire);
-    nfsobj2xfsnode (cred, e, &msg.node);
-
-    xfs_send_message_wakeup_multiple (fd, seqnum,
-				      0, h0, h0_len, NULL, 0);
-  } else 
-    xfs_reply_err (fd, seqnum, err);
-}
-
 struct attr_obj {
   attr_cb_t cb;
   int fd;
@@ -49,9 +20,9 @@ struct attr_obj {
   const nfs_fh3 fh;
   uint32 seqnum; 
   xfs_cred cred;
-  cache_entry *e;
-  ex_fattr3 *pattr;
-  ptr<ex_getattr3res> res;
+  setattr3args saa;
+  ptr<ex_getattr3res> gres;
+  ptr<ex_wccstat3> wres;
   
   void installattr (time_t rqt, clnt_stat err)
   {
@@ -64,14 +35,26 @@ struct attr_obj {
       h0 = (struct xfs_message_header *) &msg;
       h0_len = sizeof (msg);
 
+      ex_fattr3 attr = (h.header.opcode == XFS_MSG_PUTATTR) ? 
+	*wres->wcc->after.attributes : *gres->attributes;
       bool update_dir_expire = false;
-      e->nfs_attr = *pattr; //*res->attributes;
+      cache_entry *e = update_cache (fh, attr);
+
       if (e->nfs_attr.type == NF3DIR) {
 	nfstime3 maxtime = max(e->nfs_attr.mtime, e->nfs_attr.ctime);
 	if (!greater(maxtime, e->ltime))
 	  update_dir_expire = true;
       }
       e->set_exp (rqt, update_dir_expire);
+      if (h.header.opcode == XFS_MSG_PUTATTR)
+	if (saa.new_attributes.size.set) {
+#if DEBUG > 0
+	  warn << "setting size to " 
+	       << (uint32) *(saa.new_attributes.size.val) << "\n";
+#endif
+	  // can't depend on client set time to expire cache data
+	  truncate(e->cache_name, *(saa.new_attributes.size.val));
+	}
       nfsobj2xfsnode (cred, e, &msg.node);
       
       xfs_send_message_wakeup_multiple (fd, seqnum,
@@ -86,7 +69,7 @@ struct attr_obj {
       installattr (rqt, err);
     else
       if (!err)
-	(*cb) (res, rqt, err);
+	(*cb) (gres, rqt, err);
       else
 	(*cb) (NULL, 0, err);
     delete this;
@@ -97,26 +80,13 @@ struct attr_obj {
     cred = h.cred;
     seqnum = h.header.sequence_num;
 
-    setattr3args sa;
-    sa.object = fh;
-    xfsattr2nfsattr (h.header.opcode, h.attr, &sa.new_attributes);
-    sa.guard.set_check (false);
+    saa.object = fh;
+    xfsattr2nfsattr (h.header.opcode, h.attr, &saa.new_attributes);
+    saa.guard.set_check (false);
 
-    if (sa.new_attributes.size.set) {
-#if DEBUG > 0
-      warn << "setting size to " 
-	   << (uint32) *(sa.new_attributes.size.val) << "\n";
-#endif
-      // can't depend on client set time to expire cache data
-      truncate(e->cache_name, *(sa.new_attributes.size.val));
-    }
-    ref<ex_wccstat3> res = New refcounted <ex_wccstat3>;
-    pattr = res->wcc->after.attributes.addr();
-#if 0
-    c->call (lbfs_NFSPROC3_SETATTR, &sa, res,
-	     wrap (this, &attr_obj::installattr, fd, h.header.sequence_num, h.cred, e->nh, 
-		   *res->wcc->after.attributes, timenow));  
-#endif
+    wres = New refcounted <ex_wccstat3>;
+    c->call (lbfs_NFSPROC3_SETATTR, &saa, wres,
+	     wrap (this, &attr_obj::installattr, timenow), lbfs_authof (sa));
   }
 
   void getattr () 
@@ -124,9 +94,8 @@ struct attr_obj {
     struct xfs_message_getattr *h1 = (xfs_message_getattr *) &h;
     cred = h1->cred;
     seqnum = h1->header.sequence_num;
-    res = New refcounted<ex_getattr3res>; 
-    pattr = res->attributes.addr();
-    c->call (lbfs_NFSPROC3_GETATTR, &fh, res,
+    gres = New refcounted<ex_getattr3res>; 
+    c->call (lbfs_NFSPROC3_GETATTR, &fh, gres,
 	     wrap (this, &attr_obj::gotattr, timenow), 
 	     lbfs_authof (sa));
   }
@@ -135,22 +104,13 @@ struct attr_obj {
 	    const nfs_fh3 &fh1, ref<aclnt> c1, attr_cb_t cb1) : 
     cb(cb1), fd(fd1), c(c1), h(h1), sa(sa1), fh(fh1) 
   {
-
-    e = nfsindex[fh];
-    if (!e) {
-#if DEBUG > 0
-      warn << "attr_obj: Can't find node handle\n";
-#endif
-      xfs_reply_err(fd, h.header.sequence_num, ENOENT);
-      delete this;
-    }
-
     switch (h.header.opcode) {
-    case XFS_MSG_GETATTR:
-      getattr ();
-      break;
     case XFS_MSG_PUTATTR:
       setattr ();
+      break;
+    case XFS_MSG_GETATTR:
+    default:
+      getattr ();
       break;
     }
   }
@@ -226,6 +186,7 @@ struct getroot_obj {
     nc->call (lbfs_NFSPROC3_FSINFO, &sfs_fsi->nfs->v3->root, nfs_fsi,
 	      wrap (this, &getroot_obj::gotnfs_fsinfo), lbfs_authof (sa));
     const struct xfs_message_putattr *h1 = (xfs_message_putattr *) &h;
+    warn << "Called lbfs_attr !!!!\n";
     lbfs_attr (fd, *h1, sa, sfs_fsi->nfs->v3->root, 
 	       nc, wrap (this, &getroot_obj::gotattr));
   }
@@ -446,8 +407,9 @@ lbfs_readexist (int fd, const xfs_message_getdata &h, cache_entry *e)
 
   nfsobj2xfsnode (h.cred, e, &msg.node);
   msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R; // | XFS_OPEN_NW | XFS_DATA_W;
-  assign_cachefile (fd, h.header.sequence_num, e, 
-		    msg.cache_name, &msg.cache_handle);
+  int cfd = assign_cachefile (fd, h.header.sequence_num, e, 
+			      msg.cache_name, &msg.cache_handle);
+  close (cfd);
 
   struct xfs_message_header *h0 = NULL;
   size_t h0_len = 0;
@@ -645,12 +607,13 @@ struct getfp_obj {
     struct xfs_message_installdata msg;
     struct xfs_message_header *h0 = NULL;
     size_t h0_len = 0;
-
+    
     e->cache_name = out_fname;
     e->incache = true;
 
-    assign_cachefile (fd, h.header.sequence_num, e, 
-		      msg.cache_name, &msg.cache_handle);
+    int cfd = assign_cachefile (fd, h.header.sequence_num, e, 
+				msg.cache_name, &msg.cache_handle);
+    close (cfd);
 
     nfsobj2xfsnode (h.cred, e, &msg.node);
     msg.node.tokens |= XFS_OPEN_NR | XFS_DATA_R; // | XFS_OPEN_NW | XFS_DATA_W;
@@ -674,20 +637,21 @@ struct getfp_obj {
       warn << "getfp_obj::write_file1: " << out_fname << " " << strerror (errno) << "\n";
 #endif
       delete this;
-    }
+    } 
+
     if ((err = write (out_fd, rres->resok->data.base (), 
-		      rres->resok->data.size ())) < 0) {
+		      rres->resok->count)) < 0) {
 #if DEBUG > 0
       warn << "getfp_obj::write_file2: " << out_fname << " " << strerror (errno) << "\n";
 #endif
       delete this;
-    }
-    else if (err != (int) rres->resok->data.size ()) {
+    } else
+      if (err != (int) rres->resok->count) {
 #if DEBUG > 0
-      warn << "write error or short write!!\n";
+	warn << "write error or short write!!\n";
 #endif
-      delete this;
-    }
+	delete this;
+      }
 
     if (rres->resok->count < size)
       nfs3_read (cur_offst + rres->resok->count, size - rres->resok->count);
@@ -719,6 +683,7 @@ struct getfp_obj {
 	  delete cvp[i];
 	}
 	lbfsdb.sync ();
+	delete this;
       }
     } else {
       if (err && (retries++ < 1))
@@ -748,15 +713,6 @@ struct getfp_obj {
 
   void copy_block (uint64 cur_offst, unsigned char *buf, chunk_location *c) 
   {
-    int out_fd = open (out_fname, O_CREAT | O_WRONLY, 0666);
-    if (out_fd < 0) {
-#if DEBUG > 0
-      warn << "getfp_obj::copy_block: " << strerror (errno) << "\n";
-#endif
-      xfs_reply_err (fd, h.header.sequence_num, EIO);
-      delete this;
-    }
-
     if (lseek (out_fd, cur_offst, SEEK_SET) < 0) {
 #if DEBUG > 0
       warn << "compose_file: error: " << strerror (errno) 
@@ -775,7 +731,7 @@ struct getfp_obj {
       xfs_reply_err (fd, h.header.sequence_num, EIO);
       delete this;
     }     
-    close (out_fd);
+
     blocks_written++;
   }
 
@@ -859,7 +815,7 @@ struct getfp_obj {
 	    close (chfd);
 	    if (found) {
 #if DEBUG > 0
-	      warn << "FOUND!! getfp_obj::copy_block: fp = " 
+	      warn << "FOUND!! getfp_obj::compose_file: fp = " 
 		   << fpres->resok->fprints[i].fingerprint << " in client DB\n";
 #endif
 	      copy_block (cur_offst, buf, &c);
@@ -880,6 +836,7 @@ struct getfp_obj {
     offset = cur_offst;
     if (blocks_written == total_blocks && eof) {
       installdata ();
+      delete this;
     }
   }
 
@@ -911,6 +868,7 @@ struct getfp_obj {
   ~getfp_obj () 
   { 
     if (out_fd) close(out_fd);
+    warn << "Closed out_fd\n";
     (*cb) ();
   }
 
@@ -1108,8 +1066,9 @@ struct create_obj {
       }
       nfsobj2xfsnode (cred, e1, &msg2.node);
     
-      assign_cachefile (fd, h.header.sequence_num, e, 
-			msg3.cache_name, &msg3.cache_handle);
+      int cfd = assign_cachefile (fd, h.header.sequence_num, e, 
+				  msg3.cache_name, &msg3.cache_handle);
+      close (cfd);
       
       strcpy (msg1.cache_name, e->cache_name);
       assert (res->resok->dir_wcc.after.present);
@@ -1162,7 +1121,7 @@ struct create_obj {
 
     res = New refcounted <ex_diropres3>;
     c->call (lbfs_NFSPROC3_MKDIR, &ma, res,
-	     wrap (this, &create_obj::install, timenow));
+	     wrap (this, &create_obj::install, timenow), lbfs_authof (sa));
   }
 
   void do_create ()
@@ -1176,7 +1135,7 @@ struct create_obj {
 
     res = New refcounted <ex_diropres3>;
     c->call (lbfs_NFSPROC3_CREATE, &ca, res,
-		wrap (this, &create_obj::install, timenow));
+		wrap (this, &create_obj::install, timenow), lbfs_authof (sa));
   }
 
   create_obj (int fd1, const xfs_message_create &h1, sfs_aid sa1, 
@@ -1238,8 +1197,9 @@ struct link_obj {
 
       //change attributes of parent dir
       //in the future implement local content change too..
-      assign_cachefile (fd, h.header.sequence_num, e2, 
-			msg1.cache_name, &msg1.cache_handle);
+      int cfd = assign_cachefile (fd, h.header.sequence_num, e2, 
+				  msg1.cache_name, &msg1.cache_handle);
+      close (cfd);
 
       assert (res->res->linkdir_wcc.after.present);
       e2->nfs_attr = *(res->res->linkdir_wcc.after.attributes);
@@ -1329,8 +1289,9 @@ struct symlink_obj {
       struct xfs_message_header *h1 = NULL;
       size_t h1_len = 0;
 
-      assign_cachefile (fd, h.header.sequence_num, e, 
-			msg1.cache_name, &msg1.cache_handle);
+      int cfd = assign_cachefile (fd, h.header.sequence_num, e, 
+				  msg1.cache_name, &msg1.cache_handle);
+      close (cfd);
 
       assert (res->resok->dir_wcc.after.present);
       e->nfs_attr = *(res->resok->dir_wcc.after.attributes);
@@ -1392,7 +1353,7 @@ lbfs_symlink (int fd, const xfs_message_symlink &h, sfs_aid sa, ref<aclnt> c)
 {
   vNew symlink_obj (fd, h, sa, c);
 }
-
+#if 0
 struct setattr_obj {
   int fd;
   ref<aclnt> c;
@@ -1431,7 +1392,7 @@ struct setattr_obj {
 #if 0
     c->call (lbfs_NFSPROC3_SETATTR, &sa, res,
 	     wrap (this, &installattr, fd, h.header.sequence_num, h.cred, e->nh, 
-		   res->wcc.after***, timenow));  
+		   res->wcc.after***, timenow), lbfs_authof (sa));  
 #endif
   }
 };
@@ -1441,6 +1402,7 @@ lbfs_setattr (int fd, const xfs_message_putattr &h, sfs_aid sa, ref<aclnt> c)
 {
   vNew setattr_obj (fd, h, sa, c);
 }
+#endif
 
 struct remove_obj {
   int fd;
@@ -1467,8 +1429,10 @@ struct remove_obj {
       struct xfs_message_header *h1 = NULL;
       size_t h1_len = 0;
       
-      assign_cachefile (fd, h.header.sequence_num, e1, 
-			msg1.cache_name, &msg1.cache_handle);
+      int cfd = assign_cachefile (fd, h.header.sequence_num, e1, 
+				  msg1.cache_name, &msg1.cache_handle);
+      close (cfd);
+      
       nfsobj2xfsnode (h.cred, e1, &msg1.node);
       e1->incache = false; //TODO:try to remove entry from dirfile locally
       e1->nfs_attr = *(wres->wcc->after.attributes);
@@ -1521,11 +1485,11 @@ struct remove_obj {
       switch (h.header.opcode) {
       case XFS_MSG_REMOVE:
 	c->call (lbfs_NFSPROC3_REMOVE, &doa, wres,
-		 wrap (this, &remove_obj::install, timenow));
+		 wrap (this, &remove_obj::install, timenow), lbfs_authof (sa));
 	break;
       case XFS_MSG_RMDIR:
 	c->call (lbfs_NFSPROC3_RMDIR, &doa, wres,
-		 wrap (this, &remove_obj::install, timenow));
+		 wrap (this, &remove_obj::install, timenow), lbfs_authof (sa));
       }	
     } else {
       xfs_reply_err (fd, h.header.sequence_num, err ? err : wres->status);
@@ -1550,7 +1514,7 @@ struct remove_obj {
 
     lres = New refcounted <ex_lookup3res>;
     c->call (lbfs_NFSPROC3_LOOKUP, &doa, lres,
-	     wrap (this, &remove_obj::do_remove, timenow));
+	     wrap (this, &remove_obj::do_remove, timenow), lbfs_authof (sa));
   }
 };
 
@@ -1630,8 +1594,10 @@ struct rename_obj {
       h1 = (struct xfs_message_header *) &msg1;
       h1_len = sizeof (msg1);
       
-      assign_cachefile (fd, h.header.sequence_num, e2, msg2.cache_name,
-			&msg2.cache_handle);
+      int cfd = assign_cachefile (fd, h.header.sequence_num, e2, msg2.cache_name,
+				  &msg2.cache_handle);
+      close (cfd);
+
       assert (rnres->res->todir_wcc.after.present);
       e2->nfs_attr = *(rnres->res->todir_wcc.after.attributes);
       nfsobj2xfsnode (h.cred, e2, &msg2.node);
@@ -1643,8 +1609,10 @@ struct rename_obj {
 
       if (!xfs_handle_eq (&h.old_parent_handle,
 			  &h.new_parent_handle)) {
-	assign_cachefile (fd, h.header.sequence_num, e1, msg3.cache_name,
-			  &msg3.cache_handle);
+	cfd = assign_cachefile (fd, h.header.sequence_num, e1, msg3.cache_name,
+				&msg3.cache_handle);
+	close (cfd);
+
 	assert (rnres->res->fromdir_wcc.after.present);
 	e1->nfs_attr = *(rnres->res->fromdir_wcc.after.attributes);
 	nfsobj2xfsnode (h.cred, e1, &msg3.node);
@@ -1669,7 +1637,7 @@ struct rename_obj {
     if (!err && rnres->status == NFS3_OK) {
       gares = New refcounted <ex_getattr3res>;
       c->call (lbfs_NFSPROC3_GETATTR, &lres->resok->object, gares,
-		  wrap (this, &rename_obj::do_install, timenow));
+		  wrap (this, &rename_obj::do_install, timenow), lbfs_authof (sa));
     } else {
       xfs_reply_err (fd, h.header.sequence_num, err ? err : rnres->status);
       delete this;
@@ -1698,7 +1666,7 @@ struct rename_obj {
       
       rnres = New refcounted <ex_rename3res>;
       c->call (lbfs_NFSPROC3_RENAME, &rna, rnres,
-	       wrap (this, &rename_obj::do_rename));
+	       wrap (this, &rename_obj::do_rename), lbfs_authof (sa));
     } else {
       xfs_reply_err (fd, h.header.sequence_num, err ? err : lres->status);
       delete this;
@@ -1723,7 +1691,7 @@ struct rename_obj {
     
     lres = New refcounted <ex_lookup3res>;
     c->call (lbfs_NFSPROC3_LOOKUP, &doa, lres,
-	     wrap (this, &rename_obj::do_lookup, timenow));
+	     wrap (this, &rename_obj::do_lookup, timenow), lbfs_authof (sa));
   }    
 };
 
@@ -1781,7 +1749,7 @@ struct putdata_obj {
 #endif
     ref<ex_commit3res> cres = New refcounted <ex_commit3res>;
     c->call (lbfs_COMMITTMP, &ct, cres,
-	     wrap (this, &putdata_obj::do_committmp, cres, timenow));
+	     wrap (this, &putdata_obj::do_committmp, cres, timenow), lbfs_authof (sa));
   }
 
   void do_sendwrite (chunk *chunk, ref<ex_write3res> res, clnt_stat err)
@@ -1860,7 +1828,7 @@ struct putdata_obj {
       ref<ex_write3res> res = New refcounted <ex_write3res>;
       outstanding_condwrites++;
       c->call (lbfs_NFSPROC3_WRITE, &wa, res,
-	       wrap (this, &putdata_obj::do_sendwrite, chunk, res));
+	       wrap (this, &putdata_obj::do_sendwrite, chunk, res), lbfs_authof (sa));
     }
     close (rfd);
   }
@@ -1947,7 +1915,7 @@ struct putdata_obj {
     ref<ex_write3res> res = New refcounted <ex_write3res>;
 
     c->call (lbfs_CONDWRITE, &cw, res,
-	     wrap (this, &putdata_obj::do_sendcondwrite, chunk, res));    
+	     wrap (this, &putdata_obj::do_sendcondwrite, chunk, res), lbfs_authof (sa));    
   }
 
   void condwrite_chunk ()
@@ -2055,7 +2023,7 @@ struct putdata_obj {
     mtres = New refcounted <ex_diropres3>;
     
     c->call (lbfs_MKTMPFILE, &mt, mtres,
-	     wrap (this, &putdata_obj::mktmpfile));
+	     wrap (this, &putdata_obj::mktmpfile), lbfs_authof (sa));
     //benjie's rant
     e->writers = 0;
   }

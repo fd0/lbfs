@@ -113,7 +113,7 @@ assign_cachefile (int fd, int seqnum, cache_entry *e,
 {
   strcpy (name, e->cache_name);
   
-  int cfd = open (name, O_CREAT | O_WRONLY | O_TRUNC, 0666);
+  int cfd = open (name, O_CREAT | O_WRONLY, 0666);
   if (cfd < 0) {
 #if DEBUG > 0
     warn << seqnum << ":" << "open cachefile failed\n";
