@@ -179,7 +179,7 @@ public:
 };
 
 struct dir_cache {
-  nfstime3 mtime;
+  ex_fattr3 attr;
   qhash<filename3, nfs_fh3> lc;
   qhash<filename3, bool> nlc;
 };
@@ -224,12 +224,9 @@ protected:
   void nlc_insert (nfs_fh3 dir, filename3 name) {
     dir_cache *d;
     dir_cache **dp = dc[dir];
-    if (!dp) {
-      d = New dir_cache;
-      dc.insert(dir, d);
-    }
-    else
-      d = *dp;
+    if (!dp)
+      return;
+    d = *dp;
     if (d->nlc[name])
       d->nlc.remove(name);
     d->nlc.insert(name, true);
@@ -259,12 +256,9 @@ protected:
   void lc_insert (nfs_fh3 dir, filename3 name, nfs_fh3 fh) {
     dir_cache *d;
     dir_cache **dp = dc[dir];
-    if (!dp) {
-      d = New dir_cache;
-      dc.insert(dir, d);
-    }
-    else
-      d = *dp;
+    if (!dp)
+      return;
+    d = *dp;
     if (d->lc[name])
       d->lc.remove(name);
     d->lc.insert(name, fh);

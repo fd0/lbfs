@@ -47,6 +47,13 @@ detailed semantics:
 keeps both a negative lookup cache and a lookup cache. we intercept
 RPC replies that may contain information that affect either cache. for
 example, CREATE, REMOVE, MKDIR, etc.
+  
+MUST call check_cache before getreply: check_cache may invalidate a
+directory's lookup/negative lookup cache if cached mtime is less than
+the mtime returned from server. but in getreply we set cache mtime to
+that returned from server. the correctness of the lookup and negative
+lookup cache depends on the client calling ACCESS before each lookup
+in directory if it hasn't done a lookup in awhile.
 
 fetch optimization: after each data block fetched from server, check
 if any one of the read or write RPC can be executed. a RPC can run if

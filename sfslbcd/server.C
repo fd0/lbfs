@@ -64,11 +64,29 @@ server::check_cache (nfs_fh3 obj, fattr3 fa, sfs_aid aid)
       e->osize = fa.size;
     }
   }
+  else if (fa.type == NF3DIR) {
+    dir_cache **dp = dc[obj];
+    if (dp) {
+      if ((*dp)->attr.mtime < fa.mtime) {
+	warn_lookup << "clear lookup cache " << obj << "\n";
+	nlc_remove(obj);
+	lc_remove(obj);
+      }
+    }
+  }
 }
 
 void
 server::access_reply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
 {
+  // MUST call check_cache before getreply: check_cache may invalidate
+  // a directory's lookup/negative lookup cache if cached mtime is
+  // less than the mtime returned from server. but in getreply we set
+  // cache mtime to that returned from server. the correctness of the
+  // lookup and negative lookup cache depends on the client calling
+  // ACCESS before each lookup in directory if it hasn't done a lookup
+  // in awhile.
+
   ex_access3res *ares = static_cast<ex_access3res *> (res);
   if (!err && ares->status == NFS3_OK && ares->resok->obj_attributes.present) {
     access3args *a = nc->template getarg<access3args> ();
@@ -249,6 +267,16 @@ server::getxattr (time_t rqtime, unsigned int proc,
     if (x->fattr)
       x->fattr->expire += rqtime;
     ac.attr_enter (*x->fh, x->fattr, x->wattr);
+    if (x->fattr && x->fattr->type == NF3DIR) {
+      dir_cache **dp = dc[*x->fh];
+      if (!dp) {
+        dir_cache *d = New dir_cache;
+	d->attr = *x->fattr;
+	dc.insert(*x->fh, d);
+      }
+      else
+	(*dp)->attr = *x->fattr;
+    }
  
     if (proc == NFSPROC3_ACCESS) {
       ex_access3res *ares = static_cast<ex_access3res *> (res);
@@ -314,10 +342,12 @@ server::getreply (time_t rqtime, nfscall *nc, void *res, clnt_stat err)
     }
     if (r->status == NFS3ERR_NOENT) {
       nlc_insert(a->dir, a->name);
+      warn_lookup << "- lc: " << a->name << "\n";
       lc_remove(a->dir, a->name);
     }
     else if (!r->status) {
       nlc_remove(a->dir, a->name);
+      warn_lookup << "+ lc: " << a->name << "\n";
       lc_insert(a->dir, a->name, r->resok->object);
     }
   }
@@ -465,8 +495,11 @@ server::cbdispatch (svccb *sbp)
       ac.attr_enter (xa->handle, a, NULL);
 
       // if directory has been invalidated, clear both lookup caches
-      nlc_remove(xa->handle);
-      lc_remove(xa->handle);
+      if (dc[xa->handle]) {
+        warn_lookup << "invalidate lookup cache for " << xa->handle << "\n";
+        nlc_remove(xa->handle);
+        lc_remove(xa->handle);
+      }
       sbp->reply (NULL);
       break;
     }
