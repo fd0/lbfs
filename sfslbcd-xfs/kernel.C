@@ -30,7 +30,7 @@
 
 int kernel_fd = -1;
 
-static int
+void
 process_message (int msg_length, char *msg)
 {
   struct xfs_message_header *header;
@@ -42,7 +42,6 @@ process_message (int msg_length, char *msg)
     header = (struct xfs_message_header *) p;
     xfs_message_receive (kernel_fd, header, header->size);
   }
-  return 0;
 }
 
 /*

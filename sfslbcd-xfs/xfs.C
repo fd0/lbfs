@@ -104,18 +104,13 @@ xfs_message_init (void)
   assert (sizeof(rcvfuncs_name) / sizeof(*rcvfuncs_name) == XFS_MSG_COUNT);
 }
 
-int
+void
 xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 {
 
   unsigned opcode = h->opcode;
   
-  if (opcode >= XFS_MSG_COUNT || rcvfuncs[opcode] == NULL ) {
-#if DEBUG > 0
-    warn << "Bad message opcode = " << opcode << "!!!!!!!!!\n";
-#endif
-    return -1;
-  }
+  assert (opcode < XFS_MSG_COUNT && rcvfuncs[opcode] != NULL);
 
 #if DEBUG > 0
   warn << "Rec message: opcode = " << opcode << "("
@@ -125,6 +120,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
 
   ++recv_stat[opcode];
   str msgstr = str((const char *)h, size);
+  ptr<xfscall> xfsc;
 
   switch (opcode) {
   case XFS_MSG_GETROOT: {
@@ -134,8 +130,7 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
     msg->header = hh->header;
     msg->cred = hh->cred;
 
-    ref<xfscall> xfsc = New refcounted<xfscall> (opcode, fd, msg);
-    return (*rcvfuncs[opcode])(xfsc);
+    xfsc = New refcounted<xfscall> (opcode, fd, msg);
     break;
   }
   case XFS_MSG_GETNODE: {
@@ -319,11 +314,12 @@ xfs_message_receive (int fd, struct xfs_message_header *h, u_int size)
   case XFS_MSG_GC_NODES:
 #endif /* Other cases */
   default:
-    return 0;
+#if DEBUG > 0
+    warn << "Function not implemented !!!!!!!!! \n";
+#endif
   }
 
-  return 0;
-  //  return (*rcvfuncs[opcode])(xfsc);
+  (*rcvfuncs[opcode])(xfsc);
 }
 
 int

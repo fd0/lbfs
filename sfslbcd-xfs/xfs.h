@@ -31,7 +31,7 @@
 /* xfs.C */
 void xfs_message_init (void);
 int  xfs_message_send (int fd, struct xfs_message_header *h, u_int size);
-int  xfs_message_receive (int fd, struct xfs_message_header *h, u_int size);
+void  xfs_message_receive (int fd, struct xfs_message_header *h, u_int size);
 int  xfs_send_message_wakeup (int fd, u_int seqnum, int error);
 int  xfs_send_message_wakeup_multiple (int fd, u_int seqnum, int error, ...);
 int  xfs_send_message_wakeup_vmultiple (int fd,	u_int seqnum, int error, 
@@ -89,7 +89,9 @@ void cbdispatch(svccb *sbp);
 /* server.C */
 
 /* helper.C */
-void getroot (ref<aclnt> sc1, ref<aclnt> nc1);
+void lbfs_getroot (int, xfs_message_getroot *, ref<aclnt> sc1, ref<aclnt> nc1);
+void lbfs_getattr (int, xfs_message_getattr *, const nfs_fh3 &, 
+		   ref<aclnt>, callback<void, const ex_getattr3res *, str>);
 /* helper.C */
 
 #endif /* __XFS_H_V */

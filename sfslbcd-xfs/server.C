@@ -81,7 +81,7 @@ xfs_getroot (ref<xfscall> xfsc) {
   warn << "Received getroot from XFS\n";
 #endif
   
-  getroot (sfsc, nfsc);
+  lbfs_getroot (xfsc->fd, (xfs_message_getroot *) xfsc->argp, sfsc, nfsc);
 
 #if 0
   sfs_fsinfo *fsi = New sfs_fsinfo;

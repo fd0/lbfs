@@ -1,60 +1,131 @@
 #include "xfs.h"
 #include "xfs-sfs.h"
+#include "xfs-nfs.h"
 
 AUTH *auth_root = authunix_create ("localhost", 0, 0, 0, NULL);
 AUTH *auth_default = 
   authunix_create ("localhost", (uid_t) 14228, (gid_t) 100, 0, NULL);
 
 struct getattr_obj {
+  
+  typedef callback<void, ptr<ex_getattr3res>, time_t, clnt_stat>::ref cb_t;
+  cb_t cb;
+  int fd;
+  ref<aclnt> c;
 
+  struct xfs_message_getattr *h;
+  nfs_fh3 fh;
+  ptr<ex_getattr3res> res;
+  
+  void gotattr (time_t rqt, clnt_stat err) {
+    if (!err) {
+      (*cb) (res, rqt, err);
+      //update attr cache
+    } else
+      (*cb) (NULL, 0, err);
+    delete this;
+  }
+
+  void getattr () {
+    res = New refcounted<ex_getattr3res>; 
+    c->call (lbfs_NFSPROC3_GETATTR, &fh, res,
+	      wrap (this, &getattr_obj::gotattr, timenow), 
+	      auth_default);    
+  }
+  
+  getattr_obj (int fd1, ref<aclnt> c1, xfs_message_getattr *h1,
+	       const nfs_fh3 &fh1, cb_t cb1) : 
+    cb(cb1), fd(fd1), c(c1), h(h1), fh(fh1) {
+
+    getattr ();
+  }
+  
 };
 
+void 
+lbfs_getattr(int fd, xfs_message_getattr *h, const nfs_fh3 &fh, 
+	     ref<aclnt> c, getattr_obj::cb_t cb) {
+  vNew getattr_obj (fd, c, h, fh, cb);
+}
+
 struct getroot_obj {
-  //  typedef callback<void, const sfs_fsinfo *, str>::ref cb_t;
-  //  cb_t cb;
+  int fd; 
   ref<aclnt> sc;
   ref<aclnt> nc;
   
-
-  bool gotattr;
+  struct xfs_message_getroot *h;
+  bool gotnfs_fsi;
+  bool gotroot_attr;
   time_t rqtime;
-  sfs_fsinfo *sfs_fsi;
+  ptr<sfs_fsinfo> sfs_fsi;
+  ptr<ex_fsinfo3res> nfs_fsi;
+  ptr<ex_getattr3res> root_attr;
 
-  void gotroot(ex_fsinfo3res *nfs_fsi, clnt_stat err) {    
-    assert (nfs_fsi->status == NFS3_OK);
-    nfs_fsinfo = *nfs_fsi->resok;
+  void installroot () {
+    struct xfs_message_header *h0 = NULL;
+    size_t h0_len = 0;
+    struct xfs_message_installroot msg;
+    msg.header.opcode = XFS_MSG_INSTALLROOT;
+    h0 = (struct xfs_message_header *) &msg;
+    h0_len = sizeof (msg);
+
+    nfsobj2xfsnode 
+      (h->cred, sfs_fsi->nfs->v3->root, *root_attr->attributes, rqtime, &msg.node);
+
+    xfs_send_message_wakeup_multiple (fd, h->header.sequence_num,	
+     				      0, h0, h0_len, NULL, 0);
+    delete this;
   }
 
-  void getnfs_fsinfo (sfs_fsinfo *s_fsi, time_t rqt, clnt_stat err) {
+  void gotnfs_fsinfo (clnt_stat err) {    
+    assert (!err && nfs_fsi->status == NFS3_OK);
+    nfs_fsinfo = *nfs_fsi->resok;
+    gotnfs_fsi = true;
+    if (gotroot_attr)
+      installroot ();
+  }
+
+  void gotattr (ptr<ex_getattr3res> attr, time_t rqt, clnt_stat err) {
+    assert (!err && attr->status == NFS3_OK);
+    root_attr = attr;
     rqtime = rqt;
-    sfs_fsi = s_fsi;
+    gotroot_attr = true;
+    if (gotnfs_fsi) 
+      installroot ();
+  }
 
-    ref<ex_fsinfo3res> nfs_fsi = New refcounted<ex_fsinfo3res>;
-    //    ref<ex_getattr3res> *attr = New refcounted<ex_getattr3res>;
+  void getnfs_fsinfo (clnt_stat err) {
 
+    assert (!err && sfs_fsi->prog == ex_NFS_PROGRAM && 
+	    sfs_fsi->nfs->vers == ex_NFS_V3);
+
+    x->compress();
+    nfs_fsi = New refcounted<ex_fsinfo3res>;
     nc->call (lbfs_NFSPROC3_FSINFO, &sfs_fsi->nfs->v3->root, nfs_fsi,
-		wrap (this, &getroot_obj::gotroot, nfs_fsi), auth_default);
-#if 0
-    nc->call (lbfs_NFSPROC3_GETATTR, &sfs_fsi->nfs->v3->root, attr_res,
-		wrap (this, &getroot_obj::gotroot, NULL, attr_res), auth_default);
-#endif
+	      wrap (this, &getroot_obj::gotnfs_fsinfo), auth_default);
+    lbfs_getattr (fd, (xfs_message_getattr *) h, sfs_fsi->nfs->v3->root, 
+		  nc, wrap (this, &getroot_obj::gotattr));
   }
 
   void getsfs_fsinfo () {
 
-    ref<sfs_fsinfo> sfs_fsi = New refcounted<sfs_fsinfo>;
+    sfs_fsi = New refcounted<sfs_fsinfo>;
     sfsc->call (SFSPROC_GETFSINFO, NULL, sfs_fsi,
-		wrap (this, &getroot_obj::getnfs_fsinfo, sfs_fsi, timenow));
+		wrap (this, &getroot_obj::getnfs_fsinfo), 
+		auth_default);
   }
 
-  getroot_obj(ref<aclnt> sc1, ref<aclnt> nc1) : sc(sc1), nc(nc1) {
+  getroot_obj (int fd1, xfs_message_getroot *h1, 
+	       ref<aclnt> sc1, ref<aclnt> nc1) : 
+    fd(fd1), sc(sc1), nc(nc1), h(h1), gotnfs_fsi(false), gotroot_attr(false) {
+
     getsfs_fsinfo ();
   }
 };
 
 void 
-getroot (ref<aclnt> sc1, ref<aclnt> nc1) {
-  vNew getroot_obj (sc1, nc1);
+lbfs_getroot (int fd1, xfs_message_getroot *h1, ref<aclnt> sc1, ref<aclnt> nc1) {
+  vNew getroot_obj (fd1, h1, sc1, nc1);
 }
 
 void sfs_getfsinfo (ref<xfscall> xfsc) {
