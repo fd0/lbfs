@@ -1,8 +1,12 @@
 
+connect to either sfs server or lbfs server
+
 partial file write on CLOSE
 
 partial file fetch - when should we fetch entire file, when should we
 wait for read before fetch
+
+relax write back consistency
 
 optimize
  - setattr right after open

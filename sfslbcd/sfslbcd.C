@@ -104,6 +104,7 @@ server::server (const sfsserverargs &a)
       fatal ("cannot create cache directory %s\n", f.cstr());
   }
   rtpref = wtpref = 4096;
+  try_compress = true;
 }
 
 int

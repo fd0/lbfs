@@ -20,6 +20,8 @@
  *
  */
 
+#define RELAX 1
+
 #include <typeinfo>
 #include "sfslbcd.h"
 #include "axprt_crypt.h"
@@ -388,7 +390,11 @@ server::setrootfh (const sfs_fsinfo *fsi, callback<void, bool>::ref err_cb)
   }
 
   rootfh = fh;
-  static_cast<axprt_zcrypt *> (x.get ())->compress ();
+
+  if (try_compress) {
+    static_cast<axprt_zcrypt *> (x.get ())->compress ();
+    try_compress = false;
+  }
   nfsc = aclnt::alloc (x, lbfs_program_3);
   nfscbs = asrv::alloc (x, ex_nfscb_program_3,
 			wrap (mkref(this), &server::cbdispatch));

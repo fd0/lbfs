@@ -161,12 +161,12 @@ public:
 
 };
 
-
 class server : public sfsserver_auth {
   friend class read_obj;
   friend class write_obj;
 protected:
   str cdir;
+  bool try_compress;
   attr_cache ac;
   lrucache<nfs_fh3, file_cache *> fc;
 
