@@ -492,11 +492,11 @@ struct readdir_obj {
       
       args.fd = assign_cachefile (fd, h.header.sequence_num, e, 
 				  msg.cache_name, &msg.cache_handle);
-      int error = truncate (msg.cache_name, 0);
-      if (error < 0) {
-	delete this; 
-	return;
-      }
+      //int error = truncate (msg.cache_name, 0);
+      //if (error < 0) {
+      //	delete this; 
+      //	return;
+      //}
       write_dirfile (args, msg, clnt_stat (0));
     } else {
       xfs_reply_err (fd, h.header.sequence_num, err ? err : rdres->status);      
@@ -1072,8 +1072,9 @@ struct create_obj {
       close (cfd);
       
       int parent_fd = assign_cachefile (fd, h.header.sequence_num, e, 
-					msg1.cache_name, &msg1.cache_handle);
-      if (nfsdirent2xfsfile (parent_fd, h.name, e1->nfs_attr.fileid) < 0) {
+					msg1.cache_name, &msg1.cache_handle,
+					O_CREAT | O_WRONLY | O_APPEND);
+      if (nfsdirent2xfsfile (parent_fd, h.name, e1->nfs_attr.fileid)) {
 #if DEBUG > 0
 	warn << "Error: can't write to parent dir file\n";
 #endif
@@ -1382,14 +1383,21 @@ struct remove_obj {
       struct xfs_message_header *h1 = NULL;
       size_t h1_len = 0;
       
-      int cfd = assign_cachefile (fd, h.header.sequence_num, e1, 
-				  msg1.cache_name, &msg1.cache_handle);
-      close (cfd);
-      
+      int parent_fd = assign_cachefile (fd, h.header.sequence_num, e1, 
+					msg1.cache_name, &msg1.cache_handle,
+					O_CREAT | O_RDWR);
+      if (xfsfile_rm_dirent (parent_fd, msg1.cache_name)) {
+#if DEBUG > 0
+	warn << "Error: can't write to parent dir file\n";
+#endif
+	e1->incache = false; 
+      }
+      close (parent_fd);
+
       nfsobj2xfsnode (h.cred, e1, &msg1.node);
-      e1->incache = false; //TODO:try to remove entry from dirfile locally
       e1->nfs_attr = *(wres->wcc->after.attributes);
       e1->set_exp (rqt, true);
+      e1->ltime = max(e1->nfs_attr.mtime, e1->nfs_attr.ctime);
       msg1.node.tokens |= XFS_DATA_R;
       msg1.flag = XFS_ID_INVALID_DNLC;
     
@@ -1421,7 +1429,7 @@ struct remove_obj {
 	xfs_send_message_wakeup_multiple (fd, h.header.sequence_num,
 					  0, h0, h0_len, h1, h1_len,
 					  NULL, 0);
-      } else //TODO: bump it off the hash table
+      } else 
 	xfs_send_message_wakeup_multiple (fd, h.header.sequence_num,
 					  0, h0, h0_len, NULL, 0);
       

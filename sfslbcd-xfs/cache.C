@@ -109,11 +109,11 @@ greater (nfstime3 a, nfstime3 b)
 
 int 
 assign_cachefile (int fd, int seqnum, cache_entry *e, 
-			char *name, xfs_cache_handle *ch) 
+		  char *name, xfs_cache_handle *ch, int flags) 
 {
   strcpy (name, e->cache_name);
   
-  int cfd = open (name, O_CREAT | O_WRONLY, 0666);
+  int cfd = open (name, flags, 0666);
   if (cfd < 0) {
 #if DEBUG > 0
     warn << seqnum << ":" << "open cachefile failed\n";

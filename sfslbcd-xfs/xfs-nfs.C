@@ -220,6 +220,7 @@ int xfsfile_rm_dirent(int fd, const char* fname)
 {
   xfs_dirent *xde = (xfs_dirent *)malloc(sizeof(*xde));
   int err, offset = 0, reclen = sizeof(*xde);
+  //  bool found;
   
   do {
     if ((err = read(fd, xde, sizeof(*xde))) < 0) {
@@ -244,6 +245,11 @@ int xfsfile_rm_dirent(int fd, const char* fname)
   } while (strncmp(xde->d_name, fname, strlen(fname)));
 
   lseek(fd, offset-reclen, SEEK_SET);
+#if 0
+  do {
+
+  } while (err == sizeof (*xde));
+#endif  
   return 0;
 }
 
