@@ -1853,6 +1853,7 @@ struct putdata_obj {
   void do_committmp (ref<ex_commit3res> res, time_t rqtime, clnt_stat err)
   {
     if (!err && res->status == NFS3_OK) {
+      committed = true;
       ex_fattr3 attr = *(res->resok->file_wcc.after.attributes);
       e->nfs_attr = attr;
       e->set_exp (rqtime, attr.type == NF3DIR);
@@ -1876,7 +1877,6 @@ struct putdata_obj {
     lbfs_committmp3args ct;
     ct.commit_to = e->nh;
     ct.fd = tmpfd;
-    committed = true;
     if (lbcd_trace > 1)
       warn << h->header.sequence_num << " COMMITTMP: "
 	   << blocks_written << " blocks written " 
@@ -2164,7 +2164,7 @@ struct putdata_obj {
   putdata_obj (int fd1, ref<xfs_message_header> h1, sfs_aid sa1, ref<aclnt> c1) :
     fd(fd1), c(c1), hh(h1), sa(sa1), blocks_written(0), total_blocks(0), 
     eof(false), retries(0), committed(false), cur_pos(0), 
-    OUTSTANDING_CONDWRITES(8), outstanding_condwrites(0), 
+    OUTSTANDING_CONDWRITES(16), outstanding_condwrites(0), 
     bytes_sent(0), condwrites_sent(0), writes_sent(0)
   {
     h = msgcast<xfs_message_putdata> (hh);
