@@ -3,11 +3,11 @@
 
 $(PROGRAMS): $(LDEPS)
 
-sfslib_PROGRAMS = sfslbsd
+sfslib_PROGRAMS = sfslbcd
 
 noinst_HEADERS = 
 
-sfslbsd_SOURCES = sfslbcd.C
+sfslbcd_SOURCES = sfslbcd.C
 
 EXTRA_DIST = .cvsignore
 CLEANFILES = core *.core *~ *.rpo

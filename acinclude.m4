@@ -1117,8 +1117,6 @@ if test -f ${with_sfs}/Makefile -a -f ${with_sfs}/autoconf.h; then
     LIBSFSMISC=${with_sfs}/sfsmisc/libsfsmisc.la
     LIBSVC=${with_sfs}/svc/libsvc.la
     RPCC=${with_sfs}/rpcc/rpcc
-    sfslibdir='$(libdir)/sfs'
-    sfsincludedir='$(libdir)/include'
 elif test -f ${with_sfs}/include/sfs/autoconf.h \
 	-a -f ${with_sfs}/lib/sfs/libasync.la; then
     sfsincludedir="${with_sfs}/include/sfs"
@@ -1139,6 +1137,8 @@ else
     AC_MSG_ERROR("Can\'t find SFS libraries")
 fi
 
+sfslibdir='$(libdir)/sfs'
+sfsincludedir='$(libdir)/include'
 AC_SUBST(sfslibdir)
 AC_SUBST(sfsincludedir)
 
