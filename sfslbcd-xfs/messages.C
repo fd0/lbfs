@@ -73,7 +73,7 @@ void nfs3_rmdir(int fd, ref<struct xfs_message_rmdir> h,
                 ref<ex_lookup3res> lres, clnt_stat err);
 void condwrite_chunk(ref<condwrite3args> cwa);
 
-#define OUTSTANDING_CONDWRITES 8
+#define OUTSTANDING_CONDWRITES 4
 int outstanding_condwrites = 0;
 
 void 
@@ -901,7 +901,7 @@ xfs_message_getdata (int fd, ref<struct xfs_message_getdata> h, u_int size)
   }
   assert(e->nfs_attr.type != NF3DIR);
   
-#if 0
+#if 1
   assert(e->incache);
   nfs3_read_exist (fd, h, e);
 #else
@@ -1202,6 +1202,7 @@ sendwrite (ref<condwrite3args > cwa, lbfs_chunk * chunk)
     memcpy (wa.data.base (), iobuf, err);
 
     ref<ex_write3res > res = New refcounted < ex_write3res >;
+    outstanding_condwrites++;
     nfsc->call (lbfs_NFSPROC3_WRITE, &wa, res,
 		wrap (&nfs3_write, cwa, chunk, res));
   }
@@ -1522,7 +1523,8 @@ xfs_message_putattr (int fd, ref<struct xfs_message_putattr> h, u_int size)
     warn << "setting size to " 
          << (uint32) *(sa.new_attributes.size.val) << "\n";
     // can't depend on client set time to expire cache data
-    e->ltime.seconds = 0;
+    if (*(sa.new_attributes.size.val) == 0) 
+      e->ltime.seconds = 0;
   }
   ref<ex_wccstat3 > res = New refcounted < ex_wccstat3 >;
   nfsc->call (lbfs_NFSPROC3_SETATTR, &sa, res,
