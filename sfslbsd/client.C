@@ -355,11 +355,9 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
 {
   lbfs_mktmpfile3args *mta = sbp->template getarg<lbfs_mktmpfile3args> ();
   ufd_rec *u = ufdtab.tab[mta->fd];
-  if (u) {
-    warn << "MKTMPFILE: reject dup file descriptor\n";
-    lbfs_nfs3exp_err (sbp, NFS3ERR_EXIST);
-    return;
-  }
+
+  if (!u)
+    ufdtab.tab.insert(New ufd_rec (mta->fd));
 
   unsigned r = fsrv->get_trashent(rqs.fsno);
   str rstr = armor32((void*)&r, sizeof(r));
@@ -377,7 +375,6 @@ client::mktmpfile (svccb *sbp, filesrv::reqstate rqs)
   (c3arg.how.obj_attributes)->uid.set_set(false);
   (c3arg.how.obj_attributes)->gid.set_set(false);
 
-  ufdtab.tab.insert(New ufd_rec (mta->fd));
   void *cres = nfs_program_3.tbl[NFSPROC3_CREATE].alloc_res ();
   fsrv->c->call (NFSPROC3_CREATE, &c3arg, cres,
 		 wrap (mkref (this), &client::mktmpfile_cb, 
